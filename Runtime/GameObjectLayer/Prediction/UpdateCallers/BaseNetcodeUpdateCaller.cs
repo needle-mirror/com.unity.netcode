@@ -1,4 +1,3 @@
-#if !UNITY_DISABLE_MANAGED_COMPONENTS && UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
@@ -39,19 +38,18 @@ namespace Unity.NetCode
             //How do I get all the scripting order? The problem is that in the editor the order value assignment can change all the time.
             //What that means is that it is really hard to keep this
             RequireForUpdate(m_GhostsToRunOn);
-            RequireForUpdate<NetworkStreamInGame>();
-            ghostAdapterIDs = new (50, Allocator.Persistent);
+            ghostObjectIDs = new (50, Allocator.Persistent);
         }
 
         protected override void OnDestroy()
         {
-            ghostAdapterIDs.Dispose();
+            ghostObjectIDs.Dispose();
         }
 
         private static readonly ProfilerMarker s_BucketMarker = new ("Execution order buckets sorting");
 
-        NativeList<EntityId> ghostAdapterIDs;
-        List<Object> ghostAdapters = new();
+        NativeList<EntityId> ghostObjectIDs;
+        List<Object> ghostObjects = new();
         protected override void OnUpdate()
         {
             {
@@ -63,18 +61,18 @@ namespace Unity.NetCode
                 using var links = m_GhostsToRunOn.ToComponentDataArray<GhostGameObjectLink>(Allocator.Temp);
                 using var behaviourInfos = m_GhostsToRunOn.ToComponentDataArray<GhostBehaviour.GhostBehaviourTracking>(Allocator.Temp);
 
-                ghostAdapterIDs.SetCapacity(links.Length);
+                ghostObjectIDs.SetCapacity(links.Length);
 
                 for (int i = 0; i < links.Length; i++)
                 {
-                    ghostAdapterIDs.Add(links[i].GhostAdapterId);
+                    ghostObjectIDs.Add(links[i].GhostObjectId);
                 }
 
-                Resources.EntityIdsToObjectList(ghostAdapterIDs.AsArray(), ghostAdapters);
-                ghostAdapterIDs.Clear();
+                Resources.EntityIdsToObjectList(ghostObjectIDs.AsArray(), ghostObjects);
+                ghostObjectIDs.Clear();
                 for (int entityIndex = 0; entityIndex < links.Length; entityIndex++)
                 {
-                    var ghost = ghostAdapters[entityIndex] as GhostAdapter;
+                    var ghost = ghostObjects[entityIndex] as GhostObject;
                     var behaviours = ghost.m_AllBehaviours;
                     if(behaviours.Length == 0 || (behaviours.Length > 1 && !ghost.gameObject.activeInHierarchy))
                         // if we have more than 1 behaviour, it's useful to early return if the GameObject is not active.
@@ -131,41 +129,47 @@ namespace Unity.NetCode
             var deltaTime = SystemAPI.Time.DeltaTime; // deltaTime is overriden with netcode's tick deltaTime
             for (var bucketIndex = 0; bucketIndex < m_UpdateBuckets.Length; bucketIndex++)
             {
+#if ENABLE_PROFILER
                 ProfilerMarker marker = default;
                 Type currentType = null;
+#endif
                 var behavioursInBucket = m_UpdateBuckets[bucketIndex];
                 for (int i = 0; i < behavioursInBucket.Count; ++i)
                 {
-                    try
-                    {
-                        var behaviour = behavioursInBucket[i];
+                    var behaviour = behavioursInBucket[i];
 #if ENABLE_PROFILER
-                        if (Profiler.enabled)
+                    if (Profiler.enabled)
+                    {
+                        var type = behaviour.ToRun.GetType();
+                        if (currentType != type)
                         {
-                            var type = behaviour.ToRun.GetType();
-                            if (currentType != type)
+                            if (!s_PredictionProfilerMarker.TryGetValue(type, out marker))
                             {
-                                if (!s_PredictionProfilerMarker.TryGetValue(type, out marker))
-                                {
-                                    marker = new ProfilerMarker($"{type.Name}"); // no need for more info than the name, the profiler will show in its hierarchy whether it's calling from the input gathering system, the prediction system, etc
-                                    s_PredictionProfilerMarker.Add(type, marker);
-                                }
+                                marker = new ProfilerMarker($"{type.Name}"); // no need for more info than the name, the profiler will show in its hierarchy whether it's calling from the input gathering system, the prediction system, etc
+                                s_PredictionProfilerMarker.Add(type, marker);
                             }
-
-                            currentType = type;
                         }
+
+                        currentType = type;
+                    }
 #endif
 
-                        if (HasUpdate(behaviour.Info)) // we could have this check in the bucket sorting instead, but this barely registers as a blip in the profiler and allows reusing the bucket filtering with our various prediction methods
-                        {
-                            marker.Begin(behaviour.ToRun.gameObject);
-                            RunMethodOnBehaviour(behaviour.ToRun, deltaTime);
-                            marker.End();
-                        }
-                    }
-                    catch (Exception e)
+                    if (HasUpdate(behaviour.Info)) // we could have this check in the bucket sorting instead, but this barely registers as a blip in the profiler and allows reusing the bucket filtering with our various prediction methods
                     {
-                        UnityEngine.Debug.LogException(e);
+#if ENABLE_PROFILER
+                        marker.Begin(behaviour.ToRun.gameObject);
+#endif
+                        try
+                        {
+                            RunMethodOnBehaviour(behaviour.ToRun, deltaTime);
+                        }
+                        catch (Exception e)
+                        {
+                            UnityEngine.Debug.LogError(e, behaviour.ToRun.gameObject);
+                        }
+#if ENABLE_PROFILER
+                        marker.End();
+#endif
                     }
                 }
 
@@ -174,4 +178,3 @@ namespace Unity.NetCode
         }
     }
 }
-#endif

@@ -46,9 +46,13 @@ namespace Unity.NetCode.Tests
 
         protected override void OnDestroy()
         {
-            checkForChanges.Dispose();
-            changedEntities.Dispose();
-            changedComponents.Dispose();
+            if (checkForChanges.IsCreated)
+                checkForChanges.Dispose();
+            if (changedEntities.IsCreated)
+                changedEntities.Dispose();
+            if (changedComponents.IsCreated)
+                changedComponents.Dispose();
+            queries.Dispose();
         }
 
         protected override void OnUpdate()
@@ -120,6 +124,8 @@ namespace Unity.NetCode.Tests
 
             var testFilter = testWorld.ClientWorlds[0].GetOrCreateSystemManaged<TestChangeFilter>();
             //All components are replicated and use the default variant for serialisation.
+            if(testFilter.checkForChanges.IsCreated)
+                testFilter.checkForChanges.Dispose();
             testFilter.checkForChanges = new NativeList<ComponentType>(Allocator.Temp);
             testFilter.checkForChanges.Add(ComponentType.ReadOnly<LocalTransform>());
             testFilter.checkForChanges.Add(ComponentType.ReadOnly<EnableableComponent_0>());

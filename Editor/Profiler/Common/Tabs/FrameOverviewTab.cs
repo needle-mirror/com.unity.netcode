@@ -35,29 +35,22 @@ namespace Unity.NetCode.Editor
 
             Add(m_SnapshotBarChart);
             Add(m_CommandsBarChart);
-        }
 
-        internal void ClearTab()
-        {
-            ShowNoDataInfoLabel(true);
+            // Register elements that should be hidden when info text is displayed
+            RegisterDataElements(m_WorldNameLabel, m_SnapshotBarChart, m_CommandsBarChart);
         }
 
         internal void Update(NetcodeFrameData frameData)
         {
-            ShowNoDataInfoLabel(!frameData.isValid);
+            // Update info text (automatically manages data element visibility)
+            UpdateInfoText(frameData);
 
-            m_WorldNameLabel.text = ProfilerUtils.GetWorldName(m_NetworkRole);
+            // Use world name from frame data, fallback to default if empty
+            var worldName = !string.IsNullOrEmpty(frameData.worldName) ? frameData.worldName : ProfilerUtils.GetWorldName(m_NetworkRole);
+            m_WorldNameLabel.text = worldName;
 
             m_SnapshotBarChart.Update(frameData);
             m_CommandsBarChart.Update(frameData);
-        }
-
-        void ShowNoDataInfoLabel(bool noData)
-        {
-            m_NoDataInfoLabels.style.display = noData ? DisplayStyle.Flex : DisplayStyle.None;
-            m_WorldNameLabel.style.display = !noData ? DisplayStyle.Flex : DisplayStyle.None;
-            m_SnapshotBarChart.style.display = !noData ? DisplayStyle.Flex : DisplayStyle.None;
-            m_CommandsBarChart.style.display = !noData ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         BarChart CreateSnapshotBarGraph()
@@ -90,7 +83,6 @@ namespace Unity.NetCode.Editor
             m_GhostSnapshotCategory = new BarChartCategory("Ghost Snapshots", "ghost-snapshot", snapshotLegendEntryNames, snapshotLegendEntryWidths, true);
             m_GhostSnapshotCategory.Update = frameData =>
             {
-                m_SnapshotBarChart.style.display = frameData.isValid ? DisplayStyle.Flex : DisplayStyle.None;
                 if (!frameData.isValid)
                     return;
 

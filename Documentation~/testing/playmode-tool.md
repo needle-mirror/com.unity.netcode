@@ -4,7 +4,7 @@ Use the Netcode for Entities PlayMode Tool to simulate a network and debug your 
 
 Open the __PlayMode Tools__ window from **Window** > **Multiplayer** > **PlayMode Tools** to do the following:
 
-* Select the behavior of the Netcode for Entities bootstrapping flow (assuming it's enabled) when you enter Play mode. This controls whether [`ClientServerBootstrap`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html) creates a client world, a server world, or both client and server worlds, and whether they connect automatically.
+* Select the behavior of the Netcode for Entities bootstrapping flow (assuming it's enabled) when you enter Play mode. This controls whether [`ClientServerBootstrap`](xref:Unity.NetCode.ClientServerBootstrap) creates a client world, a server world, or both client and server worlds, and whether they connect automatically.
 * Enable and configure the [network simulator](../network-connection.md#network-simulator).
 * Configure the number of [thin-clients](thin-clients.md) to use.
 * Change the current [logging level](logging.md), and control whether or not Unity creates packet dumps.
@@ -54,10 +54,10 @@ Unity runs the network emulation using a [Unity Transport pipeline stage](https:
 | __Auto Connect Address (Client only)__ | Specify which server address a client connects to. This field only appears if you set __PlayMode Type__ to __Client__. If you're not using auto connect functionality, your code needs to call `ClientServerBootstrap.IsEditorInputtedAddressValidForConnect` and manually connect to the output `NetworkEndpoint`. |
 | __Auto Connect Port (Client only)__ | Override and/or specify which port to use for both listening (server) and connecting (client) |
 
-When you enable network emulation, Unity forces the Unity Transport's network interface to be a full UDP socket. Otherwise, Unity uses an IPC (Inter-Process Communication) connection when both client and server worlds exist in the same process. Refer to [`IPCAndSocketDriverConstructor`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IPCAndSocketDriverConstructor.html) for more information.
+When you enable network emulation, Unity forces the Unity Transport's network interface to be a full UDP socket. Otherwise, Unity uses an IPC (intra-process communication) connection when both client and server worlds exist in the same process. Refer to [`IPCAndSocketDriverConstructor`](xref:Unity.NetCode.IPCAndSocketDriverConstructor) for more information.
 
 > [!NOTE]
-> Unity uses `AutoConnectAddress` and `AutoConnectPort` when it automatically connects the client to a server in client-only mode, and overrides the values set in the [`ClientServerBootstrap`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html). However, Unity ignores these fields when the bootstrap sets `AutoConnectPort` to 0. You can use the __Connect__ button in the PlayMode Tools window to force the connection to the target `AutoConnectAddress` and `AutoConnectPort`.
+> Unity uses `AutoConnectAddress` and `AutoConnectPort` when it automatically connects the client to a server in client-only mode, and overrides the values set in the [`ClientServerBootstrap`](xref:Unity.NetCode.ClientServerBootstrap). However, Unity ignores these fields when the bootstrap sets `AutoConnectPort` to 0. You can use the __Connect__ button in the PlayMode Tools window to force the connection to the target `AutoConnectAddress` and `AutoConnectPort`.
 
 ### Initialize the network emulator from the command line
 
@@ -72,18 +72,18 @@ Passing in either parameter always enables a simulator profile, even in the erro
 
 Entities that use [Entities Graphics](https://docs.unity3d.com/Packages/com.unity.entities.graphics@latest?subfolder=/manual/index.html) automatically draw bounding boxes. To draw bounding boxes around objects that don't use entities graphics, add the `GhostDebugMeshBounds` component to the GameObject's supporting entity. You can call `Initialize` for convenience to set it up.
 
-Refer to [`GhostPresentationGameObjectEntityOwner`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.Hybrid.GhostPresentationGameObjectEntityOwner.html) for an example.
+Refer to [`GhostPresentationGameObjectEntityOwner`](xref:Unity.NetCode.Hybrid.GhostPresentationGameObjectEntityOwner) for an example.
 
 <img src="../images/DebugBoundingBox.png" width="600" alt="Predicted and Server Debug Bounding Boxes"/>
 
 ## Use the Playmode Tool window with Multiplayer Play Mode
 
-You can use the Playmode Tool with [Multiplayer Play Mode](https://docs.unity3d.com/Packages/com.unity.multiplayer.playmode@latest?subfolder=/manual/index.html) to test a [virtual player](https://docs.unity3d.com/Packages/com.unity.multiplayer.playmode@latest?subfolder=/manual/virtual-players/virtual-players.html) in a project that uses Netcode for Entities.
+You can use the Playmode Tool with [Multiplayer Play Mode](https://docs.unity3d.com/Packages/com.unity.multiplayer.playmode@latest?subfolder=/manual/index.html) to test your project locally in the Unity Editor using Play mode scenarios.
 
 1. [Install the Multiplayer Play Mode package](https://docs.unity3d.com/Packages/com.unity.multiplayer.playmode@latest?subfolder=/manual/install.html).
-2. Open the Multiplayer Play Mode window (**Window** > **Multiplayer Play Mode**).
-3. [Activate a virtual player](https://docs.unity3d.com/Packages/com.unity.multiplayer.playmode@latest?subfolder=/manual/virtual-players/virtual-players-enable.html).
-4. In a virtual player's Play mode window, navigate to **Layout** and select **PlayMode Tool**.
+2. Navigate to the Play mode scenarios section of Multiplayer Play Mode (**Window** > **Play Mode** > **Scenarios**).
+3. [Create the scenario you want to test with](https://docs.unity3d.com/Packages/com.unity.multiplayer.playmode@latest?subfolder=/manual/play-mode-scenario/play-mode-scenario-create.html).
+4. In the additional Editor instance's Play mode window, navigate to **Layout** and select **PlayMode Tool**.
 5. Set the **PlayMode Type** to make this clone act as a __Client__, a __Server__, or both a __Client & Server__.
 
 >[!NOTE]

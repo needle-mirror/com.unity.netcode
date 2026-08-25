@@ -36,7 +36,7 @@ namespace Unity.NetCode
         //StableTypeHash cannot be used either because layout or fields changes affect the hash too (so is not a good candidate for that)
         public ulong FullTypeNameID;
         //The gameObject reference (root or child)
-        public int GameObjectID;
+        public EntityId GameObjectID;
         //The entity guid reference
         public ulong EntityGuid;
         //Override what mode are available for that type. if 0, the component is removed from the prefab/entity instance
@@ -106,7 +106,7 @@ namespace Unity.NetCode
                 overrideBuffer.Add(new GhostAuthoringComponentOverridesBaking
                 {
                     FullTypeNameID = TypeManager.CalculateFullNameHash(componentOverride.Item2.FullTypeName),
-                    GameObjectID = componentOverride.Item1.GetInstanceID(),
+                    GameObjectID = componentOverride.Item1.GetEntityId(),
                     EntityGuid = componentOverride.Item2.EntityIndex,
                     PrefabType = (int) componentOverride.Item2.PrefabType,
                     SendTypeOptimization = (int) componentOverride.Item2.SendTypeOptimization,
@@ -414,7 +414,7 @@ namespace Unity.NetCode
             {
                 var isChild = k != 0;
                 var entityGUID = EntityManager.GetComponentData<EntityGuid>(linkedEntities[k]);
-                var instanceId = entityGUID.OriginatingId;
+                var instanceId = entityGUID.OriginatingEntityId;
                 var numComponents = componentCounts[k];
                 for (int i = 0; i < numComponents; ++i, ++compIdx)
                 {

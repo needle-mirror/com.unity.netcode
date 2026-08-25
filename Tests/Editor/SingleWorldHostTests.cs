@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Mathematics;
 using Unity.Networking.Transport;
+using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -47,7 +50,7 @@ namespace Unity.NetCode.Tests
 
 
         [Test]
-        [TestCase(true, Ignore = "not implemented yet")]
+        [TestCase(true, Explicit = true, Reason = "not implemented yet")]
         [TestCase(false)]
         public void SingleWorldHostValueChecks(bool useNetcodeAPI)
         {
@@ -91,7 +94,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        // TODO-next@RPCs RPCs + GhostAdapter needed: uncomment once we have ghost adapter backported
+        // TODO-next@RPCs RPCs + GhostObject needed: uncomment once we have ghost object backported
         // [UnityTest]
         // public IEnumerator SimpleTest([Values] bool useSingleWorld, [Values] bool useRemotes)
         // {
@@ -200,10 +203,9 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(0, ClientServerBootstrap.ClientWorlds.Count);
         }
 
-        [Test]
+        [Test(Description = "Single world host's obviously don't need to send ghosts to themselves, so we test here that ghost instances appear on the 'client' at the same time on single vs binary worlds.")]
         public void SingleWorldHost_PartialSnapshot_Works([Values] bool useSingleWorld)
         {
-            // single world host changes the way GhostSendSystem works.
             using var testWorld = new NetCodeTestWorld();
             testWorld.Bootstrap(includeNetCodeSystems: true, typeof(GenericExecuteOnUpdateSystem));
 
@@ -229,6 +231,52 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(ghostCount, clientGhosts.Length);
         }
 
+        [Test(Description = "Single world host's need to interpolate LocalToWorld's when the SimulationTickRate doesn't match the render rate, so this test ensures it does so (by moving a ghost instance via the prediction group).")]
+        public unsafe void SingleWorldHost_Interpolation_Works([Values] SingleWorldHostInterpolationMode mode)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(includeNetCodeSystems: true, typeof(UpdateInPredictionSystem));
+
+            var ghostGameObject = new GameObject("Ghost");
+            var ghostAuthoringComponent = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostAuthoringComponent.SingleWorldHostInterpolationSmoothing = mode;
+            ghostAuthoringComponent.DefaultGhostMode = GhostMode.Predicted;
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+            testWorld.CreateWorlds(server: false, numClients: 0, numHostWorlds: 1);
+            var clientServerTickRate = new ClientServerTickRate();
+            clientServerTickRate.ResolveDefaults();
+            clientServerTickRate.SimulationTickRate = 20;
+            var ent = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+            testWorld.ServerWorld.EntityManager.SetComponentData(ent, clientServerTickRate);
+
+            var prefabCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ServerWorld);
+            var prefab = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection)[0].Value;
+            testWorld.Connect(dt: clientServerTickRate.SimulationFixedTimeStep);
+            testWorld.GoInGame();
+
+            var serverEnt = testWorld.ServerWorld.EntityManager.Instantiate(prefab);
+            testWorld.ServerWorld.GetExistingSystemManaged<UpdateInPredictionSystem>().OnUpdateCallback += world =>
+            {
+                var localTransform = world.EntityManager.GetComponentData<LocalTransform>(serverEnt);
+                localTransform.Position += world.Time.DeltaTime;
+                localTransform = localTransform.RotateY(math.radians(world.Time.DeltaTime));
+                world.EntityManager.SetComponentData(serverEnt, localTransform);
+            };
+
+            SingleWorldHostSharedTest.ValidateHostInterpolation(testWorld, mode, () =>
+                {
+                    return testWorld.ServerWorld.EntityManager.GetComponentData<LocalTransform>(serverEnt);
+                },
+                () =>
+                {
+                    var l2w = testWorld.ServerWorld.EntityManager.GetComponentData<LocalToWorld>(serverEnt);
+                    return new LocalTransform() { Position = l2w.Position, Rotation = l2w.Rotation };
+                }
+            );
+        }
+
         [Test]
         public void SingleWorldHost_ErrorOnHostConnect()
         {
@@ -248,7 +296,33 @@ namespace Unity.NetCode.Tests
             }
             catch (InvalidOperationException e)
             {
-                Assert.IsTrue(e.Message.Contains("You cannot call Connect on a NetworkStreamDriver in a host world."));
+                Assert.IsTrue(e.Message.Contains("You cannot call Connect on a NetworkStreamDriver in a server or host world."), $"invalid exception message, got '{e.Message}'");
+            }
+
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [Test]
+        public void SingleWorldHost_ErrorOnHostDisconnect()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(includeNetCodeSystems: true, typeof(GenericExecuteOnUpdateSystem));
+            testWorld.CreateWorlds(server: false, numClients: 0, numHostWorlds: 1);
+
+            Assert.IsTrue(testWorld.ServerWorld.IsHost());
+
+            var driver = testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW;
+
+            try
+            {
+                driver.Disconnect(testWorld.ServerWorld.EntityManager, Entity.Null);
+                Assert.Fail("Disconnecting a host world should throw an exception");
+            }
+            catch (InvalidOperationException e)
+            {
+                Assert.IsTrue(
+                    e.Message.Contains("Note that in host worlds, there is no NetworkStreamConnection"),
+                    "Unexpected error message: " + e.Message);
             }
 
             LogAssert.NoUnexpectedReceived();

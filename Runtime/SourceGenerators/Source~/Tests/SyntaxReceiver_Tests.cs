@@ -1,4 +1,4 @@
-using System.Linq;
+using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using NUnit.Framework;
@@ -7,6 +7,13 @@ namespace Unity.NetCode.GeneratorTests
 {
     class SyntaxReceiver_Tests : BaseTest
     {
+        static T FirstOrDefault<T>(IEnumerable<T> source)
+        {
+            foreach (var item in source)
+                return item;
+            return default!;
+        }
+
         [Test]
         public void SyntaxReceiver_FindTypes()
         {
@@ -122,9 +129,9 @@ namespace Unity.NetCode.GeneratorTests
             ";
             var syntaxTree = CSharpSyntaxTree.ParseText(testData);
             var compilation = GeneratorTestHelpers.CreateCompilation(syntaxTree);
-            var bufferModel = compilation.GetSymbolsWithName("IsBuffer").FirstOrDefault();
-            var commandModel = compilation.GetSymbolsWithName("IsCommandData").FirstOrDefault();
-            var componentModel = compilation.GetSymbolsWithName("IsComponent").FirstOrDefault();
+            var bufferModel = FirstOrDefault(compilation.GetSymbolsWithName("IsBuffer"));
+            var commandModel = FirstOrDefault(compilation.GetSymbolsWithName("IsCommandData"));
+            var componentModel = FirstOrDefault(compilation.GetSymbolsWithName("IsComponent"));
             Assert.IsNotNull(bufferModel);
             Assert.IsNotNull(commandModel);
             Assert.IsNotNull(componentModel);

@@ -18,6 +18,8 @@ namespace Unity.NetCode.GeneratorTests
     [TestFixture]
     class SourceGeneratorTests : BaseTest
     {
+        static readonly int s_BaseKnownTypeCount = DefaultTypes.Registry.Length;
+        static readonly int s_BaseKnownSubtypesCount = DefaultTypes.Registry.Count(e => e.SubType != 0);
         [Test]
         public void InnerNamespacesAreHandledCorrectly()
         {
@@ -456,11 +458,12 @@ namespace Unity.NetCode.GeneratorTests
                 [GhostField(Composite=false)] public TwoFieldStruct b; //2bit
             }";
 
-            this.ErrorLogExclusion = new Regex(".*ComponentB\\.e.*Types must have either valid \\[GhostField\\] attributes, or a \\[GhostEnabledBit\\].*");
+            LogAssert.Expect(LogType.Error, new Regex(".*ComponentA\\.e.*Types must have either valid \\[GhostField\\] attributes, or a \\[GhostEnabledBit\\].*"));
+            LogAssert.Expect(LogType.Error, new Regex(".*ComponentB\\.e.*Types must have either valid \\[GhostField\\] attributes, or a \\[GhostEnabledBit\\].*"));
 
             var tree = CSharpSyntaxTree.ParseText(testData);
-            var resuls = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(3, resuls.GeneratedSources.Length, "Num generated files does not match");
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
 
             void CheckOutput(SyntaxTree outputTree, int numBits, (string, string)[] fields)
             {
@@ -494,8 +497,8 @@ namespace Unity.NetCode.GeneratorTests
                 ("float", "b_x"),
                 ("float", "b_y"),
             };
-            CheckOutput(resuls.GeneratedSources[0].SyntaxTree, 2, expected);
-            CheckOutput(resuls.GeneratedSources[1].SyntaxTree, 7, expected);
+            CheckOutput(results.GeneratedSources[0].SyntaxTree, 2, expected);
+            CheckOutput(results.GeneratedSources[1].SyntaxTree, 7, expected);
         }
 
         [Test]
@@ -588,7 +591,6 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, walker.Receiver.Variants.Count);
 
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
-            var diagnostics = resuls.Diagnostics;
             Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
 
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
@@ -660,6 +662,61 @@ namespace Unity.NetCode.GeneratorTests
             var variantHashField = initBlockWalker.Intializer.Expressions
                 .First(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "VariantHash");
             Assert.IsTrue(variantHashField.IsKind(SyntaxKind.SimpleAssignmentExpression));
+            Assert.AreNotEqual("0", ((AssignmentExpressionSyntax)variantHashField).Right.ToString());
+        }
+
+        [Test]
+        public void SourceGenerator_VariantAndTargetComponentCanBeInternal()
+        {
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            internal struct InternalComponent : IComponentData
+            {
+                public float3 Value;
+            }
+
+            [GhostComponentVariation(typeof(InternalComponent))]
+            [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
+            internal struct InternalVariant
+            {
+                [GhostField(Quantization=1000, Smoothing=SmoothingAction.Interpolate)] public float3 Value;
+            }
+
+            [GhostComponentVariation(typeof(InternalComponent))]
+            [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
+            public struct InternalVariantPublic
+            {
+                [GhostField(Quantization=1000, Smoothing=SmoothingAction.Interpolate)] public float3 Value;
+            }
+            ";
+
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { Receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            //The internal variant is detected as candidate
+            Assert.AreEqual(2, walker.Receiver.Variants.Count);
+
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            //Both the variant and the component it targets are internal. Both are supported, so no error is expected
+            Assert.AreEqual(0, results.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error),
+                string.Join("\n", results.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
+
+            //Parse the output and check that the registered component type is the internal adaptee
+            //and that the variant hash is set (variant correctly recognized as such)
+            var outputTree = results.GeneratedSources[0].SyntaxTree;
+            var initBlockWalker = new InializationBlockWalker();
+            outputTree.GetCompilationUnitRoot().Accept(initBlockWalker);
+            Assert.IsNotNull(initBlockWalker.Intializer);
+            var componentTypeAssignment = initBlockWalker.Intializer!.Expressions
+                .First(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "ComponentType");
+            Assert.IsTrue(componentTypeAssignment.ToString().Contains("InternalComponent"), componentTypeAssignment.ToString());
+            var variantHashField = initBlockWalker.Intializer.Expressions
+                .First(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "VariantHash");
             Assert.AreNotEqual("0", ((AssignmentExpressionSyntax)variantHashField).Right.ToString());
         }
 
@@ -760,7 +817,7 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
 
-            this.ErrorLogExclusion = new Regex("It is not possible to serialize property CommandData\\.CValue4 because does not have setter. Both setter and getters are required.");
+            LogAssert.IgnoreFailingLogs = true;
 
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
             var walker = new TestSyntaxWalker { Receiver = receiver };
@@ -832,7 +889,11 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
 
-            this.ErrorLogExclusion = new Regex("struct Test\\.Invalid5 cannot implement Buffer\\,Rpc interfaces at the same time");
+            LogAssert.Expect(LogType.Error, new Regex(@"struct Test\.Invalid1 cannot implement Component\,Rpc interfaces at the same time"));
+            LogAssert.Expect(LogType.Error, new Regex(@"struct Test\.Invalid2 cannot implement Component\,CommandData interfaces at the same time"));
+            LogAssert.Expect(LogType.Error, new Regex(@"struct Test\.Invalid3 cannot implement Component\,Buffer interfaces at the same time"));
+            LogAssert.Expect(LogType.Error, new Regex(@"struct Test\.Invalid4 cannot implement Buffer\,CommandData interfaces at the same time"));
+            LogAssert.Expect(LogType.Error, new Regex(@"struct Test\.Invalid5 cannot implement Buffer\,Rpc interfaces at the same time"));
 
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
             var walker = new TestSyntaxWalker { Receiver = receiver };
@@ -990,14 +1051,24 @@ namespace Unity.NetCode.GeneratorTests
                 [GhostField] public char MyField;
             }
             ";
-            ErrorLogExclusion = new Regex("Inside type 'Unity_NetCode_Test_Generated_MyType', we could not find the exact template for field 'MyField' with");
+            LogAssert.Expect(LogType.Error, new Regex("Inside type 'Unity_NetCode_Test_Generated_MyType', we could not find the exact template for field 'MyField' with"));
+            for (int i = 0; i < s_BaseKnownTypeCount; i++)
+            {
+                LogAssert.Expect(LogType.Error, new Regex(".*known template type:.*"));
+            }
+
+            for (int i = 0; i < s_BaseKnownSubtypesCount; i++)
+            {
+                LogAssert.Expect(LogType.Error, new Regex(".*known subtype.*"));
+            }
 
             var tree = CSharpSyntaxTree.ParseText(testData);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             // foreach (var msg in results.Diagnostics)
             //     Console.WriteLine($"ERROR: {msg.GetMessage()}");
             var errors = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
-            Assert.AreEqual(1, errors.Length);
+            // 1 actual error + the known template and subtype listing lines
+            Assert.AreEqual(1 + s_BaseKnownTypeCount + s_BaseKnownSubtypesCount, errors.Length);
             Assert.IsTrue(errors[0].GetMessage()
                 .Contains(
                     "Inside type 'Unity_NetCode_Test_Generated_MyType', we could not find the exact template for field 'MyField' with configuration 'Type:System.Char Key:System.Char (quantized=-1 composite=False smoothing=0 subtype=0)'"));
@@ -1050,14 +1121,28 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
 
+
+            var validErrorString = "we could not find the exact template for field 'AngleType' with configuration 'Type:System.Single Key:System.Single (quantized=-1 composite=False smoothing=0 subtype=1)'";
+            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape(validErrorString)));
+
+            var knownTypeCount = s_BaseKnownTypeCount + 1; // +1 for the user template
+            var knownSubTypeCount = s_BaseKnownSubtypesCount + 1; // +1 for the user subtype
+
+            for (int i = 0; i < knownTypeCount; i++)
+            {
+                LogAssert.Expect(LogType.Error, new Regex(".*known template type:.*"));
+            }
+
+            for (int i = 0; i < knownSubTypeCount; i++)
+            {
+                LogAssert.Expect(LogType.Error, new Regex(".*known subtype:.*"));
+            }
+
             var tree = CSharpSyntaxTree.ParseText(testDataWrong);
             var templateTree = CSharpSyntaxTree.ParseText(customTemplates);
             var results = GeneratorTestHelpers.RunGenerators(tree, templateTree);
             var diagnostics = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
-            Assert.AreEqual(1, diagnostics.Length);
-
-            var validErrorString = "we could not find the exact template for field 'AngleType' with configuration 'Type:System.Single Key:System.Single (quantized=-1 composite=False smoothing=0 subtype=1)'";
-            this.ErrorLogExclusion = new Regex(Regex.Escape(validErrorString));
+            Assert.AreEqual(1 + knownTypeCount + knownSubTypeCount, diagnostics.Length); // 1 actual error + the listing lines
             Assert.IsTrue(diagnostics[0].GetMessage().Contains(validErrorString));
 
             tree = CSharpSyntaxTree.ParseText(testDataCorrect);
@@ -1130,6 +1215,19 @@ namespace Unity.NetCode.GeneratorTests
                     $"/Path/To/MyTemplate{NetCodeSourceGenerator.NETCODE_ADDITIONAL_FILE}",
                     $"#templateid:/Path/To/MyTemplate\n{TestDataSource.CustomTemplate}")
             });
+            LogAssert.Expect(LogType.Error, new Regex("'.*Translation2d' defines a field 'Position' with GhostField configuration 'Type\\:Unity\\.Mathematics\\.float3 Key:Unity\\.Mathematics\\.float3 \\(quantized=1000 composite=True smoothing=3 subtype=1\\)'\\ using an invalid configuration: Subtyped types cannot also be defined as composite"));
+            LogAssert.Expect(LogType.Error, new Regex("Inside type '.*Translation2d', we could not find the exact template for field 'Position' with configuration 'Type\\:Unity\\.Mathematics\\.float3 Key:Unity\\.Mathematics\\.float3 \\(quantized=1000 composite=True smoothing=3 subtype=1\\)'\\, which means that netcode cannot serialize this type"));
+
+            var knownTemplatesCountWithUserTemplates = s_BaseKnownTypeCount + 1;
+            for (int i = 0; i < knownTemplatesCountWithUserTemplates; i++)
+            {
+                LogAssert.Expect(LogType.Error, new Regex(".*known template type:.*"));
+            }
+
+            for (int i = 0; i < s_BaseKnownSubtypesCount + 1; i++)
+            {
+                LogAssert.Expect(LogType.Error, new Regex(".*known subtype:.*"));
+            }
 
             var tree = CSharpSyntaxTree.ParseText(testData);
             {
@@ -1140,7 +1238,6 @@ namespace Unity.NetCode.GeneratorTests
                 var diagnostics = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
                 Assert.That(diagnostics[0].GetMessage().Contains("Subtyped types cannot also be defined as composite"));
             }
-            ErrorLogExclusion = new Regex("Inside type '.*Translation2d', we could not find the exact template for field 'Position' with configuration 'Type\\:Unity\\.Mathematics\\.float3 Key:Unity\\.Mathematics\\.float3 \\(quantized=1000 composite=True smoothing=3 subtype=1\\)'\\, which means that netcode cannot serialize this type");
 
             customTemplates =
                 customTemplates.Replace("Composite = true", "Composite = false", StringComparison.Ordinal);
@@ -1349,6 +1446,9 @@ namespace Unity.NetCode.GeneratorTests
                     public int __COMMAND_IS_RESERVED;
                 }
             }";
+            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape("Invalid namespace __GHOST_NAMESPACE__ for CantBeValid. __GHOST and __COMMAND are reserved prefixes and cannot be used in namspace, type and field names")));
+            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape("Invalid field name '__UNDERSCORE_IS_WELCOME__.__DUNNO_WHAT_BUT_IT_IS_VALID__.__GHOST_IS_RESERVED'. __GHOST and __COMMAND are reserved prefixes and cannot be used in namespace, type and field names!")));
+            LogAssert.Expect(LogType.Error, new Regex(Regex.Escape("Invalid field name '__UNDERSCORE_IS_WELCOME__.__My_Command__.__COMMAND_IS_RESERVED'. __GHOST and __COMMAND are reserved prefixes and cannot be used in namespace, type and field names")));
 
             var tree = CSharpSyntaxTree.ParseText(testData);
             var results = GeneratorTestHelpers.RunGenerators(tree);
@@ -1362,7 +1462,6 @@ namespace Unity.NetCode.GeneratorTests
                 }
             }
 
-            ErrorLogExclusion = new Regex(Regex.Escape("Invalid field name '__UNDERSCORE_IS_WELCOME__.__My_Command__.__COMMAND_IS_RESERVED'. __GHOST and __COMMAND are reserved prefixes and cannot be used in namespace, type and field names"));
 
             Assert.AreEqual(3, errorCount, "errorCount");
         }
@@ -1727,6 +1826,55 @@ namespace Unity.NetCode.GeneratorTests
                 "Ghost registration must not use Roslyn '+' nested-type markers in generated identifiers.");
             var foundLinesCount = new Regex(@"data\.AddSerializer\(.*OuterHost_PlayerInputInputBufferDataGhostComponentSerializer\.GetState").Matches(registrationText).Count;
             Assert.AreEqual(1, foundLinesCount);
+        }
+
+        [Test]
+        public void SourceGenerator_InputComponentData_NamespaceCollidingWithAssembly_UsesGlobalQualifiedNames()
+        {
+            // Test assembly name is Unity.NetCode.Test (see GeneratorTestHelpers.GeneratedAssemblyName).
+            // namespace Unity.NetCode.Test.Generated nests inside Unity.NetCode.Test, so a duplicate
+            // child namespace shadows unqualified user type references in generated registration code.
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+
+            namespace Unity.NetCode.Test
+            {
+                public struct SomeInput : IInputComponentData
+                {
+                    public float asdf;
+                }
+            }
+
+            namespace Unity.NetCode.Test.Unity.NetCode.Test
+            {
+            }";
+
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { Receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
+
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.AreEqual(0, results.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error));
+
+            var registrationSource = results.GeneratedSources
+                .FirstOrDefault(s => s.HintName.Contains("GhostComponentSerializerCollection"));
+            Assert.IsNotNull(registrationSource, "Expected GhostComponentSerializerCollection to be generated");
+
+            var registrationText = registrationSource!.SyntaxTree.GetText().ToString();
+            Assert.That(registrationText, Does.Contain("ComponentType.ReadWrite<global::Unity.NetCode.Test.SomeInput>"));
+            Assert.That(registrationText, Does.Contain("ComponentType.ReadWrite<global::Unity.NetCode.InputBufferData<global::Unity.NetCode.Test.SomeInput>>"));
+            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<Unity\.NetCode\.Test\.SomeInput>"),
+                "Unqualified type names are ambiguous inside AssemblyName.Generated when a nested namespace duplicates the assembly name");
+            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<global::Unity\.NetCode\.InputBufferData<Unity\.NetCode\.Test\.SomeInput>"),
+                "Input buffer generic arguments must also be global-qualified");
+            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<InputBufferData<Unity\.NetCode\.Test\.SomeInput>"),
+                "Input buffer generic arguments must also be global-qualified");
+
+            Assert.AreEqual(0, registrationSource.SyntaxTree.GetDiagnostics().Count(d => d.Severity == DiagnosticSeverity.Error),
+                registrationSource.SyntaxTree.GetDiagnostics().FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error)?.GetMessage());
         }
 
         [Test]
@@ -2291,6 +2439,7 @@ namespace Unity.NetCode.GeneratorTests
                 [GhostField]public FixedList512Bytes<float> Value;
             }
             ";
+            LogAssert.IgnoreFailingLogs = true;
             var tree = CSharpSyntaxTree.ParseText(testData);
             GeneratorRunResult results = default;
             Assert.DoesNotThrow(() =>
@@ -2301,7 +2450,6 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(2, warnings.Length);
             Assert.IsTrue(warnings[0].GetMessage().StartsWith("Invalid GhostFixedListCapacity attribute present on Invalid.Value of type Unity.Collections.FixedList512Bytes<float>. The maximum allowed capacity for a fixed list must bet less or equal than 64 elements."));
             Assert.IsTrue(warnings[1].GetMessage().StartsWith("Invalid.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements. Replicated fixed lists can contain at most 64 elements. If the capacity exceed, please use the GhostFixedListCapacity attribute to constrain the maximum allowed length of the list."));
-            Generators.Debug.LastErrorLog = string.Empty;
         }
 
         //qpproximated test
@@ -2346,6 +2494,7 @@ namespace Unity.NetCode.GeneratorTests
                 [GhostField]public FixedList512Bytes<float> Value;
             }
             ";
+            LogAssert.IgnoreFailingLogs = true;
             var tree = CSharpSyntaxTree.ParseText(testData);
             GeneratorRunResult results = default;
             Assert.DoesNotThrow(() =>
@@ -2362,7 +2511,6 @@ namespace Unity.NetCode.GeneratorTests
             Assert.IsTrue(warnings[5].GetMessage().StartsWith("Buffer.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
             Assert.IsTrue(warnings[6].GetMessage().StartsWith("Command.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
             Assert.IsTrue(warnings[7].GetMessage().StartsWith("Rpc.Value of type Unity.Collections.FixedList4096Bytes<byte> has a capacity greater than 1024 elements"));
-            Generators.Debug.LastErrorLog = string.Empty;
         }
 
         [Test]
@@ -2638,7 +2786,7 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
 
-            ErrorLogExclusion = new Regex("");
+            LogAssert.IgnoreFailingLogs = true;
             var tree = CSharpSyntaxTree.ParseText(testData);
             GeneratorRunResult results = default;
             Assert.DoesNotThrow(() =>
@@ -2931,6 +3079,163 @@ namespace Unity.NetCode.GeneratorTests
                     Assert.AreNotEqual(differentHashes[i], differentHashes[j], $"error hash {i} and {j} are equal!");
                 }
             }
+        }
+
+        [Test]
+        public void SourceGenerator_Remotes_RemoteStruct()
+        {
+            var testData = @"
+            using Unity.NetCode;
+            namespace Unity.Test.Remotes
+            {
+                [Remote]
+                public partial struct TestRemote
+                {
+                }
+            }
+            ";
+
+            RemoteAttributeDeclarationTests(testData);
+        }
+
+        [Test]
+        public void SourceGenerator_Remotes_RemoteStruct_AttributeFullName()
+        {
+            var testData = @"
+            using Unity.NetCode;
+            namespace Unity.Test.Remotes
+            {
+                [RemoteAttribute]
+                public partial struct TestRemote
+                {
+                }
+            }
+            ";
+
+            RemoteAttributeDeclarationTests(testData);
+        }
+
+        private void RemoteAttributeDeclarationTests(string testData)
+        {
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { Receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(1, walker.Receiver.Remotes.Count, "Remote struct not identified.");
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match, we should generate two files one for the Remote and one for the CommandSerialiser (RPC).");
+
+            var root = results.GeneratedSources[0].SyntaxTree.GetCompilationUnitRoot();
+
+            // Check we are in a matching namespace
+            Assert.AreEqual(1, root.Members.Count, "Generated code should only have one member. It should be a namespace.");
+            Assert.AreEqual(SyntaxKind.NamespaceDeclaration, root.Members[0].Kind(), "First memeber is not a namespace.");
+            var namespaceDeclaration = (NamespaceDeclarationSyntax)root.Members[0];
+
+            Assert.AreEqual("Unity.Test.Remotes", namespaceDeclaration.Name.ToString(), "Generated namespace is incorrect. It should match the namespace of the Remote Struct");
+
+            // check namespace only contrains one declaration
+            Assert.AreEqual(1, namespaceDeclaration.Members.Count, "Generated namespace should only contain new partial struct.");
+
+            // check the declaration is a struct
+            Assert.AreEqual(SyntaxKind.StructDeclaration, namespaceDeclaration.Members[0].Kind(), "Generated member is not a struct.");
+
+            var generatedStructDeclaration = (StructDeclarationSyntax)namespaceDeclaration.Members[0];
+
+            // check its got the right name
+            Assert.AreEqual("TestRemote", generatedStructDeclaration.Identifier.Text, "Generated Remote struct has the wrong name. It should match the provided struct name (since its a partial extension).");
+
+            // check its partial
+            var partialNode = from mod in generatedStructDeclaration.Modifiers where mod.IsKind(SyntaxKind.PartialKeyword) select mod;
+            Assert.AreEqual(1, partialNode.Count(), "Generated type is not declared partial.");
+
+            // Check it has the correct inheritance
+            var baseType = generatedStructDeclaration.DescendantNodes().OfType<SimpleBaseTypeSyntax>()
+                .FirstOrDefault(node => node.ToString().Contains("IRemote"));
+            Assert.IsNotNull(baseType);
+        }
+
+        [Test]
+        public void SourceGenerator_Remotes_HandleFunction()
+        {
+            var testData = @"
+            using Unity.NetCode;
+            namespace Unity.Test.Remotes
+            {
+                [Remote]
+                public partial struct TestRemote
+                {
+                    public int value;
+                    public void Handle()
+                    {
+                    }
+                }
+            }
+            ";
+
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { Receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(1, walker.Receiver.Remotes.Count, "Remote struct not identified.");
+            var preprocessorSymbols = new[] { "NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL" };
+            var results = GeneratorTestHelpers.RunGeneratorsWithPreprocessorSymbols(preprocessorSymbols, tree);
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match, we should generate two files one for the Remote and one for the CommandSerialiser (RPC).");
+
+            // We should probably test for more things here but its a very simple generator
+        }
+
+        [Test]
+        public void SourceGenerator_Remotes_RemoteMethod()
+        {
+            var testData = @"
+            using Unity.NetCode;
+            namespace Unity.Test.Remotes
+            {
+                public class RemoteMethod
+                {
+                    [Remote(Directionality.ServerToClient)]
+                    public static void TestServerToClient( int testValue )
+                    { }
+                    [Remote(directionality:Directionality.ClientToServer)]
+                    public static void TestClientToServer( int testValue )
+                    { }
+                }
+            }
+            ";
+
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { Receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(2, walker.Receiver.Remotes.Count, "Remote struct not identified.");
+            var preprocessorSymbols = new[] { "NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL" };
+            var results = GeneratorTestHelpers.RunGeneratorsWithPreprocessorSymbols(preprocessorSymbols,tree);
+            Assert.AreEqual(5, results.GeneratedSources.Length, "Num generated files does not match the expected number.");
+        }
+
+        [Test]
+        public void SourceGenerator_Remotes_GhostRemoteMethod()
+        {
+            var testData = @"
+            using Unity.NetCode;
+
+            public class RemoteMethod : GhostBehaviour
+            {
+                [Remote(Directionality.ServerToClient)]
+                public void TestRemoteMethod( int someValue )
+                { }
+            }
+            ";
+
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { Receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(1, walker.Receiver.Remotes.Count, "Remote struct not identified.");
+            var preprocessorSymbols = new [] { "NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL" };
+            var results = GeneratorTestHelpers.RunGeneratorsWithPreprocessorSymbols(preprocessorSymbols, tree);
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match, we should generate two files one for the Remote and one for the CommandSerialiser (RPC).");
         }
     }
 }

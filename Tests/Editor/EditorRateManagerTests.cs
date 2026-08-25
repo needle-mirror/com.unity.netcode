@@ -10,56 +10,7 @@ using static Unity.NetCode.ClientServerTickRate.FrameRateMode;
 
 namespace Unity.NetCode.Tests
 {
-    [DisableAutoCreation]
-    internal abstract partial class BaseCallbackSystem : SystemBase
-    {
-        public delegate void OnUpdateDelegate(World world);
-        public OnUpdateDelegate OnUpdateCallback;
 
-        protected override void OnUpdate()
-        {
-            OnUpdateCallback?.Invoke(this.World);
-        }
-    }
-
-    [DisableAutoCreation]
-    [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
-    [UpdateBefore(typeof(PredictedSimulationSystemGroup))]
-    internal partial class BeforePredictionSystem : BaseCallbackSystem
-    {
-    }
-
-    [DisableAutoCreation]
-    [UpdateInGroup(typeof(SimulationSystemGroup))]
-    [UpdateAfter(typeof(PredictedSimulationSystemGroup))]
-    internal partial class AfterPredictionSystem : BaseCallbackSystem
-    {
-
-    }
-
-    [DisableAutoCreation]
-    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-    internal partial class UpdateInPredictionSystem : BaseCallbackSystem
-    {
-
-    }
-
-    [DisableAutoCreation]
-    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    [UpdateInGroup(typeof(InitializationSystemGroup))]
-    [UpdateAfter(typeof(UpdateNetworkTimeSystem))]
-    internal partial class BeforeSimulationSystemGroup : BaseCallbackSystem
-    {
-
-    }
-
-    [DisableAutoCreation]
-    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    [UpdateInGroup(typeof(PresentationSystemGroup))]
-    internal partial class AfterSimulationSystemGroup : BaseCallbackSystem
-    {
-
-    }
 
     [Category(NetcodeTestCategories.Foundational)]
     internal class RateManagerTests
@@ -68,7 +19,7 @@ namespace Unity.NetCode.Tests
         public void TestElapsedTimeNonNegativeAtStart()
         {
             const float tickDt = 1f / 60f;
-            using var testWorld = new NetCodeTestWorld(useGlobalConfig: true, initialElapsedTime: 0);
+            using var testWorld = new NetCodeTestWorld(initialElapsedTime: 0);
             NetCodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = ClientServerTickRate.FrameRateMode.BusyWait;
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = 4;
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = 4;
@@ -87,7 +38,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
+        [DisableSingleWorldHostTest(isPermanentReason: "This is ok to be disabled, as the test itself handles host mode testing on its own.")]
         public void RateManagerTest([Values(BusyWait, Sleep)] ClientServerTickRate.FrameRateMode frameRateMode, [Values] NetCodeConfig.HostWorldMode hostMode, [Values(1, 4)] int maxBatchSize, [Values(1, 4)] int maxStepsPerFrame)
         {
             // Setup
@@ -97,7 +48,7 @@ namespace Unity.NetCode.Tests
             }
 
             var useSingleWorld = hostMode == NetCodeConfig.HostWorldMode.SingleWorld;
-            using var testWorld = new NetCodeTestWorld(useGlobalConfig: true);
+            using var testWorld = new NetCodeTestWorld();
             NetCodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = frameRateMode;
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = maxBatchSize;
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = maxStepsPerFrame;
@@ -379,11 +330,11 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
+        [DisableSingleWorldHostTest(isPermanentReason: "This is ok to be disabled, as the test itself handles host mode testing on its own.")]
         public void TestCanDetectIfServerWillUpdate([Values(Sleep, BusyWait)] ClientServerTickRate.FrameRateMode mode, [Values] bool singleWorldHost)
         {
             if (mode == Sleep && singleWorldHost) Assert.Ignore("TODO-release not supported right now");
-            using var testWorld = new NetCodeTestWorld(useGlobalConfig: true);
+            using var testWorld = new NetCodeTestWorld();
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = 1;
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = 1; // this is already default, but making sure tests assumptions don't break for sanity
             NetCodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = mode;

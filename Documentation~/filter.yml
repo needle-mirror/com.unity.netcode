@@ -42,9 +42,6 @@ apiRules:
       uidRegex: ^Unity\.NetCode\.Tests\.FixedListComplexData.*$
       type: Struct
   - exclude:
-      uidRegex: ^Unity\.NetCode\.Tests\.HybridComponentWeWillOverride$
-      type: Class
-  - exclude:
       uidRegex: ^Unity\.NetCode\.Tests\.SimpleData.*$
       type: Struct
   - exclude:

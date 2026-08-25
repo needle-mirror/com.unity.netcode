@@ -1,11 +1,9 @@
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+
 using System;
-#if !UNITY_DISABLE_MANAGED_COMPONENTS
 using System.Collections.Generic;
 using Unity.Entities;
 using UnityEngine;
 using UnityEngine.Assertions;
-#endif
 
 namespace Unity.NetCode
 {
@@ -58,7 +56,6 @@ namespace Unity.NetCode
         }
     }
 
-    #if !UNITY_DISABLE_MANAGED_COMPONENTS
 
     /// <summary>
     /// Our main point of access for prebuilt GhostBehaviour type info, like sort order.
@@ -89,7 +86,6 @@ namespace Unity.NetCode
         {
             var typeIndex = TypeManager.GetTypeIndex(type);
             var hash = TypeManager.GetTypeInfo(typeIndex).StableTypeHash;
-
             return hash;
         }
 
@@ -107,11 +103,10 @@ namespace Unity.NetCode
             {
                 // This is preloaded by a IPreprocessBuildWithReport which sets it as a preloaded asset (see PlayerSettings.GetPreloadedAssets());
                 var savedSortOrders = Resources.FindObjectsOfTypeAll<GhostBehaviourSortOrder>();
-                Assert.IsTrue(savedSortOrders.Length == 1, $"sanity check failed, invalid count for saved {nameof(GhostBehaviourSortOrder)}, found {savedSortOrders.Length} instances.");
+                Assert.IsTrue(savedSortOrders.Length == 1, $"[{nameof(GhostBehaviourTypeManager)}] Sanity check failed, invalid count for saved {nameof(GhostBehaviourSortOrder)}, found {savedSortOrders.Length} instances.");
                 SerializedData = savedSortOrders[0];
-                Assert.IsTrue(SerializedData != null, $"sanity check failed, SerializedData for {nameof(GhostBehaviourSortOrder)} is null");
-
-                Debug.Log($"Netcode: {nameof(GhostBehaviourSortOrder)} loaded successfully, contains {SerializedData.Behaviours.Length} items");
+                Assert.IsTrue(SerializedData != null, $"[{nameof(GhostBehaviourTypeManager)}] Sanity check failed, SerializedData for {nameof(GhostBehaviourSortOrder)} is null");
+                Debug.Log($"[{nameof(GhostBehaviourTypeManager)}] Netcode: {nameof(GhostBehaviourSortOrder)} loaded successfully (SortOrders: {savedSortOrders.Length}, Items found: {SerializedData.Behaviours.Length})");
             }
             UpdateBucketCount = SerializedData.NumScriptSortOrder;
             for (var index = 0; index < SerializedData.Behaviours.Length; index++)
@@ -124,13 +119,10 @@ namespace Unity.NetCode
                     Debug.LogError($"Cannot find behaviour with hash: {t.TypeHash} index:{index}.");
                     continue;
                 }
-
                 // Note: entities TypeManager won't support managed types in the future. However, from slack convo with ChrisR, there should be an engine side alternative that would. We can replace our current call when it does
                 var type = TypeManager.GetType(typeIndex);
                 GhostBehaviourInfos.Add(type, t);
             }
         }
     }
-    #endif
 }
-#endif

@@ -77,11 +77,7 @@ namespace Unity.NetCode
             if(!requirePredictionError)
                 return;
 
-#if UNITY_2022_2_14F1_OR_NEWER
             int maxThreadCount = JobsUtility.ThreadIndexCount;
-#else
-            int maxThreadCount = JobsUtility.MaxJobThreadCount;
-#endif
             var predictionErrorCount = SystemAPI.GetSingleton<GhostCollection>().NumPredictionErrors;
             if (m_PredictionErrors.Length != predictionErrorCount * maxThreadCount)
             {
@@ -159,11 +155,7 @@ namespace Unity.NetCode
             public int predictionErrorCount;
             public void Execute(int i)
             {
-#if UNITY_2022_2_14F1_OR_NEWER
                 int maxThreadCount = JobsUtility.ThreadIndexCount;
-#else
-                int maxThreadCount = JobsUtility.MaxJobThreadCount;
-#endif
                 for (int job = 1; job < maxThreadCount; ++job)
                 {
                     PredictionErrors[i] = math.max(PredictionErrors[i], PredictionErrors[predictionErrorCount*job + i]);
@@ -177,7 +169,7 @@ namespace Unity.NetCode
         struct PredictionDebugJob : IJobChunk
         {
             public DynamicTypeList DynamicTypeList;
-            public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly predictionState;
+            public NativeParallelHashMap<ulong, SlotPtr>.ReadOnly predictionState;
 
             [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostType;
             [ReadOnly] public ComponentTypeHandle<PredictedGhost> predictedGhostType;
@@ -207,9 +199,10 @@ namespace Unity.NetCode
                 // This job is not written to support queries with enableable component types.
                 Assert.IsFalse(useEnabledMask);
 
-                if (!predictionState.TryGetValue(chunk, out var state) ||
-                    (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)
+                if (!predictionState.TryGetValue(chunk.SequenceNumber, out var slot) ||
+                    slot.Value->entityCapacity != chunk.Capacity)
                     return;
+                var state = (System.IntPtr)slot.Value;
 
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = DynamicTypeList.GetData();
                 int ghostChunkComponentTypesLength = DynamicTypeList.Length;

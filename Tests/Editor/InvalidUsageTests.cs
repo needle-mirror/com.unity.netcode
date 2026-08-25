@@ -21,6 +21,13 @@ namespace Unity.NetCode.Tests
         public static int s_DeleteCount;
         protected override void OnCreate()
         {
+            // Under single-world-host the host(server) world also runs client systems. We must NOT delete the
+            // server's authoritative ghost here; the delete is meant to happen on a real remote client's replica.
+            if (World.IsHost())
+            {
+                Enabled = false;
+                return;
+            }
             RequireForUpdate<GhostOwner>();
         }
         protected override void OnUpdate()
@@ -35,7 +42,6 @@ namespace Unity.NetCode.Tests
     internal class InvalidUsageTests
     {
         [Test]
-        [DisableSingleWorldHostTest]
         public void CanRecoverFromDeletingGhostOnClient()
         {
             using (var testWorld = new NetCodeTestWorld())

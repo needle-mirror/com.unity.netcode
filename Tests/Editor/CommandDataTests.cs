@@ -3,6 +3,7 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
+using Unity.Burst;
 
 namespace Unity.NetCode.Tests
 {
@@ -36,19 +37,32 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnCreate()
         {
+            if (World.IsHost())
+            {
+                Enabled = false;
+                return;
+            }
             RequireForUpdate<NetworkStreamInGame>();
             RequireForUpdate(GetEntityQuery(ComponentType.ReadWrite<CommandDataTestsTickInput>()));
         }
-        protected override void OnUpdate()
+
+        [BurstCompile]
+        partial struct AddCommandDataJob : IJobEntity
         {
-            var tick = SystemAPI.GetSingleton<NetworkTime>().InputTargetTick;
-            Entities.ForEach((DynamicBuffer<CommandDataTestsTickInput> inputBuffer) => {
+            public NetworkTick Tick;
+            public void Execute( ref DynamicBuffer<CommandDataTestsTickInput> inputBuffer)
+            {
                 inputBuffer.AddCommandData(new CommandDataTestsTickInput
                 {
-                    Tick = tick,
+                    Tick = Tick,
                     Value = 1
                 });
-            }).Run();
+            }
+        }
+
+        protected override void OnUpdate()
+        {
+            new AddCommandDataJob { Tick = SystemAPI.GetSingleton<NetworkTime>().InputTargetTick }.Run();
         }
     }
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
@@ -58,19 +72,32 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnCreate()
         {
+            if (World.IsHost())
+            {
+                Enabled = false;
+                return;
+            }
             RequireForUpdate<NetworkStreamInGame>();
             RequireForUpdate(GetEntityQuery(ComponentType.ReadWrite<CommandDataTestsTickInput2>()));
         }
-        protected override void OnUpdate()
+
+        [BurstCompile]
+        partial struct AddCommandDataJob : IJobEntity
         {
-            var tick = SystemAPI.GetSingleton<NetworkTime>().InputTargetTick;
-            Entities.ForEach((DynamicBuffer<CommandDataTestsTickInput2> inputBuffer) => {
+            public NetworkTick Tick;
+            public void Execute( ref DynamicBuffer<CommandDataTestsTickInput2> inputBuffer)
+            {
                 inputBuffer.AddCommandData(new CommandDataTestsTickInput2
                 {
-                    Tick = tick,
+                    Tick = Tick,
                     Value = 2
                 });
-            }).Run();
+            }
+        }
+
+        protected override void OnUpdate()
+        {
+            new AddCommandDataJob { Tick = SystemAPI.GetSingleton<NetworkTime>().InputTargetTick }.Run();
         }
     }
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
@@ -83,6 +110,23 @@ namespace Unity.NetCode.Tests
             RequireForUpdate<NetworkStreamInGame>();
             RequireForUpdate(GetEntityQuery(ComponentType.ReadWrite<CommandDataTestsTickInputLarge>()));
         }
+
+        [BurstCompile]
+        partial struct AddCommandDataJob : IJobEntity
+        {
+            public NetworkTick Tick;
+            public FixedString128Bytes LongString;
+            public void Execute( ref DynamicBuffer<CommandDataTestsTickInputLarge> inputBuffer)
+            {
+                inputBuffer.AddCommandData(new CommandDataTestsTickInputLarge
+                {
+                    Tick = Tick,
+                    Value = LongString,
+                    Value1 = LongString
+                });
+            }
+        }
+
         protected override void OnUpdate()
         {
             FixedString128Bytes longString = "";
@@ -98,15 +142,8 @@ namespace Unity.NetCode.Tests
                     longString += "a";
                 }
             }
-            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
-            Entities.ForEach((DynamicBuffer<CommandDataTestsTickInputLarge> inputBuffer) => {
-                inputBuffer.AddCommandData(new CommandDataTestsTickInputLarge
-                {
-                    Tick = tick,
-                    Value = longString,
-                    Value1 = longString
-                });
-            }).Run();
+
+            new AddCommandDataJob{ Tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick, LongString = longString }.Run();
         }
     }
 
@@ -136,7 +173,6 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    [DisableSingleWorldHostTest]
     internal class CommandDataTests
     {
         [Test]
@@ -156,7 +192,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
 
                 for (int i = 0; i < 16; ++i)
@@ -195,7 +231,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -247,7 +283,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -316,7 +352,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -358,7 +394,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -412,7 +448,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -476,7 +512,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -534,7 +570,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -561,6 +597,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
+        [DisableSingleWorldHostTest] // TODO what should be the behaviour if trying to set inputs on a ghosts you don't own as a host? Should this log errors?
         public void AutoCommandTargetDoesNotSendWhenNotOwned([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -577,7 +614,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -622,7 +659,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -685,7 +722,8 @@ namespace Unity.NetCode.Tests
                 var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
                 clientTickRate.PredictionTimeScaleMin = 0.999f;
                 clientTickRate.PredictionTimeScaleMax = 1.001f;
-                testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+                var rateEntity = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[0]);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(rateEntity, clientTickRate);
 
                 // Tick so we're on a full tick on the client
                 var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
@@ -701,7 +739,7 @@ namespace Unity.NetCode.Tests
 
                 // Tick half a tick
                 // This will not send a command, but will update the value for the tick
-                testWorld.TickClientWorld(1/120f);
+                testWorld.TickClientWorld(1/120f, clientOnly: true);
                 // Will be same ServerTick
                 testWorld.GetSingletonBuffer<CommandDataTestsTickInputDouble>(testWorld.ClientWorlds[0]).GetDataAtTick(clientTime.ServerTick, out var clientUpdatedCommand);
                 Assert.AreNotEqual(clientFirstSendCommand, clientUpdatedCommand);

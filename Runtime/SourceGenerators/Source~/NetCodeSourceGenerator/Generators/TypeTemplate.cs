@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Unity.NetCode.Generators
 {
@@ -44,6 +42,7 @@ namespace Unity.NetCode.Generators
         public bool SupportsQuantization;
         public bool Composite;
         public bool SupportCommand = true;
+        public bool IsOptInTemplate;
         public string TemplatePath;
         public string TemplateOverridePath;
 

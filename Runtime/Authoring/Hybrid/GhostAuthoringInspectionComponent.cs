@@ -1,11 +1,10 @@
 using System;
 using System.Collections.Generic;
+using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 using UnityEngine.Serialization;
-#if UNITY_6000_5_OR_NEWER
 using UnityEngine.Assemblies;
-#endif
 
 namespace Unity.NetCode
 {
@@ -17,7 +16,8 @@ namespace Unity.NetCode
     /// <seealso cref="GhostAuthoringComponent"/>
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.GhostAuthoringInspetionComponent)]
-    public class GhostAuthoringInspectionComponent : MonoBehaviour
+    [AddComponentMenu("Multiplayer/Ghost Authoring Inspection Component", 2)]
+    public class GhostAuthoringInspectionComponent : MonoBehaviour, IPrefabOverrideProvider
     {
         // TODO: This doesn't support multi-edit.
         internal static bool forceBake;
@@ -47,11 +47,7 @@ namespace Unity.NetCode
         static Type FindTypeFromFullTypeNameInAllAssemblies(string fullName)
         {
             // TODO - Consider using the TypeManager.
-#if UNITY_6000_5_OR_NEWER
             foreach (var a in CurrentAssemblies.GetLoadedAssemblies())
-#else
-            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
-#endif
             {
                 var type = a.GetType(fullName, false);
                 if (type != null)
@@ -111,7 +107,7 @@ namespace Unity.NetCode
             if (!gameObject || !this)
                 throw new ArgumentException($"Attempting to GetOrAddPrefabOverride for entityGuid '{entityGuid}' to '{this}', but GameObject and/or InspectionComponent has been destroyed!");
 
-            if (gameObject.GetInstanceID() != entityGuid.OriginatingId && !TryGetFirstMatchingGameObjectInChildren(gameObject.transform, entityGuid, out _))
+            if (gameObject.GetEntityId() != entityGuid.OriginatingEntityId && !TryGetFirstMatchingGameObjectInChildren(gameObject.transform, entityGuid, out _))
             {
                 throw new ArgumentException($"Attempting to GetOrAddPrefabOverride for entityGuid '{entityGuid}' to '{this}', but entityGuid does not match our gameObject, nor our children!");
             }
@@ -125,7 +121,7 @@ namespace Unity.NetCode
             ref var found = ref AddComponentOverrideRaw();
             found = new ComponentOverride
             {
-                EntityIndex = entityGuid.b,
+                EntityIndex = entityGuid.Serial,
                 FullTypeName = managedType.FullName,
             };
             found.Reset();
@@ -200,7 +196,7 @@ namespace Unity.NetCode
         /// <returns>True if found.</returns>
         static bool TryGetFirstMatchingGameObjectInChildren(Transform current, EntityGuid entityGuid, out GameObject foundGameObject)
         {
-            if (current.gameObject.GetInstanceID() == entityGuid.OriginatingId)
+            if (current.gameObject.GetEntityId() == entityGuid.OriginatingEntityId)
             {
                 foundGameObject = current.gameObject;
                 return true;
@@ -351,7 +347,7 @@ namespace Unity.NetCode
         public bool TryFindExistingOverrideIndex(Type managedType, in EntityGuid guid, out int index)
         {
             var managedTypeFullName = managedType.FullName;
-            return TryFindExistingOverrideIndex(managedTypeFullName, guid.b, out index);
+            return TryFindExistingOverrideIndex(managedTypeFullName, guid.Serial, out index);
         }
 
         /// <summary>Looks up the index of the override matching <paramref name="managedTypeFullName"/> +
@@ -375,6 +371,61 @@ namespace Unity.NetCode
             }
             index = -1;
             return false;
+        }
+
+        NativeParallelHashMap<GhostPrefabCreation.Component, GhostPrefabCreation.ComponentOverride> IPrefabOverrideProvider.GetPrefabOverrides()
+        {
+            var go = this.gameObject;
+            NativeParallelHashMap<GhostPrefabCreation.Component, GhostPrefabCreation.ComponentOverride> toReturn = new NativeParallelHashMap<GhostPrefabCreation.Component, GhostPrefabCreation.ComponentOverride>(1, Allocator.Temp);
+
+            var ghostAuthoringInspectionComponent = go.GetComponent<GhostAuthoringInspectionComponent>();
+            if (ghostAuthoringInspectionComponent == null)
+                return default;
+
+            var savedOverrides = ghostAuthoringInspectionComponent.ComponentOverrides;
+
+            GhostObject ghost = go.GetComponent<GhostObject>();
+
+            using NativeList<ComponentType> allComponents = new(Allocator.Temp);
+            foreach (var componentType in ghost.GetComponentTypes())
+            {
+                allComponents.Add(componentType);
+            }
+
+            allComponents.AddRange(ghost.GetDefaultAttachedComponents());
+
+            for (int compIdx = 0; compIdx < allComponents.Count; compIdx++)
+            {
+                // Find the override
+                ComponentOverride foundOverride = default;
+                foundOverride.Reset();
+                var currentComp = allComponents[compIdx];
+                foreach (var overrideEntry in savedOverrides)
+                {
+                    if (TypeManager.GetFullNameHash(currentComp.TypeIndex) == TypeManager.CalculateFullNameHash(overrideEntry.FullTypeName))
+                    {
+                        foundOverride = overrideEntry;
+                        break;
+                    }
+                }
+
+                if (foundOverride.HasOverriden)
+                {
+                    GhostPrefabCreation.ComponentOverrideType overrideType = default;
+                    if (foundOverride.IsVariantOverriden) overrideType |= GhostPrefabCreation.ComponentOverrideType.Variant;
+                    if (foundOverride.IsPrefabTypeOverriden) overrideType |= GhostPrefabCreation.ComponentOverrideType.PrefabType;
+                    if (foundOverride.IsSendTypeOptimizationOverriden) overrideType |= GhostPrefabCreation.ComponentOverrideType.SendMask;
+                    toReturn[new GhostPrefabCreation.Component()
+                    {
+                        ComponentType = currentComp, ChildIndex = 0, // TODO handle children, right now this is only for root ghost
+                    }] = new GhostPrefabCreation.ComponentOverride()
+                    {
+                        Variant = foundOverride.VariantHash, OverrideType = overrideType, SendMask = foundOverride.SendTypeOptimization, PrefabType = foundOverride.PrefabType,
+                    };
+                }
+            }
+
+            return toReturn;
         }
     }
 }

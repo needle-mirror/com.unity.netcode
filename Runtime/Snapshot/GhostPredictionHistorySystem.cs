@@ -3,6 +3,8 @@ using Unity.Assertions;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
+using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
@@ -19,24 +21,52 @@ namespace Unity.NetCode
     // [Opt]byte*[BuffersDataSize] the raw buffers element data present in the chunk if present. The total buffers size is computed at runtime and the
     // backup state resized accordingly. All buffers contents start to a 16 bytes aligned offset: Align(b1Elem*b1ElemSize, 16), Align(b2Elem*b2ElemSize, 16) ...
 
+    /// <remarks>
+    /// One contiguous blob per backup slot, laid out by <see cref="AllocNew"/> as:
+    /// <code>
+    /// +----------------+ 0
+    /// | header         |  this struct, 16-byte aligned (GetHeaderSize)
+    /// +----------------+ entitiesOffset
+    /// | entities       |  Entity[entityCapacity]
+    /// +----------------+ enabledBitOffset
+    /// | enabledBits    |  ulong[ceil(cap/64)] per enableable component
+    /// +----------------+ chunkVersionsOffset
+    /// | chunkVersions  |  int[root components + cap * child components]
+    /// +----------------+ dataOffset
+    /// | data           |  serialized component data (buffers store a (size, offset) pair)
+    /// +----------------+ bufferDataOffset
+    /// | bufferData     |  raw dynamic-buffer element data (each buffer 16-byte aligned)
+    /// +----------------+
+    /// </code>
+    /// </remarks>
     internal unsafe struct PredictionBackupState
     {
-        // If ghost type has changed the data must be discarded as the chunk is now used for something else
+        /// <summary>Ghost type this slot was backed up for; if it changes the chunk is reused for something else and the backup is stale.</summary>
         public int ghostType;
+        /// <summary>Chunk entity capacity this backup was sized for.</summary>
         public int entityCapacity;
+        /// <summary>Byte offset (from this header) to the backed-up entity array.</summary>
         public int entitiesOffset;
+        /// <summary>Byte offset to the enableable-component bit arrays.</summary>
         public int enabledBitOffset;
+        /// <summary>Number of enableable-component bit arrays stored.</summary>
         public int enabledBits;
+        /// <summary>Offset of the ghost owner field within the component data, or -1 when the ghost has no owner.</summary>
         public int ghostOwnerOffset;
-        //the ghost component serialized size
+        /// <summary>Byte offset to the serialized component data.</summary>
         public int dataOffset;
+        /// <summary>Size in bytes of the serialized component data.</summary>
         public int dataSize;
-        //chunk versions
+        /// <summary>Byte offset to the per-component chunk change versions.</summary>
         public int chunkVersionsOffset;
+        /// <summary>Size in bytes of the chunk-versions region.</summary>
         public int chunkVersionsSize;
-        //the capacity for the dynamic data. Dynamic Buffers are store after the component backup
+        /// <summary>Capacity in bytes reserved for dynamic buffer data (stored after the component backup).</summary>
         public int bufferDataCapacity;
+        /// <summary>Byte offset to the dynamic buffer data.</summary>
         public int bufferDataOffset;
+        /// <summary>Serialized NetworkTick this slot was written for.</summary>
+        public uint tickValue;
 
         public static IntPtr AllocNew(int ghostTypeId, int enabledBits,
             int numComponents, int dataSize, int entityCapacity, int buffersDataCapacity, int predictionOwnerOffset)
@@ -59,6 +89,7 @@ namespace Unity.NetCode
             state->dataSize = dataSize;
             state->bufferDataCapacity = buffersDataCapacity;
             state->bufferDataOffset = state->dataOffset + dataSize;
+            state->tickValue = 0;
             return (IntPtr)state;
         }
 
@@ -67,6 +98,13 @@ namespace Unity.NetCode
             var ps = ((PredictionBackupState*) state);
             return ps->entityCapacity;
         }
+        /// <summary>Cast-free overload for callers already holding a <see cref="SlotPtr"/>.</summary>
+        public static int GetEntityCapacity(SlotPtr state)
+        {
+            return state.Value->entityCapacity;
+        }
+        /// <summary>Returns the NetworkTick this slot was backed up for.</summary>
+        public static NetworkTick GetTick(IntPtr state) => new NetworkTick { SerializedData = ((PredictionBackupState*) state)->tickValue };
         public static int GetHeaderSize()
         {
             return (UnsafeUtility.SizeOf<PredictionBackupState>() + 15) & (~15);
@@ -161,11 +199,19 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// The last full tick for which a snapshot backup is avaiable. Only present on the client world
+    /// The last full tick for which a snapshot backup is available, plus the per-chunk prediction-history
+    /// ring capacity. Only present on the client world.
     /// </summary>
     internal struct GhostSnapshotLastBackupTick : IComponentData
     {
+        /// <summary>The last full tick a snapshot backup was written for.</summary>
         public NetworkTick Value;
+        /// <summary>
+        /// Per-chunk prediction-history ring slot count: 1 when <see cref="ClientTickRate.AlwaysRollbackAllPredictedGhosts"/>
+        /// is OFF (memory parity with the single-tick design), larger when ON. Diagnostic; the per-chunk ring
+        /// is the authoritative source for restores.
+        /// </summary>
+        public int Capacity;
     }
 
     /// <summary>
@@ -173,8 +219,19 @@ namespace Unity.NetCode
     /// </summary>
     internal struct GhostPredictionHistoryState : IComponentData
     {
-        public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly PredictionState;
+        /// <summary>
+        /// Per-chunk handle (SlotPtr) to the NEWEST slot's PredictionBackupState. Preserved for backward compatibility with
+        /// GhostUpdateSystem's existing partial-tick undo path, GhostPredictionDebugSystem, and
+        /// GhostPredictionSmoothingSystem - all of which read the most recent backup directly.
+        /// </summary>
+        public NativeParallelHashMap<ulong, SlotPtr>.ReadOnly PredictionState;
         public NativeParallelHashMap<Entity, GhostPredictionHistorySystem.PredictionBufferHistoryData>.ReadOnly EntityData;
+        /// <summary>
+        /// Per-chunk handle (RingPtr) to a PredictionBackupRing header (followed by capacity IntPtr slot pointers). Used by the
+        /// global rollback path in GhostUpdateSystem when AlwaysRollbackAllPredictedGhosts is enabled to find a slot at
+        /// the global rollback tick. The newest slot of each ring is the same pointer as PredictionState[chunk].
+        /// </summary>
+        public NativeParallelHashMap<ulong, RingPtr>.ReadOnly PredictionRings;
     }
 
     /// <summary>
@@ -195,12 +252,6 @@ namespace Unity.NetCode
     [BurstCompile]
     public unsafe partial struct GhostPredictionHistorySystem : ISystem
     {
-        struct PredictionStateEntry
-        {
-            public ArchetypeChunk chunk;
-            public System.IntPtr data;
-        }
-
         /// <summary>
         /// Data structure used to preserve the ability to retrieve or infer, even in case of structural changes,
         /// the prediction history data for a given entity.
@@ -211,9 +262,10 @@ namespace Unity.NetCode
         internal struct PredictionBufferHistoryData
         {
             /// <summary>
-            /// The archetype chunk at the time of the last history backup
+            /// SequenceNumber of the archetype chunk at the time of the last history backup. Keys into the per-chunk
+            /// maps; a SequenceNumber is recycle-safe, whereas a stored ArchetypeChunk can alias a pooled/reused chunk.
             /// </summary>
-            public ArchetypeChunk lastChunk;
+            public ulong lastChunkSequenceNumber;
             /// <summary>
             /// The index in chunk at the time of the last history backup
             /// </summary>
@@ -224,11 +276,8 @@ namespace Unity.NetCode
             public byte LastChunkCapacity;
         }
 
-        NativeParallelHashMap<ArchetypeChunk, System.IntPtr> m_PredictionState;
-        NativeParallelHashMap<Entity, PredictionBufferHistoryData> m_EntityData;
-        NativeParallelHashMap<ArchetypeChunk, int> m_StillUsedPredictionState;
-        NativeQueue<PredictionStateEntry> m_NewPredictionState;
-        NativeQueue<PredictionStateEntry> m_UpdatedPredictionState;
+        /// <summary>Owns the per-chunk prediction-history collections and their parallel-stage -> serial-commit lifecycle.</summary>
+        PredictionBackupStore m_Store;
         EntityQuery m_PredictionQuery;
 
         ComponentTypeHandle<GhostInstance> m_GhostComponentHandle;
@@ -252,11 +301,7 @@ namespace Unity.NetCode
                 state.Enabled = false;
                 return;
             }
-            m_PredictionState = new NativeParallelHashMap<ArchetypeChunk, System.IntPtr>(128, Allocator.Persistent);
-            m_StillUsedPredictionState = new NativeParallelHashMap<ArchetypeChunk, int>(128, Allocator.Persistent);
-            m_EntityData = new NativeParallelHashMap<Entity, PredictionBufferHistoryData>(128, Allocator.Persistent);
-            m_NewPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
-            m_UpdatedPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
+            m_Store.Allocate(128);
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<PredictedGhost, GhostInstance>();
             m_PredictionQuery = state.GetEntityQuery(builder);
@@ -280,10 +325,10 @@ namespace Unity.NetCode
             var historySingleton = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(atype));
             FixedString64Bytes singletonName = "GhostPredictionHistoryState-Singleton";
             state.EntityManager.SetName(historySingleton, singletonName);
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, historySingleton);
             // Declare that we are writing to GhostPredictionHistoryState, so we depend on all readers of this singleton during OnUpdate
             ref var predictionHistoryState = ref SystemAPI.GetSingletonRW<GhostPredictionHistoryState>().ValueRW;
-            predictionHistoryState.PredictionState = m_PredictionState.AsReadOnly();
-            predictionHistoryState.EntityData = m_EntityData.AsReadOnly();
+            m_Store.PopulateSingleton(ref predictionHistoryState);
         }
 
         /// <inheritdoc/>
@@ -292,16 +337,7 @@ namespace Unity.NetCode
         {
             if (state.WorldUnmanaged.IsHost())
                 return;
-            var values = m_PredictionState.GetValueArray(Allocator.Temp);
-            for (int i = 0; i < values.Length; ++i)
-            {
-                UnsafeUtility.Free((void*)values[i], Allocator.Persistent);
-            }
-            m_PredictionState.Dispose();
-            m_StillUsedPredictionState.Dispose();
-            m_NewPredictionState.Dispose();
-            m_UpdatedPredictionState.Dispose();
-            m_EntityData.Dispose();
+            m_Store.Dispose();
         }
 
         /// <inheritdoc/>
@@ -309,21 +345,36 @@ namespace Unity.NetCode
         public void OnUpdate(ref SystemState state)
         {
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-            if (!networkTime.IsFinalFullPredictionTick)
-                return;
-            SystemAPI.SetSingleton(new GhostSnapshotLastBackupTick { Value = networkTime.ServerTick });
+            if (!SystemAPI.TryGetSingleton<ClientTickRate>(out var clientTickRate))
+                clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
 
-            var predictionState = m_PredictionState;
-            var newPredictionState = m_NewPredictionState;
-            var stillUsedPredictionState = m_StillUsedPredictionState;
-            var updatedPredictionState = m_UpdatedPredictionState;
-            stillUsedPredictionState.Clear();
-            m_EntityData.Clear();
+            // When AlwaysRollbackAllPredictedGhosts is ON, back up on EVERY full prediction tick so the ring
+            // covers every tick the prediction loop visits.
+            // ELSE, legacy behaviour only saves after a partial tick.
+            bool shouldBackup = clientTickRate.AlwaysRollbackAllPredictedGhosts
+                ? !networkTime.IsPartialTick
+                : networkTime.IsFinalFullPredictionTick;
+            if (!shouldBackup)
+                return;
+
+            // Determine the desired ring capacity:
+            int desiredRingCapacity = 1;
+            if (clientTickRate.AlwaysRollbackAllPredictedGhosts)
+            {
+                const int minRingCapacity = 4;
+                int commandInterpolationDelay = networkTime.ServerTick.IsValid && networkTime.InterpolationTick.IsValid
+                    ? math.max(minRingCapacity, networkTime.ServerTick.TicksSince(networkTime.InterpolationTick))
+                    : minRingCapacity;
+                // ceilpow2 because we don't want to keep resizing.
+                // TODO: tick-fraction handling is deferred, so this may be off-by-one - re-evaluate (raised by Emma).
+                desiredRingCapacity = math.min(math.ceilpow2(commandInterpolationDelay), CommandDataUtility.k_CommandDataMaxSize);
+            }
+
+            // Capacity is diagnostic; the per-chunk ring is the authoritative source for restore lookups.
+            SystemAPI.SetSingleton(new GhostSnapshotLastBackupTick { Value = networkTime.ServerTick, Capacity = desiredRingCapacity });
+
             var count = m_PredictionQuery.CalculateEntityCount();
-            if(count > m_EntityData.Capacity)
-                m_EntityData.Capacity = count;
-            if (stillUsedPredictionState.Capacity < predictionState.Capacity)
-                stillUsedPredictionState.Capacity = predictionState.Capacity;
+            m_Store.BeginFrame(count);
 
             m_GhostComponentHandle.Update(ref state);
             m_GhostTypeComponentHandle.Update(ref state);
@@ -337,16 +388,14 @@ namespace Unity.NetCode
             m_GhostCollectionPrefabFromEntity.Update(ref state);
             var backupJob = new PredictionBackupJob
             {
-                predictionState = predictionState,
-                stillUsedPredictionState = stillUsedPredictionState.AsParallelWriter(),
-                newPredictionState = newPredictionState.AsParallelWriter(),
-                updatedPredictionState = updatedPredictionState.AsParallelWriter(),
-                entityData = m_EntityData.AsParallelWriter(),
+                store = m_Store.AsWriter(),
                 ghostComponentType = m_GhostComponentHandle,
                 ghostType = m_GhostTypeComponentHandle,
                 prespawnIndexType = m_PreSpawnedGhostIndexHandle,
                 predictedGhostSpawnRequestType = m_PredictedSpawnRequestTypeHandle,
                 entityType = m_EntityTypeHandle,
+                serverTick = networkTime.ServerTick,
+                desiredRingCapacity = desiredRingCapacity,
 
                 GhostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
                 GhostComponentCollectionFromEntity = m_GhostComponentSerializerStateFromEntity,
@@ -365,10 +414,9 @@ namespace Unity.NetCode
 
             var cleanupJob = new CleanupPredictionStateJob
             {
-                predictionState = predictionState,
-                stillUsedPredictionState = stillUsedPredictionState,
-                newPredictionState = newPredictionState,
-                updatedPredictionState = updatedPredictionState
+                store = m_Store,
+                desiredRingCapacity = desiredRingCapacity,
+                serverTick = networkTime.ServerTick,
             };
             state.Dependency = cleanupJob.Schedule(state.Dependency);
         }
@@ -376,42 +424,11 @@ namespace Unity.NetCode
         [BurstCompile]
         struct CleanupPredictionStateJob : IJob
         {
-            public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
-            [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, int> stillUsedPredictionState;
-            public NativeQueue<PredictionStateEntry> newPredictionState;
-            public NativeQueue<PredictionStateEntry> updatedPredictionState;
-            public void Execute()
-            {
-                var keys = predictionState.GetKeyArray(Allocator.Temp);
-                for (int i = 0; i < keys.Length; ++i)
-                {
-                    if (!stillUsedPredictionState.TryGetValue(keys[i], out var temp))
-                    {
-                        // Free the memory and remove the chunk from the lookup
-                        predictionState.TryGetValue(keys[i], out var alloc);
-                        UnsafeUtility.Free((void*)alloc, Allocator.Persistent);
-                        predictionState.Remove(keys[i]);
-                    }
-                }
-                while (newPredictionState.TryDequeue(out var newState))
-                {
-                    if (!predictionState.TryAdd(newState.chunk, newState.data))
-                    {
-                        // Remove the old value, free it and add the new one - this happens when a chunk is reused too quickly
-                        predictionState.TryGetValue(newState.chunk, out var alloc);
-                        UnsafeUtility.Free((void*)alloc, Allocator.Persistent);
-                        predictionState.Remove(newState.chunk);
-                        // And add it again
-                        predictionState.TryAdd(newState.chunk, newState.data);
-                    }
-                }
-                while (updatedPredictionState.TryDequeue(out var updatedState))
-                {
-                    if(!predictionState.ContainsKey(updatedState.chunk))
-                        throw new InvalidOperationException($"Prediction backup state has been updated but is not present in the map.");
-                    predictionState[updatedState.chunk] = updatedState.data;
-                }
-            }
+            public PredictionBackupStore store;
+            public int desiredRingCapacity;
+            public NetworkTick serverTick;
+
+            public void Execute() => store.Commit(desiredRingCapacity, serverTick);
         }
 
         [BurstCompile]
@@ -419,11 +436,9 @@ namespace Unity.NetCode
         {
             public DynamicTypeList DynamicTypeList;
 
-            [ReadOnly]public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
-            public NativeParallelHashMap<ArchetypeChunk, int>.ParallelWriter stillUsedPredictionState;
-            public NativeParallelHashMap<Entity, PredictionBufferHistoryData>.ParallelWriter entityData;
-            public NativeQueue<PredictionStateEntry>.ParallelWriter newPredictionState;
-            public NativeQueue<PredictionStateEntry>.ParallelWriter updatedPredictionState;
+            public PredictionBackupStore.Writer store;
+            public NetworkTick serverTick;
+            public int desiredRingCapacity;
             [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostComponentType;
             [ReadOnly] public ComponentTypeHandle<GhostType> ghostType;
             [ReadOnly] public ComponentTypeHandle<PreSpawnedGhostIndex> prespawnIndexType;
@@ -555,9 +570,22 @@ namespace Unity.NetCode
                 int baseOffset = typeData.FirstComponent;
                 int predictionOwnerOffset = -1;
                 var ghostOwnerTypeIndex = TypeManager.GetTypeIndex<GhostOwner>();
-                if (!predictionState.TryGetValue(chunk, out var state) ||
-                    (*(PredictionBackupState*)state).ghostType != ghostTypeId ||
-                    (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)
+
+                // Look up the ring (may not exist yet for first-time chunks). When it exists, delegate slot selection
+                // to PredictionBackupRing.SelectSlotForWrite (re-predict / empty / evict-oldest preference order; see
+                // its docs), which returns the chosen slot index, the pointer it holds, and whether this is a
+                // re-predict overwrite as one value. The selected slot's existing allocation - if any - is either
+                // reused below (when the chunk archetype matches) or freed and re-allocated.
+                bool ringExists = store.TryGetRing(chunk, out var ringPtr);
+                var selection = default(PredictionBackupRing.SlotSelection);
+                if (ringExists)
+                    selection = ringPtr.Ref.SelectSlotForWrite(serverTick);
+                IntPtr existingSlot = selection.ExistingData;
+
+                IntPtr state;
+                if (existingSlot == IntPtr.Zero ||
+                    (*(PredictionBackupState*)existingSlot).ghostType != ghostTypeId ||
+                    (*(PredictionBackupState*)existingSlot).entityCapacity != chunk.Capacity)
                 {
                     int dataSize = 0;
                     int enabledBits = 0;
@@ -602,13 +630,15 @@ namespace Unity.NetCode
                     if (typeData.NumBuffers > 0)
                         buffersDataCapacity = GetChunkBuffersDataSize(typeData, chunk, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength, GhostComponentIndex, GhostComponentCollection);
 
-                    // Chunk does not exist in the history, or has changed ghost type in which case we need to create a new one
+                    // Slot at writeIndex is missing, mismatched type, or different capacity. Free it (if any) and
+                    // allocate fresh. The ring's slot pointer is updated below to point at the new allocation.
+                    if (existingSlot != IntPtr.Zero)
+                        UnsafeUtility.Free((void*)existingSlot, Allocator.Persistent);
                     state = PredictionBackupState.AllocNew(ghostTypeId, enabledBits, typeData.NumComponents, dataSize, chunk.Capacity, buffersDataCapacity, predictionOwnerOffset);
-                    newPredictionState.Enqueue(new PredictionStateEntry{chunk = chunk, data = state});
                 }
                 else
                 {
-                    stillUsedPredictionState.TryAdd(chunk, 1);
+                    state = existingSlot;
                     if (typeData.NumBuffers > 0)
                     {
                         //resize the backup state to fit the dynamic buffers contents
@@ -622,10 +652,13 @@ namespace Unity.NetCode
                             var newState =  PredictionBackupState.AllocNew(ghostTypeId, enabledBits, typeData.NumComponents, dataSize, chunk.Capacity, buffersDataCapacity, ghostOwnerOffset);
                             UnsafeUtility.Free((void*) state, Allocator.Persistent);
                             state = newState;
-                            updatedPredictionState.Enqueue(new PredictionStateEntry{chunk = chunk, data = newState});
                         }
                     }
                 }
+                store.MarkChunkUsed(chunk);
+                // We must always have a slot to write into - either reused (existingSlot path) or freshly allocated.
+                // If state is null here, AllocNew failed (OOM) or a logic bug short-circuited slot selection.
+                Assert.IsTrue(state != IntPtr.Zero, "PredictionBackupJob: no backup state slot to write into; ring slot selection or allocation failed.");
                 Entity* entities = PredictionBackupState.GetEntities(state);
                 var srcEntities = chunk.GetNativeArray(entityType).GetUnsafeReadOnlyPtr();
                 UnsafeUtility.MemCpy(entities, srcEntities, chunk.Count * singleEntitySize);
@@ -633,9 +666,9 @@ namespace Unity.NetCode
                     UnsafeUtility.MemClear(entities + chunk.Count, (chunk.Capacity - chunk.Count) * singleEntitySize);
                 for (byte i = 0; i < chunk.Count; ++i)
                 {
-                    entityData.TryAdd(entities[i], new PredictionBufferHistoryData
+                    store.RecordEntity(entities[i], new PredictionBufferHistoryData
                     {
-                        lastChunk = chunk,
+                        lastChunkSequenceNumber = chunk.SequenceNumber,
                         LastIndexInChunk = i,
                         LastChunkCapacity = (byte) chunk.Capacity
                     });
@@ -835,6 +868,22 @@ namespace Unity.NetCode
                         dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                         childChangeVersions = PredictionBackupState.GetNextChildChunkVersion(childChangeVersions, chunk.Capacity);
                     }
+                }
+
+                // All component / buffer data has been written into `state`. Stamp the slot's tick and place the
+                // pointer in the chosen slot (the slot selection above resolved re-predict / empty / oldest-eviction).
+                ((PredictionBackupState*)state)->tickValue = serverTick.SerializedData;
+                if (ringExists)
+                {
+                    // Write the slot into the existing ring; Commit rebuilds predictionState from each ring's newest
+                    // slot, so there's no per-write newest tracking to do here.
+                    ringPtr.Ref.SetSlot(selection.Index, state);
+                }
+                else
+                {
+                    // First time we've seen this chunk: stage a fresh ring with our slot as its newest (index 0);
+                    // Commit picks it up and points predictionState at it.
+                    store.StageFreshRing(chunk, state, desiredRingCapacity);
                 }
             }
         }

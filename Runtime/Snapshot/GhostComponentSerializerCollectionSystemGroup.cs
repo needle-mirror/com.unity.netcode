@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode
@@ -61,7 +62,10 @@ namespace Unity.NetCode
         public short SerializerIndex;
         /// <summary>Component that this Variant is associated with.</summary>
         public ComponentType Component;
-        /// <summary>Hash identifier for the strategy. Should be non-zero by the time it's used in <see cref="GhostComponentSerializerCollectionData.SelectSerializationStrategyForComponentWithHash"/>.</summary>
+        /// <summary>
+        /// Hash identifier for the strategy. Should be non-zero by the time it's used in <see cref="GhostComponentSerializerCollectionData.SelectSerializationStrategyForComponentWithHash"/>.
+        /// Can be calculated using <see cref="GhostVariantsUtility.UncheckedVariantHashNBC(string, string)"/>
+        /// </summary>
         public ulong Hash;
         /// <summary>
         /// The <see cref="GhostPrefabType"/> value set in <see cref="GhostInstance"/> present in the variant declaration.
@@ -199,7 +203,8 @@ namespace Unity.NetCode
             //ATTENTION! this entity is destroyed in the BakingWorld, because in the first import this is what it does, it clean all the Entities in the world when you
             //open a scene.
             //For that reason, is the current world is a Baking word. this entity is "lazily" recreated by the GhostAuthoringBakingSystem if missing.
-            EntityManager.CreateSingleton(ghostComponentSerializerCollectionDataCache);
+            var singletonEntity = EntityManager.CreateSingleton(ghostComponentSerializerCollectionDataCache, "GhostComponentSerializerCollectionData-Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(EntityManager, singletonEntity);
         }
 
         protected override void OnDestroy()

@@ -28,6 +28,9 @@ namespace Unity.NetCode.Editor
             m_TreeView ??= CreateGhostSnapshotTreeView(networkRolePrefix + nameof(GhostSnapshotsTab) + "TreeView", m_ItemList);
             Add(m_TreeView);
 
+            // Register elements that should be hidden when info text is displayed
+            RegisterDataElements(m_TreeView, m_FilterOptionsElement);
+
             // Update max message size every time we enter play mode
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
         }
@@ -41,6 +44,7 @@ namespace Unity.NetCode.Editor
         internal override void Dispose()
         {
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            base.Dispose();
         }
 
         void Rebuild(bool overheadEnabled)
@@ -53,18 +57,13 @@ namespace Unity.NetCode.Editor
             profilerWindow.selectedFrameIndex = selectedFrame;
         }
 
-        internal void ClearTab()
-        {
-            ShowNoDataInfoLabel(true);
-        }
-
         internal void Update(NetcodeFrameData frameData)
         {
+            // Update info text (automatically manages data element visibility)
+            UpdateInfoText(frameData);
+
             // No data received for this frame
-            var noData = !frameData.isValid;
-            // Hide/Show UI
-            ShowNoDataInfoLabel(noData);
-            if (noData) return;
+            if (!frameData.isValid) return;
 
             // Save expanded items, this could break if the list size changes.
             var expandedIds = m_TreeView.GetExpandedIds();
@@ -81,13 +80,6 @@ namespace Unity.NetCode.Editor
             // Restore expanded items
             m_TreeView.ExpandItemsById(expandedIds);
             m_TreeView.showAlternatingRowBackgrounds = AlternatingRowBackground.All;
-        }
-
-        void ShowNoDataInfoLabel(bool noData)
-        {
-            m_TreeView.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
-            m_FilterOptionsElement.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
-            m_NoDataInfoLabels.style.display = noData ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         List<TreeViewItemData<ProfilerGhostTypeData>> PopulateTreeView(NetcodeFrameData frameData)
@@ -185,7 +177,7 @@ namespace Unity.NetCode.Editor
 
             // Cell creation functions
             multiColumnTreeView.columns[NetcodeProfilerConstants.nameKey].makeCell = () => new LabelWithIcon(IconPosition.BeforeLabel);
-            multiColumnTreeView.columns[NetcodeProfilerConstants.sizeKey].makeCell = () => new LabelWithIcon(IconPosition.AfterLabel);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.sizeKey].makeCell = () => new LabelWithIcon(IconPosition.BeforeLabel);
             multiColumnTreeView.columns[NetcodeProfilerConstants.percentOfSnapshotKey].makeCell = () => new PercentBar();
             multiColumnTreeView.columns[NetcodeProfilerConstants.instanceCountKey].makeCell = UIFactory.CreateTreeViewLabel;
             multiColumnTreeView.columns[NetcodeProfilerConstants.compressionKey].makeCell = () => new LabelWithIcon(IconPosition.AfterLabel);

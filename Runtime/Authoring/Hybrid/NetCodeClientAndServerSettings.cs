@@ -98,7 +98,6 @@ namespace Unity.NetCode.Hybrid
             AssetDatabase.Refresh();
         }
 
-#if UNITY_2023_2_OR_NEWER
         private void OnEnable()
         {
             if (!AssetDatabase.IsAssetImportWorkerProcess())
@@ -106,12 +105,8 @@ namespace Unity.NetCode.Hybrid
                 ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
             }
         }
-#endif
         private void OnDisable()
         {
-#if !UNITY_2023_2_OR_NEWER
-            Save();
-#else
             //But the depedency is going to be update when the scriptable is re-enabled.
             if (AssetDatabase.IsAssetImportWorkerProcess())
                 return;
@@ -123,7 +118,6 @@ namespace Unity.NetCode.Hybrid
                 ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
                 AssetDatabase.Refresh();
             }
-#endif
         }
     }
 

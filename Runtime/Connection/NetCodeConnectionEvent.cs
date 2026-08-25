@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Networking.Transport;
@@ -8,6 +9,7 @@ namespace Unity.NetCode
     ///     Contains a single, discrete 'NetworkConnection' connect / disconnect event.
     ///     For more details, refer to <see cref="NetworkStreamDriver.ConnectionEventsForTick"/>.
     /// </summary>
+    [DebuggerDisplay("{ToFixedString()}")]
     public struct NetCodeConnectionEvent
     {
         /// <summary>
@@ -52,7 +54,7 @@ namespace Unity.NetCode
             s.Append(ConnectionId.ToFixedString());
             s.Append(',');
             s.Append(State.ToFixedString());
-            if (DisconnectReason >= 0)
+            if (State <= ConnectionState.State.Disconnected)
             {
                 s.Append(',');
                 s.Append(DisconnectReason.ToFixedString());

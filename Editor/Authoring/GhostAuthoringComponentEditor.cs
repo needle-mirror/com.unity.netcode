@@ -1,5 +1,8 @@
 using System;
-using System.Linq;
+using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Entities.Conversion;
+using Unity.Mathematics;
 using Unity.NetCode.Hybrid;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -11,17 +14,13 @@ namespace Unity.NetCode.Editor
     [CanEditMultipleObjects]
     internal class GhostAuthoringComponentEditor : BaseGhostAuthoringComponentEditor<GhostAuthoringComponentEditor, GhostAuthoringComponent>
     {
-        // TODO-next@domino after domino PRs: have a GhostAdapter version of this
+        // TODO-next@domino after domino PRs: have a GhostObject version of this
         [MenuItem("Window/Multiplayer/Ghost Prefab List", priority = 3007)] // 3007 is the same as the playmode tools window, to stay in that same group
         internal static void ShowGhostPrefabListSearch()
         {
             // This search checks for all prefabs containing a GhostAuthoringComponent script and lists them with columns related to ghosts like importance, ghost mode and the such
             // Eventually with runtime GameObjects, this should also include those monobehaviours as well
-#if UNITY_6000_0_OR_NEWER
             var query = AssetDatabase.LoadMainAssetAtPath("Packages/com.unity.netcode/Editor/SearchQueries/U6-GhostSearchQuery.asset");
-#elif UNITY_2022_3_OR_NEWER
-            var query = AssetDatabase.LoadMainAssetAtPath("Packages/com.unity.netcode/Editor/SearchQueries/U2022-GhostSearchQuery.asset");
-#endif
             AssetDatabase.OpenAsset(query);
         }
     }
@@ -38,6 +37,7 @@ namespace Unity.NetCode.Editor
         SerializedProperty UsePreSerialization;
         SerializedProperty Importance;
         SerializedProperty MaxSendRate;
+        SerializedProperty SingleWorldHostInterpolationSmoothing;
         SerializedProperty PredictedSpawnedGhostRollbackToSpawnTick;
         SerializedProperty RollbackPredictionOnStructuralChanges;
         SerializedProperty UseSingleBaseline;
@@ -46,6 +46,23 @@ namespace Unity.NetCode.Editor
         internal static Color brokenColorUIToolkit = new Color(0.35f, 0.19f, 0.19f);
         internal static Color brokenColorUIToolkitText = new Color(0.9f, 0.64f, 0.61f);
         private static readonly GUILayoutOption s_HelperWidth = GUILayout.Width(180);
+
+        static GUIStyle s_HelperBoxStyle;
+
+        /// <summary>
+        /// Box style for the inline Importance / MaxSendRate suggestion labels. The default box style renders black text
+        /// that is unreadable on the dark skin (after a domain reload / project restart), so we override the text colour
+        /// with the skin-aware label colour. The style is cached to avoid re-allocating it every OnGUI.
+        /// </summary>
+        static GUIStyle HelperBoxStyle
+        {
+            get
+            {
+                s_HelperBoxStyle ??= new GUIStyle(GUI.skin.box);
+                s_HelperBoxStyle.normal.textColor = EditorStyles.label.normal.textColor;
+                return s_HelperBoxStyle;
+            }
+        }
 
         /// <summary>Aligned with NetCode for GameObjects.</summary>
         public static Color netcodeColor => new Color(0.91f, 0.55f, 0.86f, 1f);
@@ -62,6 +79,7 @@ namespace Unity.NetCode.Editor
             UsePreSerialization = serializedObject.FindProperty(nameof(BaseGhostSettings.UsePreSerialization));
             Importance = serializedObject.FindProperty(nameof(BaseGhostSettings.Importance));
             MaxSendRate = serializedObject.FindProperty(nameof(BaseGhostSettings.MaxSendRate));
+            SingleWorldHostInterpolationSmoothing = serializedObject.FindProperty(nameof(BaseGhostSettings.SingleWorldHostInterpolationSmoothing));
             PredictedSpawnedGhostRollbackToSpawnTick = serializedObject.FindProperty(nameof(BaseGhostSettings.RollbackPredictedSpawnedGhostState));
             RollbackPredictionOnStructuralChanges = serializedObject.FindProperty(nameof(BaseGhostSettings.RollbackPredictionOnStructuralChanges));
             UseSingleBaseline = serializedObject.FindProperty(nameof(BaseGhostSettings.UseSingleBaseline));
@@ -69,6 +87,7 @@ namespace Unity.NetCode.Editor
 
         public override void OnInspectorGUI()
         {
+            var globalConfig = NetCodeClientAndServerSettings.instance?.GlobalNetCodeConfig;
             var self = (TGhostSetting)target;
             var go = self.gameObject;
             var isPrefabEditable = IsPrefabEditable(go);
@@ -99,7 +118,7 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.PropertyField(Importance, importanceContent);
                 var editorImportanceSuggestion = ImportanceInlineTooltip(self.Importance);
                 importanceContent.text = editorImportanceSuggestion.Name;
-                GUILayout.Box(importanceContent, s_HelperWidth);
+                GUILayout.Box(importanceContent, HelperBoxStyle, s_HelperWidth);
                 EditorGUILayout.EndHorizontal();
             }
             // MaxSendRate:
@@ -107,13 +126,12 @@ namespace Unity.NetCode.Editor
                 var hasMaxSendRate = self.MaxSendRate != 0;
                 EditorGUILayout.BeginHorizontal();
                 EditorGUILayout.PropertyField(MaxSendRate);
-                var globalConfig = NetCodeClientAndServerSettings.instance?.GlobalNetCodeConfig;
                 var tickRate = globalConfig != null ? globalConfig.ClientServerTickRate : new ClientServerTickRate();
                 tickRate.ResolveDefaults();
-                var clientTickRate = globalConfig != null ? NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig.ClientTickRate : NetworkTimeSystem.DefaultClientTickRate;
+                var clientTickRate = globalConfig != null ? globalConfig.ClientTickRate : NetworkTimeSystem.DefaultClientTickRate;
                 var sendInterval = tickRate.CalculateNetworkSendIntervalOfGhostInTicks(self.MaxSendRate);
                 var label = new GUIContent(SendRateInlineTooltip(), MaxSendRate.tooltip);
-                GUILayout.Box(label, s_HelperWidth);
+                GUILayout.Box(label, HelperBoxStyle, s_HelperWidth);
 
                 string SendRateInlineTooltip() =>
                     (sendInterval, hasMaxSendRate) switch
@@ -199,11 +217,32 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.PropertyField(RollbackPredictionOnStructuralChanges);
             }
 
-            if (serializedObject.ApplyModifiedProperties())
+            if (globalConfig?.HostWorldModeSelection == NetCodeConfig.HostWorldMode.SingleWorld)
             {
-                GhostAuthoringInspectionComponent.forceBake = true;
-                var allComponentOverridesForGhost = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(self, false);
-                GhostComponentAnalytics.BufferConfigurationData(self, allComponentOverridesForGhost.Count);
+                EditorGUILayout.PropertyField(SingleWorldHostInterpolationSmoothing);
+            }
+
+            // Only re-bake when a setting's value actually changed (as it could be clamped).
+            var targets = serializedObject.targetObjects;
+            Span<int> settingsHashBefore = serializedObject.hasModifiedProperties ? stackalloc int[targets.Length] : default;
+            if (settingsHashBefore != null)
+            {
+                for (var i = 0; i < targets.Length; i++)
+                    settingsHashBefore[i] = ((TGhostSetting)targets[i]).GetHashCode();
+            }
+
+            if (serializedObject.ApplyModifiedProperties() && settingsHashBefore != null)
+            {
+                for (var i = 0; i < targets.Length; i++)
+                {
+                    var changedSelf = (TGhostSetting)targets[i];
+                    if (changedSelf.GetHashCode() == settingsHashBefore[i])
+                        continue;
+
+                    GhostAuthoringInspectionComponent.forceBake = true;
+                    var allComponentOverridesForGhost = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(changedSelf, false);
+                    GhostComponentAnalytics.BufferConfigurationData(changedSelf, allComponentOverridesForGhost.Count);
+                }
             }
 
             if (isViewingPrefab && !go.GetComponent<GhostAuthoringInspectionComponent>())
@@ -252,7 +291,7 @@ namespace Unity.NetCode.Editor
                     return eis;
                 }
             }
-            return suggestions.LastOrDefault();
+            return suggestions.Count == 0 ? default : suggestions[^1];
         }
 
         /// <summary>Adds the ordinal indicator/suffix to an integer.</summary>

@@ -25,6 +25,11 @@ namespace Unity.NetCode.Editor
         NativeArray<UncompressedSizesPerType> m_UncompressedSizesArrayServer;
         NativeArray<UncompressedSizesPerType> m_UncompressedSizesArrayClient;
         MetricsHeader m_MetricsHeader;
+        string m_CachedWorldName;
+
+        bool m_CachedIsHostMode;
+        bool m_CachedHasConnectedClients;
+        bool m_WorldConfigFlagsCached;
 
         internal NetcodeForEntitiesProfilerModuleViewController(ProfilerWindow profilerWindow, NetworkRole networkRole)
             : base(profilerWindow)
@@ -94,9 +99,8 @@ namespace Unity.NetCode.Editor
         {
             m_GhostSnapshotTab.Update(frameData);
             m_FrameOverViewTab.Update(frameData);
+            m_PredictionInterpolationTab.Update(frameData);
             UpdateMetricsHeader(frameData, m_NetworkRole);
-            if (m_NetworkRole == NetworkRole.Client)
-                m_PredictionInterpolationTab.Update(frameData);
         }
 
         void UpdateMetricsHeader(NetcodeFrameData frameData, NetworkRole networkRole)
@@ -104,7 +108,23 @@ namespace Unity.NetCode.Editor
             if (m_MetricsHeader == null)
                 return;
 
-            m_MetricsHeader.SetWorldName(ProfilerUtils.GetWorldName(networkRole));
+            // Use world name from frame data, fallback to default if empty
+            var worldName = !string.IsNullOrEmpty(frameData.worldName)
+                ? frameData.worldName
+                : ProfilerUtils.GetWorldName(networkRole);
+
+            m_MetricsHeader.SetWorldName(worldName);
+
+            // Update the network role icon based on host mode
+            if (frameData.isHostMode)
+            {
+                m_MetricsHeader.SetNetworkRoleIcon(MetricsHeader.k_IconHostUssClass);
+            }
+            else
+            {
+                var roleIconClass = networkRole == NetworkRole.Server ? MetricsHeader.k_IconServerUssClass : MetricsHeader.k_IconClientUssClass;
+                m_MetricsHeader.SetNetworkRoleIcon(roleIconClass);
+            }
 
             if (!frameData.isValid)
             {
@@ -129,11 +149,18 @@ namespace Unity.NetCode.Editor
 
         void OnProfileCleared()
         {
-            // Clear the views
-            m_FrameOverViewTab.ClearTab();
-            m_GhostSnapshotTab.ClearTab();
-            m_PredictionInterpolationTab.ClearTab();
+            // Clear the header values
             m_MetricsHeader.ClearValues();
+
+            // Clear cached world name and config flags for next capture session
+            m_CachedWorldName = null;
+            m_WorldConfigFlagsCached = false;
+            m_CachedIsHostMode = false;
+            m_CachedHasConnectedClients = false;
+
+            // Reset icon to default based on network role
+            var roleIconClass = m_NetworkRole == NetworkRole.Server ? MetricsHeader.k_IconServerUssClass : MetricsHeader.k_IconClientUssClass;
+            m_MetricsHeader.SetNetworkRoleIcon(roleIconClass);
 
             if (m_UncompressedSizesArrayServer.IsCreated)
                 m_UncompressedSizesArrayServer.Dispose();
@@ -173,36 +200,54 @@ namespace Unity.NetCode.Editor
         }
 
         // Main method to build the relevant netcode frame data based on the selected frame.
-        NetcodeFrameData BuildFrameData(long selectedFrameIndex)
+        internal NetcodeFrameData BuildFrameData(long selectedFrameIndex)
         {
             using (var frameDataView = ProfilerDriver.GetRawFrameDataView((int)selectedFrameIndex, 0))
             {
                 if (frameDataView is not { valid: true })
                 {
-                    return new NetcodeFrameData { isValid = false };
+                    return new NetcodeFrameData
+                    {
+                        isValid = false,
+                        worldName = GetWorldName(frameDataView),
+                        hasWorldMetadata = m_WorldConfigFlagsCached
+                    };
                 }
 
                 // Get the correct GUID to get frame metadata based on the active profiler module
                 var guid = GetGUID();
 
+                // Always try to read world configuration flags (host mode, connected clients)
+                // even when there's no snapshot data, so we can show appropriate info messages
+                var (isHostMode, hasConnectedClients) = GetWorldConfigFlags(frameDataView);
+
+                var invalidNetcodeFrameData = new NetcodeFrameData
+                {
+                    isValid = false,
+                    isHostMode = isHostMode,
+                    hasConnectedClients = hasConnectedClients,
+                    worldName = GetWorldName(frameDataView),
+                    hasWorldMetadata = m_WorldConfigFlagsCached
+                };
+
                 // Get the serialized ghost stats
                 var serializedGhostStatsSnapshot = frameDataView.GetFrameMetaData<byte>(guid, ProfilerMetricsConstants.SerializedGhostStatsSnapshotTag);
                 if (serializedGhostStatsSnapshot.Length == 0)
                 {
-                    return new NetcodeFrameData { isValid = false };
+                    return invalidNetcodeFrameData;
                 }
 
                 // Deserialize the ghost stats
                 var ghostStatsSnapshot = UnsafeGhostStatsSnapshot.FromBlittableData(Allocator.Temp, serializedGhostStatsSnapshot);
                 if (!ghostStatsSnapshot.Tick.IsValid)
                 {
-                    return new NetcodeFrameData { isValid = false };
+                    return invalidNetcodeFrameData;
                 }
 
                 // Check if this tick was sent or received in a previous frame already
                 if (!SnapshotTickMappingSingleton.instance.FrameBelongsToTick((int)selectedFrameIndex, m_NetworkRole, ghostStatsSnapshot.Tick))
                 {
-                    return new NetcodeFrameData { isValid = false };
+                    return invalidNetcodeFrameData;
                 }
 
                 var perGhostTypeStats = ghostStatsSnapshot.PerGhostTypeStatsListRO;
@@ -265,7 +310,11 @@ namespace Unity.NetCode.Editor
                     totalSizeSentByServerInBits = profilerFrameMetaData.ProfilerMetrics.TotalSizeSentByServerInBits,
                     totalSnapshotCountSentByServer = profilerFrameMetaData.ProfilerMetrics.TotalSnapshotCountSentByServer,
                     totalSizeReceivedByClientInBits = profilerFrameMetaData.ProfilerMetrics.TotalSizeReceivedByClientInBits,
-                    totalSnapshotCountReceivedByClient = profilerFrameMetaData.ProfilerMetrics.TotalSnapshotCountReceivedByClient
+                    totalSnapshotCountReceivedByClient = profilerFrameMetaData.ProfilerMetrics.TotalSnapshotCountReceivedByClient,
+                    isHostMode = profilerFrameMetaData.ProfilerMetrics.IsHostMode != 0,
+                    hasConnectedClients = profilerFrameMetaData.ProfilerMetrics.HasConnectedClients != 0,
+                    worldName = GetWorldName(frameDataView),
+                    hasWorldMetadata = true
                 };
 
                 return frameData;
@@ -275,6 +324,95 @@ namespace Unity.NetCode.Editor
         Guid GetGUID()
         {
             return m_NetworkRole == NetworkRole.Server ? ProfilerMetricsConstants.ServerGuid : ProfilerMetricsConstants.ClientGuid;
+        }
+
+        // Helper method that tries to read metadata from current GUID, falling back to server GUID if client.
+        // In single-world host mode, metadata is emitted under server GUID only.
+        bool TryGetMetadata<T>(RawFrameDataView frameDataView, Func<Guid, NativeArray<T>> fetchFunc, out T result) where T : struct
+        {
+            return TryGetMetadata(frameDataView, fetchFunc, out result, out _);
+        }
+
+        // Overload that also reports which GUID was used (true if primary GUID, false if fallback)
+        bool TryGetMetadata<T>(RawFrameDataView frameDataView, Func<Guid, NativeArray<T>> fetchFunc, out T result, out bool usedPrimaryGuid) where T : struct
+        {
+            // Check frameDataView validity before attempting to query metadata
+            // to avoid performance overhead from exceptions and IDE first-chance exception clutter
+            if (frameDataView == null || !frameDataView.valid)
+            {
+                result = default;
+                usedPrimaryGuid = false;
+                return false;
+            }
+
+            // Try primary GUID first
+            var data = fetchFunc(GetGUID());
+            if (data.Length > 0)
+            {
+                result = data[0];
+                usedPrimaryGuid = true;
+                return true;
+            }
+
+            // For client role, try fallback to server GUID for single-world host compatibility
+            if (m_NetworkRole == NetworkRole.Client)
+            {
+                data = fetchFunc(ProfilerMetricsConstants.ServerGuid);
+                if (data.Length > 0)
+                {
+                    result = data[0];
+                    usedPrimaryGuid = false;
+                    return true;
+                }
+            }
+
+            result = default;
+            usedPrimaryGuid = false;
+            return false;
+        }
+
+        // Helper method to safely read world configuration flags from ProfilerMetrics.
+        // Caches the last known values to handle frames where metadata isn't emitted.
+        internal (bool, bool) GetWorldConfigFlags(RawFrameDataView frameDataView)
+        {
+            if (TryGetMetadata(frameDataView, g => frameDataView.GetFrameMetaData<ProfilerMetrics>(g, ProfilerMetricsConstants.ProfilerMetricsTag), out var profilerMetrics, out var usedPrimaryGuid))
+            {
+                // Update cache when we successfully read metadata
+                m_CachedIsHostMode = profilerMetrics.IsHostMode != 0;
+                m_CachedHasConnectedClients = profilerMetrics.HasConnectedClients != 0;
+
+                // Mark world metadata as cached if:
+                // 1. We found it from our primary GUID, OR
+                // 2. We're client module reading from fallback and it's host mode (single-world host)
+                if (usedPrimaryGuid || (m_NetworkRole == NetworkRole.Client && m_CachedIsHostMode))
+                    m_WorldConfigFlagsCached = true;
+
+                return (m_CachedIsHostMode, m_CachedHasConnectedClients);
+            }
+
+            // Use cached values if available (for frames without metadata)
+            if (m_WorldConfigFlagsCached)
+                return (m_CachedIsHostMode, m_CachedHasConnectedClients);
+
+            // No metadata and no cache - return defaults
+            return (false, false);
+        }
+
+        // Helper method to read world name from session metadata.
+        string GetWorldName(RawFrameDataView frameDataView)
+        {
+            if (!string.IsNullOrEmpty(m_CachedWorldName))
+                return m_CachedWorldName;
+
+            if (TryGetMetadata(frameDataView, g => frameDataView.GetSessionMetaData<FixedString128Bytes>(g,
+                        ProfilerMetricsConstants.WorldNameTag), out var worldName))
+            {
+                m_CachedWorldName = worldName.ToString();
+                return m_CachedWorldName;
+            }
+
+            var (isHost, _) = GetWorldConfigFlags(frameDataView);
+            return ProfilerUtils.GetWorldName(m_NetworkRole, isHost);
         }
 
         // Helper methods to build ProfilerGhostTypeData from per-frame emitted profiler data.
@@ -368,6 +506,7 @@ namespace Unity.NetCode.Editor
             var tickData = new TickData
             {
                 tick = ghostStatsSnapshot.Tick,
+                predictionTick = profilerFrameMetaData.ServerTick,
                 interpolationTick = profilerFrameMetaData.InterpolationTick,
                 packetCount = ghostStatsSnapshot.PacketsCount,
                 snapshotCount = ghostStatsSnapshot.SnapshotCount,

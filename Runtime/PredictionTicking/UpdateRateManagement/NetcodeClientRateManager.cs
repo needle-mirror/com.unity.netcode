@@ -1,5 +1,6 @@
 using Unity.Core;
 using Unity.Entities;
+using Unity.NetCode.EntitiesInternalAccess;
 using UnityEngine;
 
 namespace Unity.NetCode
@@ -43,6 +44,7 @@ namespace Unity.NetCode
                 ComponentType.ReadWrite<PreviousServerTick>(),
                 ComponentType.ReadWrite<GhostSnapshotLastBackupTick>());
             group.World.EntityManager.SetName(netTimeEntity, "NetworkTimeSingleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(group.World.EntityManager, netTimeEntity);
 
             m_UnscaledTimeQuery.SetSingleton(new UnscaledClientTime
             {
@@ -54,13 +56,13 @@ namespace Unity.NetCode
             if (m_DidPushTime)
             {
                 if (ClientServerBootstrap.ServerWorld != null)
-                    Netcode.Instance.m_ActiveWorld = ClientServerBootstrap.ServerWorld;
+                    Netcode.Instance.m_ActiveWorld = (NetcodeWorld)ClientServerBootstrap.ServerWorld;
                 group.World.PopTime();
                 m_DidPushTime = false;
                 return false;
             }
 
-            Netcode.Instance.m_ActiveWorld = group.World;
+            Netcode.Instance.m_ActiveWorld = (NetcodeWorld)group.World;
 
             m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();

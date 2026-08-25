@@ -76,6 +76,53 @@
 /*    flex-grow: 1;*/
 /*}*/
 
+/*
+ * Colours below resolve through the custom properties declared in ghost-authoring-vars-dark.uss and
+ * ghost-authoring-vars-light.uss. The drawer adds whichever of those two matches the current skin, so no
+ * colour is picked in C# and the palette is data rather than code.
+ */
+.ghost-inspection-replicated-icon
+{
+    -unity-background-image-tint-color: var(--ghost-inspection-replicated-icon-tint);
+}
+.ghost-inspection-non-replicated-icon
+{
+    -unity-background-image-tint-color: var(--ghost-inspection-non-replicated-icon-tint);
+}
+.ghost-inspection-override-bar
+{
+    background-color: var(--ghost-inspection-override-bar);
+}
+
+/*
+ * The S/IC/PC prefab type toggles. These were inline styles, which beat every USS rule including the default
+ * theme's `.unity-button:hover`. As class rules they no longer do, so the hover and active states are pinned
+ * explicitly to keep the toggle colour stable while the pointer is over it.
+ */
+.ghost-inspection-prefabtype-toggle,
+.ghost-inspection-prefabtype-toggle:hover,
+.ghost-inspection-prefabtype-toggle:active
+{
+    background-color: var(--ghost-inspection-prefabtype-background);
+    color: var(--ghost-inspection-prefabtype-text);
+}
+
+.ghost-inspection-prefabtype-toggle--stripped,
+.ghost-inspection-prefabtype-toggle--stripped:hover,
+.ghost-inspection-prefabtype-toggle--stripped:active
+{
+    background-color: var(--ghost-inspection-prefabtype-background-stripped);
+}
+
+/* Flags a duplicated or otherwise invalid ComponentOverride. */
+.ghost-inspection-broken,
+.ghost-inspection-broken:hover,
+.ghost-inspection-broken:active
+{
+    background-color: var(--ghost-inspection-broken-background);
+    color: var(--ghost-inspection-broken-text);
+}
+
 
 
 

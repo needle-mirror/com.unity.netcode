@@ -27,15 +27,9 @@
         "nunit.framework.dll"
     ],
     "autoReferenced": false,
+    "versionDefines": [],
     "defineConstraints": [
         "UNITY_INCLUDE_TESTS"
-    ],
-    "versionDefines": [
-      {
-        "name": "com.unity.logging",
-        "expression": "0.0",
-        "define": "USING_UNITY_LOGGING"
-      }
     ],
     "noEngineReferences": false
 }

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -326,8 +325,14 @@ namespace Unity.NetCode.Roslyn
         {
             using (new Profiler.Auto("ImplementsInterface"))
             {
-                return typeSymbol.AllInterfaces.Any(i =>
-                    i.ToDisplayString(QualifiedTypeFormat) == interfaceName || i.InheritsFromInterface(interfaceName));
+                foreach (var i in typeSymbol.AllInterfaces)
+                {
+                    if (i.ToDisplayString(QualifiedTypeFormat) == interfaceName || i.InheritsFromInterface(interfaceName))
+                    {
+                        return true;
+                    }
+                }
+                return false;
             }
         }
 
@@ -335,8 +340,14 @@ namespace Unity.NetCode.Roslyn
         {
             using (new Profiler.Auto("ImplementsGenericInterface"))
             {
-                return typeSymbol.AllInterfaces.Any(i =>
-                    i.ToDisplayString(QualifiedTypeFormat).Equals($"{interfaceName}<{typeSymbol.GetFullTypeName()}>"));
+                foreach (var i in typeSymbol.AllInterfaces)
+                {
+                    if (i.ToDisplayString(QualifiedTypeFormat) == $"{interfaceName}<{typeSymbol.GetFullTypeName()}>")
+                    {
+                        return true;
+                    }
+                }
+                return false;
             }
         }
 
@@ -383,6 +394,15 @@ namespace Unity.NetCode.Roslyn
         }
 
 
+        public static string GetGlobalQualifiedTypeName(this ITypeSymbol symbol)
+        {
+            if (symbol == null)
+            {
+                return string.Empty;
+            }
+            return symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        }
+
         public static string GetFullTypeName(this ISymbol symbol)
         {
             if (symbol == null)
@@ -428,7 +448,7 @@ namespace Unity.NetCode.Roslyn
         public static string GetTypeNameWithDeclaringTypename(ISymbol symbol)
         {
             var declaring = new List<string>(3);
-            if (((INamedTypeSymbol)symbol).IsGenericType)
+            if ( symbol is INamedTypeSymbol && ((INamedTypeSymbol)symbol).IsGenericType)
             {
                 var n = new StringBuilder();
                 n.Append(symbol.Name);
@@ -471,42 +491,16 @@ namespace Unity.NetCode.Roslyn
         {
             using (new Profiler.Auto("GetAttribute"))
             {
-                return symbol.GetAttributes().FirstOrDefault(a =>
-                    a.AttributeClass?.Name == attributeName &&
-                    GetFullyQualifiedNamespace(a.AttributeClass) == attributeNamespace);
+                foreach (var a in symbol.GetAttributes())
+                {
+                    if (a.AttributeClass?.Name == attributeName &&
+                        GetFullyQualifiedNamespace(a.AttributeClass) == attributeNamespace)
+                    {
+                        return a;
+                    }
+                }
+                return null;
             }
-        }
-    }
-
-    internal static class SyntaxExtensions
-    {
-        public static bool HasAttribute(this TypeDeclarationSyntax symbol, string attributeName)
-        {
-            return symbol.AttributeLists
-                .SelectMany(list => list.Attributes.Select(a => a.Name.ToString()))
-                .SingleOrDefault(a => a == attributeName) != null;
-        }
-        public static bool AnyAttribute(this TypeDeclarationSyntax symbol, string attributeName)
-        {
-            return symbol.AttributeLists
-                .SelectMany(list => list.Attributes.Select(a => a.Name.ToString()))
-                .SingleOrDefault(a => a == attributeName) != null;
-        }
-        public static string FullyQualifiedName(BaseTypeDeclarationSyntax declarationNode)
-        {
-            var identifiers = new List<string>(32) {declarationNode.Identifier.Text};
-            SyntaxNode node = declarationNode;
-            while (node.Parent != null)
-            {
-                if (node.Parent.IsKind(SyntaxKind.ClassDeclaration) || node.Parent.IsKind(SyntaxKind.StructDeclaration))
-                    identifiers.Add((node.Parent as TypeDeclarationSyntax)?.Identifier.Text);
-                else if (node.Parent.IsKind(SyntaxKind.NamespaceDeclaration))
-                    identifiers.Add((node.Parent as NamespaceDeclarationSyntax)?.Name.ToString());
-
-                node = node.Parent;
-            }
-            identifiers.Reverse();
-            return string.Join(".", identifiers);
         }
     }
 }

@@ -42,9 +42,9 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void ConnectWithMultipleInterfaces()
         {
+            var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true, typeof(CheckConnectionSystem));
@@ -67,7 +67,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick();
 
-                Assert.AreEqual(2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
+                Assert.AreEqual(isHost ? 3 : 2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
                 foreach (var world in testWorld.ClientWorlds)
                     Assert.AreEqual(1, world.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
 
@@ -75,8 +75,8 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick();
 
-                Assert.AreEqual(2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
-                Assert.AreEqual(2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numInGame);
+                Assert.AreEqual(isHost ? 3 : 2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
+                Assert.AreEqual(isHost ? 3 : 2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numInGame);
                 foreach (var world in testWorld.ClientWorlds)
                 {
                     Assert.AreEqual(1, world.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
@@ -86,9 +86,9 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void RpcAreSentAndReceiveByAllClients()
         {
+            var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true,
@@ -96,7 +96,9 @@ namespace Unity.NetCode.Tests
                     typeof(ClientRcpSendSystem),
                     typeof(ServerRpcReceiveSystem),
                     typeof(ClientRpcReceiveSystem),
-                    typeof(NonSerializedRpcCommandRequestSystem));
+                    typeof(NonSerializedRpcCommandRequestSystem),
+                    typeof(NonSerializedRpcCommandRequestSystemToClient)
+                    );
                 testWorld.UseMultipleDrivers = 1;
                 testWorld.CreateWorlds(true, 2);
 
@@ -111,15 +113,18 @@ namespace Unity.NetCode.Tests
 
                 ServerRpcReceiveSystem.ReceivedCount = 0;
                 ServerRpcBroadcastSendSystem.SendCount = 5;
-                ClientRcpSendSystem.SendCount = 5 * testWorld.ClientWorlds.Length;
+                var clientSenderCount = testWorld.ClientWorlds.Length + (isHost ? 1 : 0);
+                ClientRcpSendSystem.SendCount = 5 * clientSenderCount; // since this is a static field, each client decrements it by one each time they execute
 
                 testWorld.GoInGame();
                 for (int i = 0; i < 64; ++i)
                     testWorld.Tick();
 
-                Assert.AreEqual(5 * testWorld.ClientWorlds.Length, ServerRpcReceiveSystem.ReceivedCount);
+                Assert.AreEqual(5 * clientSenderCount, ServerRpcReceiveSystem.ReceivedCount, "server received wrong RPC count");
                 foreach (var world in testWorld.ClientWorlds)
                     Assert.AreEqual(5, world.GetExistingSystemManaged<ClientRpcReceiveSystem>().ReceivedCount);
+                if (isHost)
+                    Assert.AreEqual(5, testWorld.ServerWorld.GetExistingSystemManaged<ClientRpcReceiveSystem>().ReceivedCount, "host's own client role should receive the server broadcast via passthrough");
             }
         }
 

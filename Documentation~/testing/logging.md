@@ -1,6 +1,6 @@
 # Logging
 
-Use the built-in [`NetDebug`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetDebug.html) logging component in Netcode for Entities to modify how much log information is printed.
+Use the built-in [`NetDebug`](xref:Unity.NetCode.NetDebug) logging component in Netcode for Entities to modify how much log information is printed.
 
 You can control general logging messages and ghost snapshot logging separately.
 
@@ -20,7 +20,7 @@ The default logging level is `Notify`, which includes informational messages and
 
 You can also enable detailed log messages about [ghost snapshots](../ghost-snapshots.md) that describe how they're being written to the packets sent over the network. Ghost snapshot logging is quite verbose and expensive, and should therefore be used sparingly (for example, when debugging issues related to ghost replication).
 
-You can enable ghost snapshot logging by adding an [`EnablePacketLogging`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.EnablePacketLogging.html) component to any connection entities you want to debug. One file is created for each connection.
+You can enable ghost snapshot logging by adding an [`EnablePacketLogging`](xref:Unity.NetCode.EnablePacketLogging) component to any connection entities you want to debug. One file is created for each connection.
 
 For example, to add `EnablePacketLogging` to every connection established, you would write this in a system:
 
@@ -66,7 +66,7 @@ You can write custom information to the packet dump using the `EnablePacketLoggi
 You can customize the logging level and enable packet dumping by either:
 
 * Using the [**PlayMode Tools** window](playmode-tool.md) after entering Play mode in the Editor.
-* Adding the [`NetCodeDebugConfigAuthoring`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetCodeDebugConfigAuthoring.html) component to GameObject in a subscene.
+* Adding the [`NetCodeDebugConfigAuthoring`](xref:Unity.NetCode.NetCodeDebugConfigAuthoring) component to GameObject in a subscene.
 
 To debug specific connections, you need to write code that adds the `EnablePacketLogging` component to those specific connections.
 

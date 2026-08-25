@@ -1,5 +1,3 @@
-
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -13,7 +11,7 @@ namespace Unity.NetCode
     /// </summary>
     /// TODO-release@CodeUXOptim We could potentially have code analyzers warning about missing partial on a GhostBehaviour, similar to partial on systems in entities. If we don't it might not be too bad, since users would still get compile errors telling them they need to add the partial keyword
     // TODO-release come back to this, we might not need this
-    [RequireComponent(typeof(GhostAdapter))]
+    [RequireComponent(typeof(GhostObject))]
     // [MultiplayerRoleRestricted]
 #if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
     public
@@ -66,11 +64,19 @@ namespace Unity.NetCode
         /// <summary>
         /// Override this to implement your own prediction logic.
         /// To access current predicted deltaTime, use <see cref="tickedDeltaTime"/>.
-        /// To access other time related information, use <see cref="Netcode.NetworkTime"/>.
+        /// To access other time related information, use <see cref="Netcode.Time"/>.
         /// See "Introduction to Prediction" and other various articles in the manual for more details on prediction.
         /// </summary>
         // Internal Note: if we change the signature of this method, don't forget to update GhostBehaviourSortOrder, it has reflection logic that includes number of parameters and their types
-        public virtual void PredictionUpdate(float tickedDeltaTime) { } // TODO-next@domino after backport PRs: name could be TickedUpdate --> not consistent with PredictionSystemGroup for users that want to switch to ECS flows?
+        public virtual void PredictionUpdate(float tickedDeltaTime) { } // TODO-next@domino after backport PRs: name could be TickedUpdate --> not consistent with PredictionSystemGroup for users that want to switch to ECS flows? Also not great for physics. TickedFixedUpdate? TickedPhysicsUpdate?
+
+        /// <summary>
+        /// Override this to implement predicted logic that interacts with predicted physics.
+        /// </summary>
+        /// <param name="fixedDeltaTime">Delta time for predicted physics.</param>
+        // Internal Note: if we change the signature of this method, don't forget to update GhostBehaviourSortOrder, it has reflection logic that includes number of parameters and their types
+        // TODO-next@domino like above, should update the name for this.
+        public virtual void PredictedPhysicsUpdate(float fixedDeltaTime) { }
 
         /// <summary>
         /// Override this method to gather your inputs for prediction.
@@ -92,37 +98,48 @@ namespace Unity.NetCode
         /// </remarks>
         /// <param name="tickedDeltaTime"></param>
         public virtual void GatherInput(float tickedDeltaTime) { }
-        internal GhostAdapter m_Ghost;
+        internal GhostObject m_Ghost;
 
         /// <summary>
         /// Access to the <see cref="Ghost"/> for this GhostBehaviour. Only valid after the object is fully spawned and initialized.
         /// This is the "bridge" between GameObject and entities and the main point of access for Netcode features.
         /// </summary>
-        // TODO-release with this being public, should it really be named "Adapter"? Using Ghost for now. GhostAdapter feels like it should be named "Ghost" or "GhostInstance" or something like that. EntityBehaviour has "EntityProxy"?
+        // TODO-release with this being public, should it really be named "Adapter"? Using Ghost for now. GhostObject feels like it should be named "Ghost" or "GhostInstance" or something like that. EntityBehaviour has "EntityProxy"?
         // GhostInstance isn't great, since there's a component named like this :(.
         // this way, from a GhostBehaviour, I would call this.Ghost.GhostId for example. "Adapter" doesn't sound "unified", it sounds like it's a "helper" class
         // and not a first class citizen. For GO users, that'll be their main point of access to Netcode features.
-        public GhostAdapter Ghost
+        public GhostObject Ghost
         {
             get
             {
                 if (m_Ghost == null)
                 {
-                    m_Ghost = GetComponent<GhostAdapter>();
+                    m_Ghost = GetComponent<GhostObject>();
                 }
 
                 return m_Ghost;
             }
         }
 
+        private bool m_IsPrefab;
+
         public virtual void Awake()
         {
+            m_IsPrefab = Ghost.IsPrefab();
+            if(m_IsPrefab)
+            {
+                return;
+            }
             // TODO-release with entities integration, this shouldn't be needed anymore, the lifecycle would be controlled by the engine
             Ghost.InternalAcquireEntityReference();
         }
 
         public virtual void OnDestroy()
         {
+            if (m_IsPrefab)
+            {
+                return;
+            }
             Ghost.InternalReleaseEntityReference();
         }
 
@@ -246,6 +263,10 @@ namespace Unity.NetCode
             input = inputBufferData.InternalInput;
             return true;
         }
+
+        internal IEnumerable<ComponentType> GetComponentTypesInternal()
+        {
+            return GetComponentTypes();
+        }
     }
 }
-#endif

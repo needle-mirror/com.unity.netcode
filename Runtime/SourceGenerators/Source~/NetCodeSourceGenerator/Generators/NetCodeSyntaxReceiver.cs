@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -10,11 +9,13 @@ namespace Unity.NetCode.Generators
     {
         readonly public List<SyntaxNode> Variants;
         readonly public List<SyntaxNode> Candidates;
+        readonly public List<SyntaxNode> Remotes;
 
         public NetCodeSyntaxReceiver()
         {
             Variants = new List<SyntaxNode>();
             Candidates = new List<SyntaxNode>();
+            Remotes = new List<SyntaxNode>();
         }
 
         ///<summary>
@@ -39,6 +40,24 @@ namespace Unity.NetCode.Generators
         {
             using (new Profiler.Auto("OnVisitSyntaxNode"))
             {
+                // Functions are allowed if they have the [Remote] attribute
+                if (syntaxNode is MethodDeclarationSyntax methodNode)
+                {
+                    foreach (var list in methodNode.AttributeLists)
+                    {
+                        foreach (var a in list.Attributes)
+                        {
+                            var attr = a.Name.IsKind(SyntaxKind.QualifiedName) ? ((QualifiedNameSyntax)a.Name).Right : a.Name;
+                            if (attr.ToString() is "Remote" or "RemoteAttribute")
+                            {
+                                // Add methods with the Remote attribute for consideration too
+                                Remotes.Add(methodNode);
+                                return;
+                            }
+                        }
+                    }
+                }
+
                 if (!(syntaxNode is StructDeclarationSyntax))
                 {
                     // The node must be either a struct, or a class with a [GhostComponent] attribute
@@ -58,17 +77,24 @@ namespace Unity.NetCode.Generators
                 if(structNode.TypeParameterList != null)
                     return;
 
-                //Check for Variant attributes
-                if (structNode.AttributeLists.Count > 0)
+                //Check for Variant and Remotes attributes
+                foreach (var list in structNode.AttributeLists)
                 {
-                    var attributes = structNode.AttributeLists.SelectMany(list => list.Attributes.Select(a =>
-                            (a.Name.IsKind(SyntaxKind.QualifiedName) ? ((QualifiedNameSyntax) a.Name).Right : a.Name)
-                            .ToString()));
-
-                    if (attributes.Any(attr => attr == "GhostComponentVariation" || attr == "GhostComponentVariationAttribute"))
+                    foreach (var a in list.Attributes)
                     {
-                        Variants.Add(structNode);
-                        return;
+                        var attr = a.Name.IsKind(SyntaxKind.QualifiedName) ? ((QualifiedNameSyntax)a.Name).Right : a.Name;
+                        if (attr.ToString() is "GhostComponentVariation" or "GhostComponentVariationAttribute")
+                        {
+
+                            Variants.Add(structNode);
+                            return;
+                        }
+
+                        if (attr.ToString() is "Remote" or "RemoteAttribute")
+                        {
+                            Remotes.Add(structNode);
+                            return;
+                        }
                     }
                 }
 

@@ -6,6 +6,7 @@ using UnityEngine;
 using Unity.Transforms;
 using Unity.Collections;
 using Unity.Mathematics;
+using Unity.Burst;
 
 namespace Unity.NetCode.Tests
 {
@@ -27,6 +28,18 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    [BurstCompile]
+    internal partial struct IncrementXPositionJob : IJobEntity
+    {
+        public int modifyNetworkId;
+        void Execute(ref LocalTransform trans, in GhostOwner ghostOwner)
+        {
+            if (ghostOwner.NetworkId != modifyNetworkId)
+                    return;
+                trans.Position.x += 1;
+        }
+    }
+
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
@@ -35,12 +48,7 @@ namespace Unity.NetCode.Tests
         public static int s_ModifyNetworkId;
         protected override void OnUpdate()
         {
-            int modifyNetworkId = s_ModifyNetworkId;
-            Entities.ForEach((ref LocalTransform trans, in GhostOwner ghostOwner) => {
-                if (ghostOwner.NetworkId != modifyNetworkId)
-                    return;
-                trans.Position.x += 1;
-            }).ScheduleParallel();
+            new IncrementXPositionJob{ modifyNetworkId=s_ModifyNetworkId }.ScheduleParallel();
         }
     }
 
@@ -64,7 +72,7 @@ namespace Unity.NetCode.Tests
             }
 
             // Connect and make sure the connection could be established
-            testWorld.Connect(maxSteps:16);
+            testWorld.Connect(maxSteps:18);
 
             // Go in-game
             testWorld.GoInGame();
@@ -287,7 +295,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void StaticGhosts_AreResent_AfterRelevancyChanges([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -302,7 +309,7 @@ namespace Unity.NetCode.Tests
                 var serverEntities = serverQuery.ToEntityArray(Allocator.Temp);
                 Assert.AreEqual(16, serverEntities.Length);
                 ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntities[0]).ghostId;
-                var con = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var con = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, con);
                 var connectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(con).Value;
 

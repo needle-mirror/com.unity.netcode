@@ -656,7 +656,8 @@ namespace Unity.NetCode.Tests.PrespawnTests
             Assert.AreEqual(VerifyGhostIds.GhostsPerScene, clientPrespawned, "Didn't find expected amount of prespawned entities in the client subscene");
             Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
             Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
-            Assert.AreEqual(testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick.TickValue, testWorld.GetNetworkTime(testWorld.ServerWorld).InterpolationTick.TickValue, "ServerTick is not equal to InterpolationTick on server world");
+            if(!testWorld.ServerWorld.IsHost()) // On Host Worlds, InterpolationTick is one behind, due to ghost smoothing.
+                Assert.AreEqual(testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick.TickValue, testWorld.GetNetworkTime(testWorld.ServerWorld).InterpolationTick.TickValue, "ServerTick is not equal to InterpolationTick on server world");
 
             // Modify some:
             const int numToModify = 10;
@@ -727,7 +728,6 @@ namespace Unity.NetCode.Tests.PrespawnTests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void PrespawnsCanGetRelevantAgain()
         {
             int rows = 5;
@@ -756,10 +756,11 @@ namespace Unity.NetCode.Tests.PrespawnTests
                 var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(
                     ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 var ghostComponents = query.ToComponentDataArray<GhostInstance>(Allocator.Temp);
+                var remoteClientId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
                 for (int i = 0; i < ghostComponents.Length; ++i)
                 {
                     var ghostId = ghostComponents[i].ghostId;
-                    relevancySet.Add(new RelevantGhostForConnection(1, ghostId), 1);
+                    relevancySet.Add(new RelevantGhostForConnection(remoteClientId, ghostId), 1);
                 }
 
                 for(int i=0;i<16;++i)
@@ -924,7 +925,7 @@ namespace Unity.NetCode.Tests.PrespawnTests
             using var clientConnectionToServer = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
             var clientNetworkDriver = driverQuery.GetSingleton<NetworkStreamDriver>();
             testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
-            clientNetworkDriver.DriverStore.Disconnect(clientConnectionToServer.GetSingleton<NetworkStreamConnection>());
+            clientNetworkDriver.Disconnect(clientConnectionToServer.GetSingleton<NetworkStreamConnection>());
 
             for (int i = 0; i < 4; i++)
                 testWorld.Tick();
@@ -1041,6 +1042,76 @@ namespace Unity.NetCode.Tests.PrespawnTests
             // test that prespawned ghosts are spawned correctly
             Assert.That(testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(LocalTransform)).CalculateEntityCount(), Is.EqualTo(4));
             Assert.That(testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(LocalTransform)).CalculateEntityCount(), Is.EqualTo(4));
+        }
+
+        [Test, Description("The hypothesis was that static-optimized prespawns would not correctly recognise that they need to undo an unacked change they sent. The hypothesis turned out to be false, but keeping the test around.")]
+        public void EnableBitOnPrespawn_TogglingEnabledBit_ReplicatesThroughTotalPacketLossWindow()
+        {
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent), typeof(NetCodePrespawnAuthoring));
+            ghost.GetComponent<GhostAuthoringComponent>().OptimizationMode = GhostOptimizationMode.Static;
+            PrefabUtility.SavePrefabAsset(ghost);
+
+            var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "Scene1");
+            SubSceneHelper.CreateSubSceneWithPrefabs(parentScene, ScenePath, "SubScene1", new[] { ghost }, 1);
+
+            using var testWorld = new NetCodeTestWorld();
+            // Sentinel non-zero so the simulator pipeline stage gets installed at world creation.
+            testWorld.DriverSimulatedDelay = 10;
+            testWorld.Bootstrap(true);
+            testWorld.CreateWorlds(true, 1);
+            SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            for (int i = 0; i < 8; ++i)
+                testWorld.Tick();
+
+            var serverEntity = QueryPrespawnGhostEntity(testWorld.ServerWorld);
+            var clientEntity = QueryPrespawnGhostEntity(testWorld.ClientWorlds[0]);
+
+            // Toggle to enabled, then drop everything for a window covering both the toggle-on send
+            // and the subsequent toggle-back-to-baseline. After the window closes, the snapshot
+            // pipeline should resync the client to the baseline state.
+            testWorld.ServerWorld.EntityManager.SetComponentEnabled<TestComponent1>(serverEntity, true);
+            testWorld.SetPacketDropPercentForWorld(testWorld.ClientWorlds[0], 100);
+            for (int i = 0; i < 32; ++i)
+                testWorld.Tick();
+
+            testWorld.ServerWorld.EntityManager.SetComponentEnabled<TestComponent1>(serverEntity, false);
+            for (int i = 0; i < 5; ++i)
+                testWorld.Tick();
+
+            testWorld.SetPacketDropPercentForWorld(testWorld.ClientWorlds[0], 0);
+            for (int i = 0; i < 5; ++i)
+                testWorld.Tick();
+            Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager.IsComponentEnabled<TestComponent1>(clientEntity),
+                "After the 100% packet-loss window closes, the client should converge to the server's current (baseline-disabled) state.");
+
+            // Finally: Toggle back on, ensure sent.
+            testWorld.ServerWorld.EntityManager.SetComponentEnabled<TestComponent1>(serverEntity, true);
+            for (int i = 0; i < 5; ++i)
+                testWorld.Tick();
+            Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.IsComponentEnabled<TestComponent1>(clientEntity),
+                "Toggled back to true - the client should converge to the server's latest state.");
+        }
+
+        private static Entity QueryPrespawnGhostEntity(World world)
+        {
+            // TestComponent1 is baked with its enable bit OFF, and prespawn entities can carry the
+            // Disabled tag depending on activation timing. Both options are needed to find the entity
+            // in any state.
+            using var query = world.EntityManager.CreateEntityQuery(new EntityQueryDesc
+            {
+                All = new[]
+                {
+                    ComponentType.ReadOnly<TestComponent1>(),
+                    ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
+                },
+                Options = EntityQueryOptions.IgnoreComponentEnabledState | EntityQueryOptions.IncludeDisabledEntities,
+            });
+            using var entities = query.ToEntityArray(Allocator.Temp);
+            Assert.AreEqual(1, entities.Length, $"Expected exactly one prespawn entity in {world.Name}.");
+            return entities[0];
         }
     }
 }

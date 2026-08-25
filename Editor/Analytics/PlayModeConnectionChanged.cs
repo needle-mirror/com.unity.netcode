@@ -25,24 +25,16 @@ namespace Unity.NetCode.Editor.Analytics
     }
 
     [Serializable]
-#if UNITY_2023_2_OR_NEWER
     internal struct PlayModeConnectionChangedData : IAnalytic.IData
-#else
-    internal struct PlayModeConnectionChangedData
-#endif
     {
         public string operation;
         public string targetWorld;
     }
 
-#if UNITY_2023_2_OR_NEWER
     // Schema: com.unity3d.data.schemas.editor.analytics.n4eToolsPlayModeConnectionChanged_v1
     // Taxonomy: editor.analytics.n4eToolsPlayModeConnectionChanged.v1
     [AnalyticInfo(eventName: "n4eToolsPlayModeConnectionChanged", vendorKey: "unity.netcode", version:1, maxEventsPerHour: 1000)]
     internal class PlayModeConnectionChangedAnalytic : IAnalytic
-#else
-    internal class PlayModeConnectionChangedAnalytic
-#endif
     {
         public PlayModeConnectionChangedAnalytic(Operation operation, TargetWorld targetWorld)
         {
@@ -74,14 +66,12 @@ namespace Unity.NetCode.Editor.Analytics
             }
         }
 
-#if UNITY_2023_2_OR_NEWER
         public bool TryGatherData(out IAnalytic.IData data, out Exception error)
         {
             error = null;
             data = m_Data;
             return data != null;
         }
-#endif
 
         private PlayModeConnectionChangedData m_Data;
     }

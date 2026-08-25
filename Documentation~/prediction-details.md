@@ -12,9 +12,8 @@ However, when receiving [partial snapshots](ghost-snapshots.md#partial-snapshots
 
 - This does not rollback to infinity: Netcode will clamp the rollback to the input queue size (currently a const set to 64).
 - The impact of partial snapshots is less noticeable for interpolated ghosts. Interpolated ghosts are queued and buffered over x milliseconds, as defined by `ClientTickRate.InterpolationTimeMs`, or frames, defined by `ClientTickRate.InterpolationTimeNetTicks`, to resist jitter. So it's likely that C and D would be updated at the same time client-side, if interpolated, since C's value would be delayed by that buffer, giving time for D's value to arrive.
-- Despawns behave differently: ghost despawns are always sent immediately, regardless of the ghost priority. And, unless there are lots of them (about 100), the despawn events for the same tick are usually sent together. In the Asteroids sample, the bullet and the asteroid are destroyed on the server at the same tick, and very likely applied together on the clients.
 
-You can artificially test partial snapshots by setting the `GhostSendSystemData.MaxSendChunks=1` singleton, which forces sending one chunk at a time.
+You can artificially test partial snapshots via setting small **MaxSendRate** values on your ghost prefab(s).
 
 [See predicted spawn issue for similar explanation diagrams](#predicted-spawn-interactions-with-other-predicted-ghosts).
 
@@ -33,6 +32,8 @@ This means if your ghost B (rolled back) interacts with your ghost C (not rolled
 
 ### Possible mitigations
 
+- Enable [`ClientTickRate.AlwaysRollbackAllPredictedGhosts`](xref:Unity.NetCode.ClientTickRate.AlwaysRollbackAllPredictedGhosts).
+  - This client-side setting (off by default) is the direct fix for this class of misprediction: whenever any predicted ghost rolls back, every predicted ghost rolls back to the same tick and re-simulates together, so interacting ghosts always share a consistent timeline. The cost is CPU and memory: every predicted ghost re-simulates on every rollback (CPU grows roughly linearly with predicted ghost count), and Netcode retains a multi-tick ring of per-chunk prediction-history backups (sized to the worst-case rollback distance) instead of a single backup. Prefer it when correct inter-ghost interactions matter more than prediction cost; the remaining mitigations are useful when you can't afford that cost.
 - Use [client anticipation](https://docs-multiplayer.unity3d.com/netcode/current/learn/dealing-with-latency/#action-anticipation) instead of prediction.
   - Instead of an action starting instantly, the client waits for the server's confirmation before performing the action (and plays some animation/sound to hide the lag). For example, if a player is the ghost A in the example above and the ball to pickup is the ghost C, then predicting the ball pickup could take an unexpected amount of time to correct if the ball's state arrives only later.
     - This is just an example. In real life, having the player nearby, if correctly prioritized, is most likely going to receive the ball very soon, if not already in the current partial snapshot.
@@ -47,7 +48,7 @@ This means if your ghost B (rolled back) interacts with your ghost C (not rolled
   - Use the `Simulate` tag in your entity queries to filter for entities to interact with.
   - With this, A and B could only interact together and ignore C and D. This mitigation still produces mispredictions. It depends on your gameplay to see if corrections are more visible if you interact with a frozen ghost or skip it entirely.
 
-In summary, this is a situation where mispredictions are unavoidable. Your goal is to hide corrections as much as possible so your player's experience is not too affected, while making sure you eventually converge to a correct state.
+In summary, unless you enable `AlwaysRollbackAllPredictedGhosts`, this is a situation where mispredictions are unavoidable. Your goal is to hide corrections as much as possible so your player's experience is not too affected, while making sure you eventually converge to a correct state.
 
 ## Predicted spawn interactions with other predicted ghosts
 

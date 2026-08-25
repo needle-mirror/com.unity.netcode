@@ -75,7 +75,7 @@ namespace Unity.NetCode
             /// <summary>
             /// A temporary backup world, constructed when the driver state is saved. See <see cref="DriverMigrationSystem.StoreWorld"/>.
             /// </summary>
-            public World BackupWorld;
+            public NetcodeWorld BackupWorld;
         }
 
         private Dictionary<int, WorldState> driverMap;
@@ -108,7 +108,7 @@ namespace Unity.NetCode
             Store(driverSingleton.StoreMigrationState(), ticket);
 
             using var filter = sourceWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
-            var backupWorld = new World(sourceWorld.Name, sourceWorld.Flags);
+            var backupWorld = new NetcodeWorld(sourceWorld.Name, sourceWorld.Flags);
 
             backupWorld.EntityManager.MoveEntitiesFrom(sourceWorld.EntityManager, filter);
 

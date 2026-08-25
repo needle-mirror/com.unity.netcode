@@ -6,6 +6,7 @@ namespace Unity.NetCode
     {
         private EntityQuery m_NetworkTimeQuery;
         private EntityQuery m_ClientServerTickRateQuery;
+        private EntityQuery m_ClientTickRateQuery;
         private TickRateManagerStrategy m_Runner;
         private NetcodeTimeTracker m_TimeTracker;
 
@@ -19,6 +20,7 @@ namespace Unity.NetCode
         {
             m_NetworkTimeQuery = group.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkTime>());
             m_ClientServerTickRateQuery = group.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<ClientServerTickRate>());
+            m_ClientTickRateQuery = group.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<ClientTickRate>());
             m_TimeTracker = timeTracker;
             m_Runner = new RunMultiple() { ShouldRunFirstTime = ShouldRun, ShouldContinueRun = ShouldRun, OnEnterSystemGroup = OnEnterPredictionLoopForFirstTime, OnExitSystemGroup = OnExitPredictionLoop,  OnSubsequentRuns = OnSubsequentLoops};
         }
@@ -33,6 +35,7 @@ namespace Unity.NetCode
         void OnEnterPredictionLoopForFirstTime(ComponentSystemGroup group)
         {
             ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
+            networkTime.PredictedTickIndex++;
             m_ClientServerTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();
 
@@ -48,6 +51,7 @@ namespace Unity.NetCode
         void OnSubsequentLoops(ComponentSystemGroup group)
         {
             ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
+            networkTime.PredictedTickIndex++;
             m_ClientServerTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();
 
@@ -61,10 +65,16 @@ namespace Unity.NetCode
         void OnExitPredictionLoop(ComponentSystemGroup group)
         {
             ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
+            m_ClientServerTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
+            tickRate.ResolveDefaults();
+            if (!m_ClientTickRateQuery.TryGetSingleton<ClientTickRate>(out var clientTickRate))
+                clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
 
             m_TimeTracker.PopTime(group);
             // Reset all the prediction flags. They are not valid outside the prediction loop
             networkTime.Flags &= ~k_ServerPredictionFlags;
+
+            NetcodeHostRateManager.UpdateHostInterpolation(ref networkTime, tickRate, clientTickRate, m_TimeTracker);
         }
 
         public bool ShouldGroupUpdate(ComponentSystemGroup group)

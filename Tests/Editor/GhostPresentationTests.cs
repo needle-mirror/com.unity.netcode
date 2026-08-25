@@ -83,8 +83,8 @@ namespace Unity.NetCode.Tests
                     Assert.IsTrue(testWorld.ServerWorld.EntityManager.HasComponent<GhostPresentationGameObjectPrefabReference>(entity));
                     var prefabReference = testWorld.ServerWorld.EntityManager.GetComponentData<GhostPresentationGameObjectPrefabReference>(entity);
                     Assert.AreNotEqual(Entity.Null, prefabReference.Prefab);
-                    Assert.IsTrue(testWorld.ServerWorld.EntityManager.HasComponent<GhostPresentationGameObjectPrefab>(prefabReference.Prefab));
-                    Assert.AreEqual(cube, testWorld.ServerWorld.EntityManager.GetComponentObject<GhostPresentationGameObjectPrefab>(prefabReference.Prefab).Server);
+                    Assert.IsTrue(testWorld.ServerWorld.EntityManager.HasComponent<UnmanagedGhostPresentationGameObjectPrefab>(prefabReference.Prefab));
+                    Assert.AreEqual(cube, testWorld.ServerWorld.EntityManager.GetComponentData<UnmanagedGhostPresentationGameObjectPrefab>(prefabReference.Prefab).Server.Value);
                     testWorld.Tick();
                     //the server should now add the cleanup to track the object and a gameobject should have been spawned
                     Assert.IsTrue(testWorld.ServerWorld.EntityManager.HasComponent<GhostPresentationGameObjectState>(entity));
@@ -105,8 +105,8 @@ namespace Unity.NetCode.Tests
                     Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<GhostPresentationGameObjectPrefabReference>(clientEntity));
                     var prefabReference = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostPresentationGameObjectPrefabReference>(clientEntity);
                     Assert.AreNotEqual(Entity.Null, prefabReference.Prefab);
-                    Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<GhostPresentationGameObjectPrefab>(prefabReference.Prefab));
-                    Assert.AreEqual(cube, testWorld.ClientWorlds[0].EntityManager.GetComponentObject<GhostPresentationGameObjectPrefab>(prefabReference.Prefab).Client);
+                    Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<UnmanagedGhostPresentationGameObjectPrefab>(prefabReference.Prefab));
+                    Assert.AreEqual(cube, testWorld.ClientWorlds[0].EntityManager.GetComponentData<UnmanagedGhostPresentationGameObjectPrefab>(prefabReference.Prefab).Client.Value);
                     var clientGameObject = testWorld.ClientWorlds[0].GetExistingSystemManaged<GhostPresentationGameObjectSystem>().GetGameObjectForEntity(testWorld.ClientWorlds[0].EntityManager, clientEntity);
                     Assert.IsNotNull(clientGameObject);
                 }

@@ -15,11 +15,9 @@ namespace Unity.NetCode.Editor
         internal PredictionInterpolationTab(NetworkRole networkRole)
             : base("Prediction and Interpolation", networkRole)
         {
+            // For server, the ServerOnlyInfoTextProvider registered in RegisterInfoTextProviders() will handle the message
             if (m_NetworkRole == NetworkRole.Server)
             {
-                var infoLabel = new Label("Prediction and Interpolation stats are not available for the Server.\n" +
-                    "Only Clients can use prediction to manage latency and improve responsiveness.");
-                Add(infoLabel);
                 return;
             }
 
@@ -55,6 +53,9 @@ namespace Unity.NetCode.Editor
 
             m_ListView ??= CreatePredictionInterpolationListView(networkRolePrefix + nameof(PredictionInterpolationTab) + "TreeView");
             Add(m_ListView);
+
+            // Register elements that should be hidden when info text is displayed
+            RegisterDataElements(m_SearchField, m_ListView, m_InterpolationDataTabHeaderVertical, m_TickDataTabHeaderVertical);
         }
 
         void FilterListView(ChangeEvent<string> evt)
@@ -102,6 +103,15 @@ namespace Unity.NetCode.Editor
             return listView;
         }
 
+        protected override void RegisterInfoTextProviders()
+        {
+            // Register server-only provider first (always shows for server)
+            m_InfoTextManager.RegisterProvider(new ServerOnlyInfoTextProvider(m_NetworkRole));
+
+            // Call base to register default providers
+            base.RegisterInfoTextProviders();
+        }
+
         static int CompareErrorValueCells(int a, int b, MultiColumnListView listView)
         {
             var dataA = (PredictionErrorData)listView.itemsSource[a];
@@ -126,21 +136,16 @@ namespace Unity.NetCode.Editor
             ((Label)element).text = ((PredictionErrorData)listView.itemsSource[index]).name.ToString();
         }
 
-        internal void ClearTab()
-        {
-            ShowNoDataInfoLabel(true);
-        }
-
         internal void Update(NetcodeFrameData frameData)
         {
+            // Update info text (automatically manages data element visibility)
+            UpdateInfoText(frameData);
+
             if (m_NetworkRole == NetworkRole.Server)
                 return;
 
             // No data received for this frame
-            var noData = !frameData.isValid;
-
-            ShowNoDataInfoLabel(noData);
-            if (noData) return;
+            if (!frameData.isValid) return;
 
             if (frameData.tickData.Length == 0)
                 return;
@@ -148,7 +153,7 @@ namespace Unity.NetCode.Editor
             var timeScale = frameData.tickData[0].timeScale.ToString();
             var interpolationDelay = frameData.tickData[0].interpolationDelay.ToString();
             var interpolationScale = frameData.tickData[0].interpolationScale.ToString();
-            var clientPredictionTick = frameData.tickData[0].tick.ToString();
+            var clientPredictionTick = frameData.tickData[0].predictionTick.ToString();
             var interpolationTick = frameData.tickData[0].interpolationTick.ToString();
 
             m_InterpolationDataTabHeaderVertical.SetText(0, timeScale != "0" ? timeScale : "-");
@@ -173,15 +178,6 @@ namespace Unity.NetCode.Editor
             filteredList.Sort((a, b) => b.errorValue.CompareTo(a.errorValue));
             m_ListView.itemsSource = filteredList;
             m_ListView.RefreshItems();
-        }
-
-        void ShowNoDataInfoLabel(bool noData)
-        {
-            if (m_SearchField != null) m_SearchField.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
-            if (m_ListView != null) m_ListView.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
-            if (m_InterpolationDataTabHeaderVertical != null) m_InterpolationDataTabHeaderVertical.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
-            if (m_TickDataTabHeaderVertical != null) m_TickDataTabHeaderVertical.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
-            if (m_NoDataInfoLabels != null) m_NoDataInfoLabels.style.display = noData ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         List<PredictionErrorData> FilterPredictionErrorDataList(string filterText)

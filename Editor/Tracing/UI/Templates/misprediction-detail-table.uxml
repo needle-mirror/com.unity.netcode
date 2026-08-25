@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<engine:UXML
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:engine="UnityEngine.UIElements"
+    xmlns:editor="UnityEditor.UIElements"
+    xsi:noNamespaceSchemaLocation="../../../../../UIElementsSchema/UIElements.xsd">
+
+    <engine:VisualElement class="tick-inspector__misprediction-table">
+
+        <engine:VisualElement class="tick-inspector__misprediction-table-header">
+            <engine:Label text="Predicted Tick" class="tick-inspector__misprediction-table-column" />
+            <engine:Label text="Server Authority" class="tick-inspector__misprediction-table-column tick-inspector__misprediction-table-column--right" />
+        </engine:VisualElement>
+
+        <engine:VisualElement class="tick-inspector__misprediction-table-row">
+            <engine:VisualElement class="tick-inspector__misprediction-table-cell">
+                <engine:VisualElement name="before-client-fields" class="tick-inspector__misprediction-table-fields" />
+                <engine:Label text="Before" class="tick-inspector__misprediction-table-side-label" />
+            </engine:VisualElement>
+            <engine:VisualElement class="tick-inspector__misprediction-table-cell tick-inspector__misprediction-table-cell--right">
+                <engine:VisualElement name="before-server-fields" class="tick-inspector__misprediction-table-fields" />
+                <engine:Label text="Before" class="tick-inspector__misprediction-table-side-label" />
+            </engine:VisualElement>
+        </engine:VisualElement>
+
+        <engine:VisualElement class="tick-inspector__misprediction-table-row">
+            <engine:VisualElement class="tick-inspector__misprediction-table-cell">
+                <engine:VisualElement name="after-client-fields" class="tick-inspector__misprediction-table-fields" />
+                <engine:Label text="After" class="tick-inspector__misprediction-table-side-label" />
+            </engine:VisualElement>
+            <engine:VisualElement class="tick-inspector__misprediction-table-cell tick-inspector__misprediction-table-cell--right">
+                <engine:VisualElement name="after-server-fields" class="tick-inspector__misprediction-table-fields" />
+                <engine:Label text="After" class="tick-inspector__misprediction-table-side-label" />
+            </engine:VisualElement>
+        </engine:VisualElement>
+
+    </engine:VisualElement>
+</engine:UXML>

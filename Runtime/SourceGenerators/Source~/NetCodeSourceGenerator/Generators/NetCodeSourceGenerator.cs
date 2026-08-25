@@ -1,9 +1,13 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 using Microsoft.CodeAnalysis.Text;
+using static Unity.NetCode.Generators.NetCodeSourceGenerator;
 
 namespace Unity.NetCode.Generators
 {
@@ -34,7 +38,7 @@ namespace Unity.NetCode.Generators
         /// </summary>
         public const string WriteLogsToDisk = "unity.netcode.sourcegenerator.write_logs_to_disk";
         /// <summary>
-        /// The minimal log level. Available: Debug, Warning, Error, Info. Default is Info.
+        /// The minimal log level. Available: Debug, Warning, Error. Default is error. (NOT SUPPORTED YET)
         /// </summary>
         public const string LoggingLevel = "unity.netcode.sourcegenerator.logging_level";
         /// <summary>
@@ -89,6 +93,7 @@ namespace Unity.NetCode.Generators
             public List<SyntaxNode> Inputs;
             public List<SyntaxNode> Variants;
             public List<SyntaxNode> GhostBehaviours;
+            public List<SyntaxNode> Remotes;
         }
 
         public const string NETCODE_ADDITIONAL_FILE = ".NetCodeSourceGenerator.additionalfile";
@@ -107,10 +112,18 @@ namespace Unity.NetCode.Generators
         static bool ShouldRunGenerator(GeneratorExecutionContext executionContext)
         {
             //Skip running if no references to netcode are passed to the compilation
-            return executionContext.Compilation.Assembly.Name.StartsWith("Unity.NetCode", StringComparison.Ordinal) ||
-                   executionContext.Compilation.ReferencedAssemblyNames.Any(r=>
-                       r.Name.Equals("Unity.NetCode", StringComparison.Ordinal) ||
-                       r.Name.Equals("Unity.NetCode.ref", StringComparison.Ordinal));
+            if (executionContext.Compilation.Assembly.Name.StartsWith("Unity.NetCode", StringComparison.Ordinal))
+            {
+                return true;
+            }
+            foreach (var assemblyName in executionContext.Compilation.ReferencedAssemblyNames)
+            {
+                if (assemblyName.Name is "Unity.NetCode" or "Unity.NetCode.ref")
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -152,7 +165,7 @@ namespace Unity.NetCode.Generators
             //Try to dispatch any unknown candidates to the right array by checking what interface the struct is implementing
             var receiver = (NetCodeSyntaxReceiver)executionContext.SyntaxReceiver;
             var candidates = ResolveCandidates(executionContext, receiver, diagnostic);
-            var totalCandidates = candidates.Rpcs.Count + candidates.Commands.Count + candidates.Components.Count + candidates.Variants.Count + candidates.Inputs.Count + candidates.GhostBehaviours.Count;
+            var totalCandidates = candidates.Rpcs.Count + candidates.Commands.Count + candidates.Components.Count + candidates.Variants.Count + candidates.Inputs.Count + candidates.GhostBehaviours.Count + candidates.Remotes.Count;
             if (totalCandidates == 0)
                 return;
 
@@ -176,7 +189,11 @@ namespace Unity.NetCode.Generators
                 // Generate serializers for rpcs and commands
                 using(new Profiler.Auto("CommandsGeneration"))
                     CommandFactory.Generate(candidates.Commands, codeGenerationContext);
-                using(new Profiler.Auto("RpcGeneration"))
+                // Generate Remotes
+                using (new Profiler.Auto("RemotesGeneration"))
+                    RemotesFactory.Generate(candidates.Remotes, codeGenerationContext);
+                // Generate the RPCs we must do this after the remotes so the IRpcCommands for the remotes have been generated
+                using (new Profiler.Auto("RpcGeneration"))
                     RpcFactory.Generate(candidates.Rpcs, codeGenerationContext);
 
             }
@@ -185,7 +202,7 @@ namespace Unity.NetCode.Generators
                 if(!executionContext.GetOptionsFlag(GlobalOptions.DisableRerencesChecks))
                 {
                     //Make sure the assembly has the right references and treat them as a fatal error
-                    var missingReferences = new HashSet<string>{"Unity.Collections", "Unity.Burst"};
+                    var missingReferences = new HashSet<string>{"Unity.Collections", "UnityEngine.BurstModule"};
                     var hasMathematics = false;
                     foreach (var r in executionContext.Compilation.ReferencedAssemblyNames)
                     {
@@ -223,6 +240,8 @@ namespace Unity.NetCode.Generators
                 CodeGenerator.GhostFixedListContainer,
                 CodeGenerator.GhostFixedListCommandHelper,
                 CodeGenerator.GhostFixedListSnapshotHelpers,
+                CodeGenerator.RemoteSynchronization,
+                CodeGenerator.RemotesRegistrationSystem, 
             };
 
             List<TypeRegistryEntry> allFieldTemplates = new List<TypeRegistryEntry>(DefaultTypes.Registry);
@@ -253,7 +272,40 @@ namespace Unity.NetCode.Generators
                 Inputs = new List<SyntaxNode>(),
                 Variants = receiver.Variants,
                 GhostBehaviours = new List<SyntaxNode>(),
+                Remotes = receiver.Remotes,
             };
+
+            // check the remote candidates that are method nodes who have the remote attribute have the right one `Unity.NetCode.Remotes`
+            for (int i = candidates.Remotes.Count - 1; i >= 0; i--)
+            {
+                var remote = candidates.Remotes[i];
+                bool keep = false;
+
+                if (remote is MethodDeclarationSyntax methodNode)
+                {
+                    foreach (var list in methodNode.AttributeLists)
+                    {
+                        foreach (var a in list.Attributes)
+                        {
+                            var attr = a.Name.IsKind(SyntaxKind.QualifiedName) ? ((QualifiedNameSyntax)a.Name).Right : a.Name;
+                            if (attr.ToString() is "Remote" or "RemoteAttribute")
+                            {
+                                var symbolModel = executionContext.Compilation.GetSemanticModel(remote.SyntaxTree);
+                                var type = (symbolModel.GetSymbolInfo(attr).Symbol as IMethodSymbol)?.ContainingType;
+                                keep = type?.ToDisplayString() == "Unity.NetCode.RemoteAttribute";
+                            }
+                        }
+                    }
+
+                    if (!keep)
+                    {
+                        candidates.Remotes.RemoveAt(i);
+                    }
+                }                
+            }
+
+            // all remotes are also RPCs
+            candidates.Rpcs.AddRange(candidates.Remotes);
 
             foreach (var candidate in receiver.Candidates)
             {
@@ -261,13 +313,13 @@ namespace Unity.NetCode.Generators
 
                 var symbolModel = executionContext.Compilation.GetSemanticModel(candidate.SyntaxTree);
                 var candidateSymbol = symbolModel.GetDeclaredSymbol(candidate) as ITypeSymbol;
-                var allComponentTypes = Roslyn.Extensions.GetAllComponentType(candidateSymbol).ToArray();
+                var allComponentTypes = new List<ComponentType>(Roslyn.Extensions.GetAllComponentType(candidateSymbol));
                 //No valid/known interfaces
-                if (allComponentTypes.Length == 0)
+                if (allComponentTypes.Count == 0)
                     continue;
 
                 //The struct is implementing more than one valid interface. Report the error/warning and skip the code-generation
-                if (allComponentTypes.Length > 1)
+                if (allComponentTypes.Count > 1)
                 {
                     diagnostic.LogError(
                         $"struct {Roslyn.Extensions.GetFullTypeName(candidateSymbol)} cannot implement {string.Join(",", allComponentTypes)} interfaces at the same time",
@@ -279,11 +331,7 @@ namespace Unity.NetCode.Generators
                     case ComponentType.Unknown:
                         break;
                     case ComponentType.Component:
-                        candidates.Components.Add(candidate);
-                        break;
                     case ComponentType.HybridComponent:
-                        candidates.Components.Add(candidate);
-                        break;
                     case ComponentType.Buffer:
                         candidates.Components.Add(candidate);
                         break;

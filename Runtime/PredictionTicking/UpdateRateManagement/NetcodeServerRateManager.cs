@@ -40,6 +40,7 @@ namespace Unity.NetCode
             var updateCountThisFrame = TimeTracker.RefreshUpdateCount(group.World.Time.DeltaTime, tickRate.SimulationFixedTimeStep, tickRate.MaxSimulationStepsPerFrame, tickRate.MaxSimulationStepBatchSize);
 
             networkTime.NumPredictedTicksExpected = updateCountThisFrame.TotalSteps;
+            networkTime.PredictedTickIndex = 0;
             var shouldRun = TimeTracker.InitializeNetworkTimeForFrame(group, tickRate, updateCountThisFrame);
             return shouldRun;
         }
@@ -51,8 +52,9 @@ namespace Unity.NetCode
 
         void OnEnterServerFrame(ComponentSystemGroup group)
         {
-            Netcode.Instance.m_ActiveWorld = group.World;
+            Netcode.Instance.m_ActiveWorld = (NetcodeWorld)group.World;
             ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
+            networkTime.PredictedTickIndex++;
             m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();
 
@@ -66,6 +68,7 @@ namespace Unity.NetCode
         void OnSubsequentRuns(ComponentSystemGroup group)
         {
             ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
+            networkTime.PredictedTickIndex++;
             m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();
 
@@ -82,8 +85,6 @@ namespace Unity.NetCode
         {
             // To stay consistent with previous server logic, pushing and popping time in server group
             TimeTracker.PopTime(group);
-            ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
-            networkTime.NumPredictedTicksExpected = 0;
         }
 
         /// <summary>

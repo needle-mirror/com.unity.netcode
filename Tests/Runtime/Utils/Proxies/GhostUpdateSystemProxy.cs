@@ -27,7 +27,7 @@ namespace Unity.NetCode.Tests
                 Assertions.Assert.IsTrue(World.IsThinClient());
                 return;
             }
-            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostUpdateSystem>();
+            ref var unmanagedSystem = ref World.Unmanaged.GetExistingSystemState<GhostUpdateSystem>();
             unmanagedSystem.Enabled = false;
 
             k_CompleteTrackedJobs.Begin();

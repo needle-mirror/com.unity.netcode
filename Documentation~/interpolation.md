@@ -14,7 +14,7 @@ If the client renders at the same rate as the simulation rate, then the client i
 
 ### Waypoint pathing
 
-Waypoint pathing is specific form of movement (playback) where an entity linearly interpolates between nodes `A`, `B`, and `C` by traveling first from `A` to `B`, then from `B` to `C`. In Netcode for Entities, each waypoint node is a received snapshot. The more snapshots received, the more accurate the interpolated ghost playback is. This is set using [`ClientTickRate.InterpolationTimeMS`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_InterpolationTimeMS), which defines how large the [interpolation buffer](#buffered-interpolation) should be.
+Waypoint pathing is specific form of movement (playback) where an entity linearly interpolates between nodes `A`, `B`, and `C` by traveling first from `A` to `B`, then from `B` to `C`. In Netcode for Entities, each waypoint node is a received snapshot. The more snapshots received, the more accurate the interpolated ghost playback is. This is set using [`ClientTickRate.InterpolationTimeMS`](xref:Unity.NetCode.ClientTickRate.InterpolationTimeMS), which defines how large the [interpolation buffer](#buffered-interpolation) should be.
 
 ### Buffered interpolation
 
@@ -24,7 +24,7 @@ Buffered interpolation involves intentionally delaying ticks to allow snapshots 
 
 Extrapolation is the estimation of likely data points outside the range of a known set of data points. In Netcode for Entities, extrapolation is effectively an unclamped interpolation. If the destination snapshot value isn't received in time, extrapolation causes the value to continue in the same direction, at the same rate.
 
-Extrapolation is a basic form of estimation, and is often wrong, but can be preferable to having no estimation at all. Note that extrapolation still has a limit and doesn't continue forever. By default, extrapolation is limited to 20 ticks (which, at the default simulation rate of 60 Hz, is roughly a third of a second). You can adjust this limit using the [`ClientTickRate.MaxExtrapolationTimeSimTicks`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_MaxExtrapolationTimeSimTicks) property.
+Extrapolation is a basic form of estimation, and is often wrong, but can be preferable to having no estimation at all. Note that extrapolation still has a limit and doesn't continue forever. By default, extrapolation is limited to 20 ticks (which, at the default simulation rate of 60 Hz, is roughly a third of a second). You can adjust this limit using the [`ClientTickRate.MaxExtrapolationTimeSimTicks`](xref:Unity.NetCode.ClientTickRate.MaxExtrapolationTimeSimTicks) property.
 
 The term dead reckoning is also used in a similar context as extrapolation, but can also mean using more complex logic to guess a trajectory. Netcode for Entities doesn't use dead reckoning.
 

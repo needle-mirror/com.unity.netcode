@@ -116,7 +116,7 @@ namespace Unity.NetCode.Tests
             public void VerifyGhostScaleAnalyticsData()
             {
                 var ghostConfigurationAnalyticsDataFields = typeof(GhostScaleAnalyticsData).GetFields();
-                Assert.That(ghostConfigurationAnalyticsDataFields.Length, Is.EqualTo(11));
+                Assert.That(ghostConfigurationAnalyticsDataFields.Length, Is.EqualTo(12));
                 Assert.That(ghostConfigurationAnalyticsDataFields[0].Name, Is.EqualTo("Settings"));
                 Assert.IsTrue(ghostConfigurationAnalyticsDataFields[0].FieldType.IsValueType);
                 Assert.That(ghostConfigurationAnalyticsDataFields[1].Name, Is.EqualTo("ServerSpawnedGhostCount"));
@@ -139,6 +139,8 @@ namespace Unity.NetCode.Tests
                 Assert.That(ghostConfigurationAnalyticsDataFields[9].FieldType, Is.EqualTo(typeof(int)));
                 Assert.That(ghostConfigurationAnalyticsDataFields[10].Name, Is.EqualTo("NumServerWorlds"));
                 Assert.That(ghostConfigurationAnalyticsDataFields[10].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(ghostConfigurationAnalyticsDataFields[11].Name, Is.EqualTo("NetCodeConfigCount"));
+                Assert.That(ghostConfigurationAnalyticsDataFields[11].FieldType, Is.EqualTo(typeof(int)));
 
                 var playmodeSettingsFields = ghostConfigurationAnalyticsDataFields[0].FieldType.GetFields();
                 Assert.That(playmodeSettingsFields.Length, Is.EqualTo(7));
@@ -328,6 +330,21 @@ namespace Unity.NetCode.Tests
                 Assert.That(playModeLagSpikeTriggeredDataFields[1].FieldType, Is.EqualTo(typeof(bool)));
                 Assert.That(playModeLagSpikeTriggeredDataFields[2].Name, Is.EqualTo("detailVisible"));
                 Assert.That(playModeLagSpikeTriggeredDataFields[2].FieldType, Is.EqualTo(typeof(bool)));
+            }
+
+            /// <summary>
+            /// This test will fail because you have changed the layout of the analytics data in the n4eGameObjectBridge schema.
+            /// https://schemata.prd.cds.internal.unity3d.com/onboarding
+            /// </summary>
+            [Test]
+            public void VerifyGameObjectBridgeData()
+            {
+                var gameObjectBridgeDataFields = typeof(GameObjectBridgeData).GetFields();
+                Assert.That(gameObjectBridgeDataFields.Length, Is.EqualTo(2));
+                Assert.That(gameObjectBridgeDataFields[0].Name, Is.EqualTo("GameObjectsUsed"));
+                Assert.That(gameObjectBridgeDataFields[0].FieldType, Is.EqualTo(typeof(bool)));
+                Assert.That(gameObjectBridgeDataFields[1].Name, Is.EqualTo("SingleWorldHostUsed"));
+                Assert.That(gameObjectBridgeDataFields[1].FieldType, Is.EqualTo(typeof(bool)));
             }
         }
     }

@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using Unity.Entities.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -13,7 +11,6 @@ namespace Unity.NetCode.Editor
     // TODO: Undo/redo is broken in the Editor.
     // TODO: Support copy/paste individual meta datas + main components.
     // TODO: Support multi-object-edit.
-    // TODO: Support light-mode.
 
     /// <summary>UIToolkit drawer for <see cref="GhostAuthoringInspectionComponent"/>.</summary>
     [CustomEditor(typeof(GhostAuthoringInspectionComponent))]
@@ -23,9 +20,34 @@ namespace Unity.NetCode.Editor
         const string k_PackageId = "Packages/com.unity.netcode";
         const string k_AutoBakeKey = "AutoBake";
 
+        // Entities ships one icon set per skin. Picking the wrong set gives us a near-invisible icon.
+        const string k_EntitiesIconRoot = "Packages/com.unity.entities/Editor Default Resources/icons/";
+        const string k_PrefabEntityIconDark = k_EntitiesIconRoot + "dark/Entity/EntityPrefab.png";
+        const string k_PrefabEntityIconLight = k_EntitiesIconRoot + "light/Entity/EntityPrefab.png";
+        const string k_ComponentIconDark = k_EntitiesIconRoot + "dark/Components/Component.png";
+        const string k_ComponentIconLight = k_EntitiesIconRoot + "light/Components/Component.png";
+
         // TODO - Manually loaded prefabs as uss is not working.
-        static Texture2D PrefabEntityIcon => AssetDatabase.LoadAssetAtPath<Texture2D>("Packages/com.unity.entities/Editor Default Resources/icons/dark/Entity/EntityPrefab.png");
-        static Texture2D ComponentIcon => AssetDatabase.LoadAssetAtPath<Texture2D>("Packages/com.unity.entities/Editor Default Resources/icons/dark/Components/Component.png");
+        static Texture2D PrefabEntityIcon => AssetDatabase.LoadAssetAtPath<Texture2D>(EditorGUIUtility.isProSkin ? k_PrefabEntityIconDark : k_PrefabEntityIconLight);
+        static Texture2D ComponentIcon => AssetDatabase.LoadAssetAtPath<Texture2D>(EditorGUIUtility.isProSkin ? k_ComponentIconDark : k_ComponentIconLight);
+
+        const string k_StyleSheetPath = k_PackageId + "/Editor/Authoring/GhostAuthoringEditor.uss";
+        const string k_VariablesDarkPath = k_PackageId + "/Editor/Authoring/ghost-authoring-vars-dark.uss";
+        const string k_VariablesLightPath = k_PackageId + "/Editor/Authoring/ghost-authoring-vars-light.uss";
+
+        const string k_ReplicatedIconClass = "ghost-inspection-replicated-icon";
+        const string k_NonReplicatedIconClass = "ghost-inspection-non-replicated-icon";
+        const string k_OverrideBarClass = "ghost-inspection-override-bar";
+        const string k_PrefabTypeToggleClass = "ghost-inspection-prefabtype-toggle";
+        const string k_PrefabTypeToggleStrippedClass = "ghost-inspection-prefabtype-toggle--stripped";
+        const string k_BrokenClass = "ghost-inspection-broken";
+        const string k_TooltipHostClass = "ghost-inspection-tooltip-host";
+
+        // Tooltip markup is a string parsed by the text engine, so USS cannot style it directly.
+        static readonly CustomStyleProperty<Color> k_TooltipMutedProperty = new CustomStyleProperty<Color>("--ghost-inspection-tooltip-muted");
+        static readonly CustomStyleProperty<Color> k_TooltipHighlightProperty = new CustomStyleProperty<Color>("--ghost-inspection-tooltip-highlight");
+        static readonly CustomStyleProperty<Color> k_TooltipPositiveProperty = new CustomStyleProperty<Color>("--ghost-inspection-tooltip-positive");
+        static readonly CustomStyleProperty<Color> k_TooltipNegativeProperty = new CustomStyleProperty<Color>("--ghost-inspection-tooltip-negative");
 
         internal static EntityPrefabComponentsPreview prefabPreview { get; private set; }
         internal static readonly Dictionary<GhostAuthoringInspectionComponent, BakedResult> cachedBakedResults = new (4);
@@ -143,11 +165,11 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        private static GhostAuthoringComponent FindRootGhostAuthoringComponent()
+        private static BaseGhostSettings FindRootGhostAuthoringComponent()
         {
-            var ghostAuthoring = inspection.GetComponent<GhostAuthoringComponent>()
-                                 ?? PrefabUtility.GetNearestPrefabInstanceRoot(inspection)?.GetComponent<GhostAuthoringComponent>()
-                                 ?? inspection.transform.root.GetComponent<GhostAuthoringComponent>();
+            var ghostAuthoring = inspection.GetComponent<BaseGhostSettings>()
+                                 ?? PrefabUtility.GetNearestPrefabInstanceRoot(inspection)?.GetComponent<BaseGhostSettings>()
+                                 ?? inspection.transform.root.GetComponent<BaseGhostSettings>();
             return ghostAuthoring;
         }
 
@@ -163,9 +185,15 @@ namespace Unity.NetCode.Editor
             m_Root.style.overflow = new StyleEnum<Overflow>(Overflow.Hidden);
             m_Root.style.flexShrink = 1;
 
-            var ss = AssetDatabase.LoadAssetAtPath<StyleSheet>(Path.Combine(k_PackageId, "Editor/Authoring/GhostAuthoringEditor.uss"));
-            if (!ss) return m_Root;
-            m_Root.styleSheets.Add(ss);
+            var styleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(k_StyleSheetPath);
+            if (!styleSheet) return m_Root;
+            m_Root.styleSheets.Add(styleSheet);
+
+            var styleSheetVariables = AssetDatabase.LoadAssetAtPath<StyleSheet>(EditorGUIUtility.isProSkin ? k_VariablesDarkPath : k_VariablesLightPath);
+            if (styleSheetVariables)
+            {
+                m_Root.styleSheets.Add(styleSheetVariables);
+            }
 
             m_BakeButton = new Button(HandleBakeButtonClicked);
             m_BakeButton.name = "RefreshButton";
@@ -182,7 +210,7 @@ namespace Unity.NetCode.Editor
             m_AutoBakeToggle.tooltip = "When enabled, Unity will automatically bake the selected prefab the first time automatically every time it changes. Disableable as it's a slow operation. Your preference is saved locally.";
             m_Root.Add(m_AutoBakeToggle);
 
-            m_UnableToFindComponentHelpBox = new HelpBox($"Unable to find associated {nameof(GhostAuthoringComponent)} in root or parent. " +
+            m_UnableToFindComponentHelpBox = new HelpBox($"Unable to find associated {nameof(GhostAuthoringComponent)} or {nameof(GhostObject)} in root or parent. " +
                                                          $"Either ensure it exists, or remove this component.", HelpBoxMessageType.Error);
             m_Root.Add(m_UnableToFindComponentHelpBox);
 
@@ -200,6 +228,32 @@ namespace Unity.NetCode.Editor
             RebuildWindow();
 
             return m_Root;
+        }
+
+        /// <summary>
+        /// Builds an element's tooltip only when it is about to be shown, rather than up front.
+        /// </summary>
+        static void RegisterTooltip(VisualElement element, Func<VisualElement, string> buildTooltip)
+        {
+            element.AddToClassList(k_TooltipHostClass);
+            element.RegisterCallback<TooltipEvent>(evt =>
+            {
+                if (evt.currentTarget is not VisualElement target)
+                {
+                    return;
+                }
+
+                evt.rect = target.worldBound;
+                evt.tooltip = buildTooltip(target);
+                evt.StopImmediatePropagation();
+            });
+        }
+
+        static string Colorize(VisualElement element, CustomStyleProperty<Color> property, string text)
+        {
+            return element.customStyle.TryGetValue(property, out var color)
+                ? $"<color=#{ColorUtility.ToHtmlStringRGB(color)}>{text}</color>"
+                : text;
         }
 
         private void HandleAutoBakeValueChanged()
@@ -271,7 +325,7 @@ namespace Unity.NetCode.Editor
                 var toggleKey = bakedEntityResult.Guid.ToString();
                 var replicatedContainer = CreateReplicationHeaderElement(entityHeader.foldout.contentContainer, replicated,
                     "ReplicatedLabel", "Meta-data for GhostComponents", "Lists all netcode meta-data for replicated (i.e. synced) component types.",
-                    GhostAuthoringComponentEditor.netcodeColor, true, toggleKey);
+                    k_ReplicatedIconClass, true, toggleKey);
 
                 // Prefer default variants:
                 if (bakedEntityResult.GoParent.SourceInspection.ComponentOverrides.Length > 0)
@@ -290,50 +344,60 @@ namespace Unity.NetCode.Editor
                 // Warn about replicating child components:
                 if (!bakedEntityResult.IsRoot)
                 {
-                    if (replicated.Any(x => x.serializationStrategy.IsSerialized != 0))
+                    foreach (var item in replicated)
                     {
-                        replicatedContainer.contentContainer.Add(new HelpBox("Note: Serializing child entities is relatively slow. " +
-                                                                             "Prefer to have multiple Ghosts with faked parenting, if possible.", HelpBoxMessageType.Warning));
+                        if (item.serializationStrategy.IsSerialized != 0)
+                        {
+                            replicatedContainer.contentContainer.Add(new HelpBox("Note: Serializing child entities is relatively slow. " +
+                                                                                 "Prefer to have multiple Ghosts with faked parenting, if possible.", HelpBoxMessageType.Warning));
+                            break;
+                        }
                     }
                 }
 
                 CreateReplicationHeaderElement(entityHeader.foldout.contentContainer, nonReplicated,
                     "NonReplicatedLabel", "Meta-data for non-replicated Components", "Lists all netcode meta-data for non-replicated component types.",
-                    Color.white, false, toggleKey);
+                    k_NonReplicatedIconClass, false, toggleKey);
             }
 
             // Display invalid overrides:
-            if (inspection.ComponentOverrides.Any(x => !x.DidCorrectlyMap))
+            foreach (var componentOverride in inspection.ComponentOverrides)
             {
-                //.
-                var title = new HelpBox("Detected duplicated or otherwise invalid serialized 'Component Overrides'! You can remove them by pressing the buttons below.", HelpBoxMessageType.Error);
-                title.style.unityFontStyleAndWeight = new StyleEnum<FontStyle>(FontStyle.Bold);
-                title.style.overflow = new StyleEnum<Overflow>(Overflow.Visible);
-                m_ResultsPane.Add(title);
+                if (!componentOverride.DidCorrectlyMap)
+                {//.
+                    var title = new HelpBox("Detected duplicated or otherwise invalid serialized 'Component Overrides'! You can remove them by pressing the buttons below.", HelpBoxMessageType.Error);
+                    title.style.unityFontStyleAndWeight = new StyleEnum<FontStyle>(FontStyle.Bold);
+                    title.style.overflow = new StyleEnum<Overflow>(Overflow.Visible);
+                    m_ResultsPane.Add(title);
 
-                //.
-                for (var i = 0; i < inspection.ComponentOverrides.Length; i++)
-                {
-                    var @override = inspection.ComponentOverrides[i];
-                    if (@override.DidCorrectlyMap)
-                        continue;
-
-                    var button = new Button();
-                    void RemoveOverride()
+                    //.
+                    foreach (var @override in inspection.ComponentOverrides)
                     {
-                        if(inspection.TryFindExistingOverrideIndex(@override.FullTypeName, @override.EntityIndex, out var foundIndex))
-                            inspection.RemoveComponentOverrideByIndex(foundIndex);
-                        else UnityEngine.Debug.LogError($"Unable to remove ComponentOverride {@override}, as now can no longer find it in the list!");
-                        m_ResultsPane.Remove(button);
-                        GhostAuthoringInspectionComponent.forceSave = true;
+                        if (@override.DidCorrectlyMap) { continue; }
+
+                        var button = new Button();
+
+                        void RemoveOverride()
+                        {
+                            if (inspection.TryFindExistingOverrideIndex(@override.FullTypeName, @override.EntityIndex, out var foundIndex))
+                            {
+                                inspection.RemoveComponentOverrideByIndex(foundIndex);
+                            }
+                            else
+                            {
+                                UnityEngine.Debug.LogError($"Unable to remove ComponentOverride {@override}, as now can no longer find it in the list!");
+                            }
+                            m_ResultsPane.Remove(button);
+                            GhostAuthoringInspectionComponent.forceSave = true;
+                        }
+                        button.clicked += RemoveOverride;
+                        button.name = "ComponentOverrideError";
+                        button.text = $"{@override.FullTypeName} [Entity {@override.EntityIndex}]\nPrefab Type [{@override.PrefabType}]\nSend Optimization [{GetNameForGhostSendType(@override.SendTypeOptimization)}]\nVariant [{@override.VariantHash}]\n<i>Click to remove.</i>";
+                        button.AddToClassList(k_BrokenClass);
+                        button.style.flexGrow = 1;
+                        m_ResultsPane.Add(button);
                     }
-                    button.clicked += RemoveOverride;
-                    button.name = "ComponentOverrideError";
-                    button.text = $"{@override.FullTypeName} [Entity {@override.EntityIndex}]\nPrefab Type [{@override.PrefabType}]\nSend Optimization [{GetNameForGhostSendType(@override.SendTypeOptimization)}]\nVariant [{@override.VariantHash}]\n<i>Click to remove.</i>";
-                    button.style.backgroundColor = GhostAuthoringComponentEditor.brokenColorUIToolkit;
-                    button.style.color = GhostAuthoringComponentEditor.brokenColorUIToolkitText;
-                    button.style.flexGrow = 1;
-                    m_ResultsPane.Add(button);
+                    break;
                 }
             }
         }
@@ -343,13 +407,13 @@ namespace Unity.NetCode.Editor
             visualElement.style.display = new StyleEnum<DisplayStyle>(visibleCondition ? DisplayStyle.Flex : DisplayStyle.None);
         }
 
-        VisualElement CreateReplicationHeaderElement(VisualElement parentContent, List<BakedComponentItem> bakedComponents, string headerName, string title, string tooltip, Color iconTintColor, bool isReplicated, string toggleKey)
+        VisualElement CreateReplicationHeaderElement(VisualElement parentContent, List<BakedComponentItem> bakedComponents, string headerName, string title, string tooltip, string iconTintClass, bool isReplicated, string toggleKey)
         {
             var header = new FoldoutHeaderElement(headerName, title, $"{bakedComponents.Count}", tooltip, true);
             header.AddToClassList("ghost-inspection-replication-header");
             //header.label.AddToClassList("ghost-inspection-replication-header");
             header.icon.AddToClassList("ghost-inspection-entity-header__icon");
-            header.icon.style.unityBackgroundImageTintColor = iconTintColor;
+            header.icon.AddToClassList(iconTintClass);
             header.icon.style.backgroundImage = ComponentIcon;
             parentContent.Add(header);
 
@@ -466,7 +530,13 @@ namespace Unity.NetCode.Editor
             {
                 name = "VariantDropdownField",
                 label = "Variant",
-                tooltip = @"Variants change how a components fields are serialized (i.e. replicated).
+            };
+
+            RegisterTooltip(dropdown, BuildTooltip);
+
+            string BuildTooltip(VisualElement element)
+            {
+                var tooltip = @"Variants change how a components fields are serialized (i.e. replicated).
 Use this dropdown to select which variant is used on this component (on this specific ghost entity, and thus; ghost type).
 
 Note that:
@@ -474,71 +544,77 @@ Note that:
  - <b>Components added to the root entity</b> will default to the ""Default Serializer"" (the serializer generated by the SourceGenerators), unless you have modified the default (via a `DefaultVariantSystemBase` derived system).
 
  - <b>Components added to child (and additional) entities</b> will default to the `DontSerializeVariant` global variant because serializing children involves entity memory random-access, which is expensive.
+ 
+ - <b>Bakers can also contribute overrides</b> by appending to a `GhostVariantBakedOverride` buffer at baking time. Options labeled ""(Baked Default)"" reflect a baker's choice. An inspection component override (set via this dropdown, saved to this prefab) always takes precedence over a baker override.
+ 
+ - <b>GhostObject (GameObject) prefabs apply their own defaults for some components</b> (e.g. 3D scale replication via `PostTransformMatrix`), applied as per-prefab overrides at registration time. Options labeled ""(GhostObject Default)"" reflect these. An inspection component override always takes precedence.
+  ";
 
- - <b>Bakers can also contribute overrides</b> by appending to a `GhostVariantBakedOverride` buffer at baking time. Options labeled ""(Baked Default)"" reflect a baker's choice. An inspection component override (set via this dropdown, saved to this prefab) always takes precedence over a baker override.",
-            };
+                if (!bakedComponent.DoesAllowVariantModification)
+                    tooltip += "\n\n" + Colorize(element, k_TooltipMutedProperty, "This dropdown is currently disabled as either a) this type has a [DontSupportPrefabOverrides] attribute or b) there are no other variants.");
 
-            if(!bakedComponent.DoesAllowVariantModification)
-                dropdown.tooltip += "\n\n<color=grey>This dropdown is currently disabled as either a) this type has a [DontSupportPrefabOverrides] attribute or b) there are no other variants.</color>";
-
-            // Per-component baker contribution detail, when present. The "supersedes" warning is field-specific:
-            // overrides merge field-by-field, so an inspection-set PrefabType does NOT supersede a baker's variant.
-            if (bakedComponent.BakerContributedOverrides != null && bakedComponent.BakerContributedOverrides.Count > 0)
-            {
-                var hasInspection = bakedComponent.HasPrefabOverride();
-                var inspectionVariantOverridden = hasInspection && bakedComponent.GetPrefabOverride().IsVariantOverriden;
-                var inspectionPrefabTypeOverridden = hasInspection && bakedComponent.GetPrefabOverride().IsPrefabTypeOverriden;
-                var inspectionSendTypeOverridden = hasInspection && bakedComponent.GetPrefabOverride().IsSendTypeOptimizationOverriden;
-
-                foreach (var ov in bakedComponent.BakerContributedOverrides)
+                // Per-component baker contribution detail, when present. The "supersedes" warning is field-specific:
+                // overrides merge field-by-field, so an inspection-set PrefabType does NOT supersede a baker's variant.
+                if (bakedComponent.BakerContributedOverrides != null && bakedComponent.BakerContributedOverrides.Count > 0)
                 {
-                    var fields = new List<string>(3);
-                    var supersededFields = new List<string>(3);
-                    if (ov.VariantHash != 0)
-                    {
-                        var name = LookupVariantDisplayName(bakedComponent, ov.VariantHash);
-                        fields.Add($"Variant <b>{name}</b>");
-                        if (inspectionVariantOverridden) supersededFields.Add("Variant");
-                    }
-                    if (ov.PrefabType != GhostVariantBakedOverride.NoPrefabTypeOverride)
-                    {
-                        fields.Add($"PrefabType <b>{ov.PrefabType}</b>");
-                        if (inspectionPrefabTypeOverridden) supersededFields.Add("PrefabType");
-                    }
-                    if (ov.SendTypeOptimization != GhostVariantBakedOverride.NoSendTypeOverride)
-                    {
-                        fields.Add($"SendType <b>{GetNameForGhostSendType(ov.SendTypeOptimization)}</b>");
-                        if (inspectionSendTypeOverridden) supersededFields.Add("SendType");
-                    }
+                    var hasInspection = bakedComponent.HasPrefabOverride();
+                    var inspectionVariantOverridden = hasInspection && bakedComponent.GetPrefabOverride().IsVariantOverriden;
+                    var inspectionPrefabTypeOverridden = hasInspection && bakedComponent.GetPrefabOverride().IsPrefabTypeOverriden;
+                    var inspectionSendTypeOverridden = hasInspection && bakedComponent.GetPrefabOverride().IsSendTypeOptimizationOverriden;
 
-                    var summary = fields.Count > 0 ? string.Join(", ", fields) : "(no fields set)";
-                    dropdown.tooltip += $"\n\nA baker requests: {summary}.";
-                    if (supersededFields.Count > 0)
-                        dropdown.tooltip += $"\n<color=yellow>An inspection-component override above supersedes the baker's {string.Join(" / ", supersededFields)}.</color>";
+                    foreach (var ov in bakedComponent.BakerContributedOverrides)
+                    {
+                        var fields = new List<string>(3);
+                        var supersededFields = new List<string>(3);
+                        if (ov.VariantHash != 0)
+                        {
+                            var name = LookupVariantDisplayName(bakedComponent, ov.VariantHash);
+                            fields.Add($"Variant <b>{name}</b>");
+                            if (inspectionVariantOverridden) supersededFields.Add("Variant");
+                        }
+                        if (ov.PrefabType != GhostVariantBakedOverride.NoPrefabTypeOverride)
+                        {
+                            fields.Add($"PrefabType <b>{ov.PrefabType}</b>");
+                            if (inspectionPrefabTypeOverridden) supersededFields.Add("PrefabType");
+                        }
+                        if (ov.SendTypeOptimization != GhostVariantBakedOverride.NoSendTypeOverride)
+                        {
+                            fields.Add($"SendType <b>{GetNameForGhostSendType(ov.SendTypeOptimization)}</b>");
+                            if (inspectionSendTypeOverridden) supersededFields.Add("SendType");
+                        }
+
+                        var summary = fields.Count > 0 ? string.Join(", ", fields) : "(no fields set)";
+                        tooltip += $"\n\nA baker requests: {summary}.";
+                        if (supersededFields.Count > 0)
+                            tooltip += "\n" + Colorize(element, k_TooltipHighlightProperty, $"An inspection-component override above supersedes the baker's {string.Join(" / ", supersededFields)}.");
+                    }
                 }
+
+                return tooltip;
             }
 
             DropdownStyle(dropdown);
 
-            // Suffix the dropdown choice that matches the baker-contributed variant (if any) so users can see
-            // which option a baker would pick for them.
-            var bakerVariantHash = bakedComponent.BakerContributedVariantHash;
+            // Suffix the dropdown choice that matches the context-contributed variant (a baker override, or the
+            // GameObject-layer default on GhostObject prefabs) so users can see which option is picked for them.
+            var contextVariantHash = bakedComponent.ContextDefaultVariantHash;
+            var contextVariantTag = bakedComponent.BakerContributedVariantHash != 0 ? " (Baked Default)" : " (GhostObject Default)";
             for (var i = 0; i < bakedComponent.availableSerializationStrategies.Length; i++)
             {
                 var displayName = bakedComponent.availableSerializationStrategyDisplayNames[i];
-                if (bakerVariantHash != 0 && bakedComponent.availableSerializationStrategies[i].Hash == bakerVariantHash)
-                    displayName += " (Baked Default)";
+                if (contextVariantHash != 0 && bakedComponent.availableSerializationStrategies[i].Hash == contextVariantHash)
+                    displayName += contextVariantTag;
                 dropdown.choices.Add(displayName);
             }
 
             // Set current value: prefer inspection-resolved serializationStrategy; if no inspection variant
-            // override was set but a baker variant override exists, show that baker variant as the current value.
+            // override was set but a context-contributed variant exists, show that variant as the current value.
             {
                 var displayHash = bakedComponent.serializationStrategy.Hash;
                 if (!bakedComponent.HasPrefabOverride() || !bakedComponent.GetPrefabOverride().IsVariantOverriden)
                 {
-                    if (bakerVariantHash != 0)
-                        displayHash = bakerVariantHash;
+                    if (contextVariantHash != 0)
+                        displayHash = contextVariantHash;
                 }
 
                 var index = Array.FindIndex(bakedComponent.availableSerializationStrategies, x => x.Hash == displayHash);
@@ -550,7 +626,7 @@ Note that:
                 else
                 {
                     dropdown.SetValueWithoutNotify($"!! Unknown Variant Hash {displayHash} !! (Fallback: {bakedComponent.serializationStrategy.DisplayName.ToString()})");
-                    dropdown.style.backgroundColor = GhostAuthoringComponentEditor.brokenColorUIToolkit;
+                    dropdown.AddToClassList(k_BrokenClass);
                 }
             }
 
@@ -563,7 +639,8 @@ Note that:
                 {
                     bakedComponent.serializationStrategy = bakedComponent.availableSerializationStrategies[indexOf];
                     bakedComponent.SaveVariant(false, false);
-                    dropdown.style.color = new StyleColor(StyleKeyword.Null);
+                    // Clear the "broken variant" highlight so we fall back to the skin defaults.
+                    dropdown.RemoveFromClassList(k_BrokenClass);
                 }
                 else
                 {
@@ -623,7 +700,7 @@ Note that:
                 Override.style.flexGrow = 1;
                 Override.style.flexShrink = 1;
                 Override.style.alignSelf = new StyleEnum<Align>(Align.Stretch);
-                Override.style.backgroundColor = Color.white;
+                Override.AddToClassList(k_OverrideBarClass);
                 Add(Override);
 
                 if (defaultOverride)
@@ -652,6 +729,7 @@ Note that:
             dropdown.label = "Send Optimization";
 
             dropdown.SetEnabled(doesAllowSendTypeOptimizationModification);
+            RegisterTooltip(dropdown, BuildTooltip);
 
             DropdownStyle(dropdown);
 
@@ -676,18 +754,23 @@ Note that:
 
             void UpdateUi(string buttonValue)
             {
-                dropdown.tooltip = $"Optimization that allows you to specify whether or not the server should send (i.e. replicate) the `{bakedComponent.fullname}` component to client ghosts, " +
-                    "depending on whether or not a given client is Predicting or Interpolating this ghost." +
-                    "\n\nExample: Only send the `PhysicsVelocity` component for \"known always predicted\" ghosts, as interpolated ghosts don't ever need to read the `PhysicsVelocity` Component." +
-                    "\n\nNote: This optimization is only possible when we can infer the GhostMode at compile time: I.e. When the GhostAuthoringComponent has `OwnerPredicted` selected, or when `SupportedGhostModes` is set to either `Interpolated` or `Predicted` (but not both).";
-
-                dropdown.tooltip += $"\n\n<color=yellow>The current setting means that {GetTooltipForGhostSendType(bakedComponent.SendTypeOptimization)}</color>";
-                if(!doesAllowSendTypeOptimizationModification)
-                    dropdown.tooltip += "\n\n<color=grey>This dropdown is currently disabled as either a) this type has a [DontSupportPrefabOverrides] attribute or b) we cannot infer GhostMode.</color>";
-                dropdown.tooltip += "\n\nOther send rules may still apply. See documentation for further details.";
-
                 dropdown.value = doesAllowSendTypeOptimizationModification || bakedComponent.serializationStrategy.IsSerialized != 0 ? buttonValue : "n/a";
                 dropdown.MarkDirtyRepaint();
+            }
+
+            string BuildTooltip(VisualElement element)
+            {
+                var tooltip = $"Optimization that allows you to specify whether or not the server should send (i.e. replicate) the `{bakedComponent.fullname}` component to client ghosts, " +
+                    "depending on whether or not a given client is Predicting or Interpolating this ghost." +
+                    "\n\nExample: Only send the `PhysicsVelocity` component for \"known always predicted\" ghosts, as interpolated ghosts don't ever need to read the `PhysicsVelocity` Component." +
+                    $"\n\nNote: This optimization is only possible when we can infer the GhostMode at compile time: I.e. When the {nameof(GhostAuthoringComponent)} or {nameof(GhostObject)} has `OwnerPredicted` selected, or when `SupportedGhostModes` is set to either `Interpolated` or `Predicted` (but not both).";
+
+                tooltip += "\n\n" + Colorize(element, k_TooltipHighlightProperty, $"The current setting means that {GetTooltipForGhostSendType(bakedComponent.SendTypeOptimization)}");
+                if (!doesAllowSendTypeOptimizationModification)
+                    tooltip += "\n\n" + Colorize(element, k_TooltipMutedProperty, "This dropdown is currently disabled as either a) this type has a [DontSupportPrefabOverrides] attribute or b) we cannot infer GhostMode.");
+                tooltip += "\n\nOther send rules may still apply. See documentation for further details.";
+
+                return tooltip;
             }
 
             var isOverridenFromDefault = bakedComponent.HasPrefabOverride() && bakedComponent.GetPrefabOverride().IsSendTypeOptimizationOverriden;
@@ -788,6 +871,9 @@ Note that:
             buttonContainer.style.flexDirection = new StyleEnum<FlexDirection>(FlexDirection.Row);
             buttonContainer.SetEnabled(bakedComponent.DoesAllowPrefabTypeModification);
 
+            // we only allow component stripping on baked ghosts. GhostObject ghosts should use content selection, which should strip the GhostBehaviour too.
+            buttonContainer.visible = bakedComponent.EntityParent.GoParent.RootAuthoring is GhostAuthoringComponent;
+
             buttonContainer.Add(CreateButton("S",  GhostPrefabType.Server, "Server"));
             buttonContainer.Add(CreateButton("IC", GhostPrefabType.InterpolatedClient, "Interpolated Client"));
             buttonContainer.Add(CreateButton("PC", GhostPrefabType.PredictedClient, "Predicted Client"));
@@ -800,7 +886,6 @@ Note that:
             VisualElement CreateButton(string abbreviation, GhostPrefabType type, string prefabType)
             {
                 var button = new Button();
-                //button.Q<Label>().style.alignContent = new StyleEnum<Align>(Align.Center);
 
                 button.text = abbreviation;
                 button.style.width = 36;
@@ -812,6 +897,8 @@ Note that:
 
                 button.style.alignContent = new StyleEnum<Align>(Align.Center);
                 button.style.unityTextAlign = new StyleEnum<TextAnchor>(TextAnchor.MiddleCenter);
+                button.AddToClassList(k_PrefabTypeToggleClass);
+                RegisterTooltip(button, BuildTooltip);
 
                 UpdateUi();
 
@@ -824,36 +911,40 @@ Note that:
                 }
                 void UpdateUi()
                 {
-                    // "Effective default" is what gets applied if no inspection override exists. Baker-contributed
-                    // PrefabType layers between the strategy default and the inspection override, so factor it in
-                    // here too — otherwise the button's "default" indicator (and its tooltip) reports the system
-                    // default even when a baker has changed it.
-                    var strategyDefaultPrefabType = bakedComponent.defaultSerializationStrategy.PrefabType;
-                    var bakerPrefabType = bakedComponent.BakerContributedPrefabType;
-                    var bakerOverridesDefault = bakerPrefabType != GhostVariantBakedOverride.NoPrefabTypeOverride
-                        && bakerPrefabType != strategyDefaultPrefabType;
-                    var effectiveDefault = bakerOverridesDefault ? bakerPrefabType : strategyDefaultPrefabType;
-                    var defaultValue = (effectiveDefault & type) != 0;
-                    var isSet = (bakedComponent.PrefabType & type) != 0;
-                    button.style.backgroundColor = isSet ? new Color(0.17f, 0.17f, 0.17f) : new Color(0.48f, 0.15f, 0.15f);
-
-                    button.tooltip = $"NetCode creates multiple versions of the '{bakedComponent.EntityParent.EntityName}' ghost prefab (one for each mode [Server, Interpolated Client, PredictedClient])." +
-                        $"\n\nThis toggle determines if the `{bakedComponent.fullname}` component should be added to the `{prefabType}` version of this ghost." +
-                        $" Current value indicates {(isSet ? "<color=green>YES</color>" : "<color=red>NO</color>")} and thus <color=yellow>PrefabType is `{bakedComponent.PrefabType}`</color>." +
-                        $"\n\nDefault value is: {(defaultValue ? "YES" : "NO")}";
-
-                    if (bakerOverridesDefault)
-                        button.tooltip += $" <color=yellow>(Baker Default: a baker has set PrefabType to `{bakerPrefabType}`, overriding the strategy default of `{strategyDefaultPrefabType}`. An inspection override on this toggle would supersede the baker.)</color>";
-
-                    button.tooltip += "\n\nTo disable write-access to this toggle, add a `DontSupportPrefabOverrides` attribute to your component type." +
-                        "\n\nRecommendation: It's better practice to create a custom Variant that sets the desired `PrefabType`. This way, said `PrefabType` will be applied automatically to all ghost prefabs.";
-
-                    if(!bakedComponent.DoesAllowPrefabTypeModification)
-                        button.tooltip += "\n\n<color=grey>This dropdown is currently disabled as this type has a [DontSupportPrefabOverrides] attribute.</color>";
-
+                    button.EnableInClassList(k_PrefabTypeToggleStrippedClass, (bakedComponent.PrefabType & type) == 0);
                     button.MarkDirtyRepaint();
                 }
 
+                string BuildTooltip(VisualElement element)
+                {
+                    var strategyDefaultPrefabType = bakedComponent.defaultSerializationStrategy.PrefabType;
+                    var bakerPrefabType = bakedComponent.BakerContributedPrefabType;
+                    var bakerOverridesDefault = bakerPrefabType != GhostVariantBakedOverride.NoPrefabTypeOverride
+                                              && bakerPrefabType != strategyDefaultPrefabType;
+                    var effectiveDefault = bakerOverridesDefault ? bakerPrefabType : strategyDefaultPrefabType;
+                    var defaultValue = (effectiveDefault & type) != 0;
+                    var isSet = (bakedComponent.PrefabType & type) != 0;
+
+                    var currentValue = isSet
+                        ? Colorize(element, k_TooltipPositiveProperty, "YES")
+                        : Colorize(element, k_TooltipNegativeProperty, "NO");
+
+                    var tooltip = $"NetCode creates multiple versions of the '{bakedComponent.EntityParent.EntityName}' ghost prefab (one for each mode [Server, Interpolated Client, PredictedClient])." +
+                        $"\n\nThis toggle determines if the `{bakedComponent.fullname}` component should be added to the `{prefabType}` version of this ghost." +
+                        $" Current value indicates {currentValue} and thus {Colorize(element, k_TooltipHighlightProperty, $"PrefabType is `{bakedComponent.PrefabType}`")}." +
+                        $"\n\nDefault value is: {(defaultValue ? "YES" : "NO")}";
+
+                    if (bakerOverridesDefault)
+                        tooltip += " " + Colorize(element, k_TooltipHighlightProperty, $"(Baker Default: a baker has set PrefabType to `{bakerPrefabType}`, overriding the strategy default of `{strategyDefaultPrefabType}`. An inspection override on this toggle would supersede the baker.)");
+
+                    tooltip += "\n\nTo disable write-access to this toggle, add a `DontSupportPrefabOverrides` attribute to your component type." +
+                        "\n\nRecommendation: It's better practice to create a custom Variant that sets the desired `PrefabType`. This way, said `PrefabType` will be applied automatically to all ghost prefabs.";
+
+                    if (!bakedComponent.DoesAllowPrefabTypeModification)
+                        tooltip += "\n\n" + Colorize(element, k_TooltipMutedProperty, "This dropdown is currently disabled as this type has a [DontSupportPrefabOverrides] attribute.");
+
+                    return tooltip;
+                }
                 return button;
             }
         }

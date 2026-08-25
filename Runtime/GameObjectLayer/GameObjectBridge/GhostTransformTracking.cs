@@ -1,5 +1,3 @@
-
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using System;
 using Unity.Collections;
 using Unity.Entities;
@@ -79,5 +77,3 @@ namespace Unity.NetCode
         protected override void OnUpdate() { }
     }
 }
-
-#endif

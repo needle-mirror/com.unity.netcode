@@ -36,7 +36,7 @@ namespace Unity.NetCode.LowLevel.StateSave
 
         public bool Equals(SavedEntityID other)
         {
-            return value.Equals(other.value);
+            return value.ghostId == other.value.ghostId;
         }
 
         public override bool Equals(object obj)
@@ -194,6 +194,8 @@ namespace Unity.NetCode.LowLevel.StateSave
         [NativeDisableUnsafePtrRestriction] EntityQuery m_ToSaveQuery;
         int m_EntityCount;
         bool m_CreatedFromBuffer;
+        /// <see cref="DisposeForWorld"/>
+        bool m_DisposedForWorld;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         AtomicSafetyHandle m_SafetyHandle; // TODO make sure we can't dispose while a job is not finished yet
         // TODO make sure APIs check for safety using this ^^^
@@ -251,6 +253,7 @@ namespace Unity.NetCode.LowLevel.StateSave
             m_SafetyHandle = default;
 #endif
             Initialized = false;
+            m_DisposedForWorld = true;
             m_CreatedFromBuffer = false;
         }
 
@@ -271,6 +274,7 @@ namespace Unity.NetCode.LowLevel.StateSave
             m_AllocationSize = length;
             Initialized = true;
             m_CreatedFromBuffer = true;
+            m_DisposedForWorld = false;
             m_AllStateSaveContainers = InitializeContainersFromBuffer(stateSaveAddress);
             return this;
         }
@@ -323,6 +327,9 @@ namespace Unity.NetCode.LowLevel.StateSave
 
             if (Initialized)
                 throw new InvalidOperationException($"{nameof(WorldStateSave)} already initialized, make sure to call {nameof(Reset)} if you intend to reuse the allocation and not dispose it.");
+
+            stateSaveStrategy.UpdateTypesToTrack(ref this.RequiredTypesToSaveConfig, ref this.OptionalTypesToSaveConfig);
+
             if (this.OptionalTypesToSaveConfig.Count == 0 && this.RequiredTypesToSaveConfig.Count == 0)
             {
                 throw new ArgumentException($"you need to specify at least one required or optional type to save. Please use {OptionalTypesToSaveConfig} or {nameof(RequiredTypesToSaveConfig)}");
@@ -331,8 +338,6 @@ namespace Unity.NetCode.LowLevel.StateSave
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             this.m_SafetyHandle = AtomicSafetyHandle.Create();
 #endif
-            stateSaveStrategy.UpdateTypesToTrack(ref this.RequiredTypesToSaveConfig, ref this.OptionalTypesToSaveConfig);
-
             // Generating entity query for this state save
             if (RequiredTypesToSaveConfig.Count > 0)
                 this.m_RequiredTypesToSave = RequiredTypesToSaveConfig.ToNativeArray(m_Allocator);
@@ -535,6 +540,7 @@ namespace Unity.NetCode.LowLevel.StateSave
             requiredTypesList.Dispose();
             optionalTypesList.Dispose();
 
+            m_DisposedForWorld = false;
             Initialized = true;
 
             return this;
@@ -548,6 +554,8 @@ namespace Unity.NetCode.LowLevel.StateSave
         // disposes internal metadata but keeps the main allocation for future use
         public void Reset()
         {
+            if(!Initialized)
+                return;
             // Keeps the main allocation there, but resets everything else
             foreach (var oneContainer in m_AllStateSaveContainers)
             {
@@ -558,9 +566,21 @@ namespace Unity.NetCode.LowLevel.StateSave
             m_OptionalTypesToSave.Dispose();
             if (m_EntityIndex.IsCreated)
                 m_EntityIndex.Dispose();
-            if (!m_CreatedFromBuffer && Initialized)
-                m_ToSaveQuery.Dispose();
+            DisposeForWorld();
             Initialized = false;
+        }
+
+        /// <summary>
+        /// This dispose is called by the regular dispose and reset but can also be called earlier than that when disposing of the world:
+        /// Normally entity queries are disposed by entity manager on system destroy.
+        /// In tracing case we want to late dispose (after the world destroy) the state saves and when that happens we need to know that they have already been disposed.
+        /// </summary>
+        public void DisposeForWorld()
+        {
+            if (!Initialized || m_DisposedForWorld || m_CreatedFromBuffer)
+                return;
+            m_ToSaveQuery.Dispose();
+            m_DisposedForWorld = true;
         }
 
         public void Dispose()
@@ -609,10 +629,15 @@ namespace Unity.NetCode.LowLevel.StateSave
         /// <param name="stateSaveStrategy">The strategy to use for saving individual components. Can be used to skip certain entities or do extra operations like indexing for example.</param>
         /// <typeparam name="TStrategy"></typeparam>
         /// <returns></returns>
-        internal JobHandle ScheduleStateSaveJob<TStrategy>(ref SystemState state, TStrategy stateSaveStrategy) where TStrategy : IStateSaveStrategy
+        internal JobHandle ScheduleStateSaveJob<TStrategy>(ref SystemState state, TStrategy stateSaveStrategy, JobHandle dependency = default, bool autoAddDependency = true) where TStrategy : IStateSaveStrategy
         {
             CheckInitialized();
-            if (m_IsEmpty) return state.Dependency;
+            if (m_IsEmpty)
+            {
+                if (autoAddDependency)
+                    return state.Dependency;
+                return dependency;
+            }
 
             var dynamicHandles = new DynamicTypeList();
             using var typesToTrack = new NativeList<ComponentType>(Allocator.Temp);
@@ -627,7 +652,10 @@ namespace Unity.NetCode.LowLevel.StateSave
                 fullWorldStateSave = this.GetParallelWriter(),
                 stateSaveStrategy = stateSaveStrategy,
             };
-            var dep = job.ScheduleParallelByRef(m_ToSaveQuery, state.Dependency);
+            var dependencyToUse = dependency;
+            if (autoAddDependency)
+                dependencyToUse = state.Dependency;
+            var dep = job.ScheduleParallelByRef(m_ToSaveQuery, dependencyToUse);
             return dep;
         }
 

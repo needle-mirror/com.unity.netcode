@@ -6,6 +6,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Burst;
+using Unity.NetCode.EntitiesInternalAccess;
 
 namespace Unity.NetCode
 {
@@ -74,7 +75,8 @@ namespace Unity.NetCode
             var atype = new NativeArray<ComponentType>(1, Allocator.Temp);
             atype[0] = ComponentType.ReadWrite<PrespawnGhostIdRange>();
             m_GhostIdAllocator = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(atype));
-            state.EntityManager.SetName(m_GhostIdAllocator, (FixedString64Bytes)"PrespawnGhostIdAllocator");
+            state.EntityManager.SetName(m_GhostIdAllocator, (FixedString64Bytes)"PrespawnGhostIdAllocator-Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, m_GhostIdAllocator);
             state.RequireForUpdate(m_UninitializedScenes);
             state.RequireForUpdate(m_Prespawns);
             // Require any number of in-game tags, server can have one per client

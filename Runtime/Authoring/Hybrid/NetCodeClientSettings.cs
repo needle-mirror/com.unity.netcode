@@ -1,7 +1,6 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Unity.Entities.Build;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -101,7 +100,6 @@ namespace Unity.NetCode.Hybrid
             Save(true);
             AssetDatabase.Refresh();
         }
-#if UNITY_2023_2_OR_NEWER
         private void OnEnable()
         {
             if (!AssetDatabase.IsAssetImportWorkerProcess())
@@ -109,12 +107,8 @@ namespace Unity.NetCode.Hybrid
                 ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
             }
         }
-#endif
         private void OnDisable()
         {
-#if !UNITY_2023_2_OR_NEWER
-            Save();
-#else
             //But the depedency is going to be update when the scriptable is re-enabled.
             if (AssetDatabase.IsAssetImportWorkerProcess())
                 return;
@@ -125,7 +119,6 @@ namespace Unity.NetCode.Hybrid
                 ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
                 AssetDatabase.Refresh();
             }
-#endif
         }
     }
 
@@ -238,17 +231,22 @@ namespace Unity.NetCode.Hybrid
 
         public override string[] GetExtraScriptingDefines()
         {
-            IEnumerable<string> extraDefines = GetSettingAsset().GetAdditionalScriptingDefines();
+            List<string> extraDefines = new List<string>(GetSettingAsset().GetAdditionalScriptingDefines());
             var netCodeClientTarget = NetCodeClientSettings.instance.ClientTarget;
 #if !NETCODE_NDEBUG
             if (EditorUserBuildSettings.development)
-                extraDefines = extraDefines.Append("NETCODE_DEBUG");
+                extraDefines.Add("NETCODE_DEBUG");
 #endif
-            if (netCodeClientTarget == NetCodeClientTarget.ClientAndServer)
-                return extraDefines.ToArray();
-            if (netCodeClientTarget == NetCodeClientTarget.Client)
-                return extraDefines.Append("UNITY_CLIENT").ToArray();
-            return Array.Empty<string>();
+            switch (netCodeClientTarget)
+            {
+                case NetCodeClientTarget.ClientAndServer:
+                    return extraDefines.ToArray();
+                case NetCodeClientTarget.Client:
+                    extraDefines.Add("UNITY_CLIENT");
+                    return extraDefines.ToArray();
+                default:
+                    return Array.Empty<string>();
+            }
         }
 
         protected override IEntitiesPlayerSettings DoGetSettingAsset()

@@ -17,28 +17,26 @@ namespace Unity.NetCode.Physics.Tests
     [RequireMatchingQueriesForUpdate]
     partial class TestPhysicsAndEntityForEach : SystemBase
     {
+        [WithAll(typeof(LocalTransform))]
+        partial struct CheckCollisionJob : IJobEntity
+        {
+            public CollisionHistoryBuffer HistoryBuffer;
+            public void Execute()
+            {
+                HistoryBuffer.GetCollisionWorldFromTick(new NetworkTick(0),0, out var world);
+            }
+        }
+
         protected override void OnUpdate()
         {
             var historyBuffer = new CollisionHistoryBuffer(1);
-            Entities
-                .WithAll<LocalTransform>()
-                .ForEach(() =>
-                {
-                    historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0),0, out var world);
-                }).Schedule();
+            new CheckCollisionJob{ HistoryBuffer = historyBuffer }.Schedule();
             Assert.Throws<InvalidOperationException>(()=>
             {
                 Dependency.Complete();
             }, "PhysicHistoryBuffer must be declared as ReadOnly if a job does not write to it");
 
-            Entities
-                .WithAll<LocalTransform>()
-                .WithoutBurst()
-                //.WithReadOnly(historyBuffer)
-                .ForEach(() =>
-            {
-                historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0),0, out var world);
-            }).Schedule();
+            new CheckCollisionJob{ HistoryBuffer = historyBuffer }.Schedule();
             Assert.DoesNotThrow(()=>
             {
                 Dependency.Complete();

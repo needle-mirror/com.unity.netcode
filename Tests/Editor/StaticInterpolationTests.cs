@@ -200,7 +200,6 @@ namespace Unity.NetCode.Tests
     }
     #endregion
 
-    [DisableSingleWorldHostTest]
     internal class StaticInterpolationTests
     {
         public static readonly Dictionary<NetworkTick, float> ServerDataAtTick = new();
@@ -300,7 +299,10 @@ namespace Unity.NetCode.Tests
         {
             get
             {
+#if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
+                // At history size 6 the server withholds new snapshots until the client acks the in-flight ones, throttling send cadence like a low MaxSendRate and breaking accurate interpolation.
                 yield return new TestCaseData(10, 60, 60).SetName("ClientCanInterpolateAccurately");
+#endif
                 yield return new TestCaseData(7, 30, 15).SetName("ClientInterpolatesWithinToleranceWhenMissingData");
             }
         }
@@ -352,14 +354,16 @@ namespace Unity.NetCode.Tests
             // Prevent batched ticks!
             var tickRate = new ClientServerTickRate {MaxSimulationStepBatchSize = 1, MaxSimulationStepsPerFrame = 1, SimulationTickRate = SimulationTickRate};
             tickRate.ResolveDefaults();
-            testWorld.ServerWorld.EntityManager.CreateSingleton(tickRate);
+            var ent = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+            testWorld.ServerWorld.EntityManager.SetComponentData(ent, tickRate);
 
             // Setup the tick rate
             var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             clientTickRate.InterpolationTimeNetTicks = 0;
             clientTickRate.InterpolationTimeMS = 100u;
             clientTickRate.MaxExtrapolationTimeSimTicks = (uint) (0.1 * tickRate.SimulationTickRate);
-            testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+            ent = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[0]);
+            testWorld.ClientWorlds[0].EntityManager.SetComponentData(ent, clientTickRate);
 
             // Spawn & set owner (for owner predicted):
             var serverEntitites = new FixedList4096Bytes<Entity>();
@@ -367,12 +371,15 @@ namespace Unity.NetCode.Tests
             {
                 var serverEnt = testWorld.SpawnOnServer(ghostPrefab);
                 serverEntitites.Add(serverEnt);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{ NetworkId = 1, });
             }
 
             // Let the simulation run for a bit since we're testing the stability of the connection (and start-up is turbulent):
             testWorld.Connect();
             testWorld.GoInGame();
+            var clientNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
+            foreach (var serverEnt in serverEntitites)
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{ NetworkId = clientNetworkId, });
+
             for (int i = 0; i < 256; ++i)
                 testWorld.Tick();
 

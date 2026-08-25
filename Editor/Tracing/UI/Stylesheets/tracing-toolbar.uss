@@ -1,0 +1,445 @@
+.tracing-toolbar {
+    flex-direction: row;
+    align-items: center;
+    min-height: 26px;
+    width: 100%;
+    border-bottom-color: var(--unity-colors-default-border);
+    border-bottom-width: 1px;
+}
+
+.tracing-toolbar--hidden {
+    display: none;
+}
+
+.tracing-toolbar--invisible {
+    visibility: hidden;
+}
+
+.tracing-toolbar__container {
+    flex-direction: row;
+    align-items: center;
+    padding: 2px 6px;
+    border-right-width: 1px;
+    border-right-color: var(--unity-colors-default-border);
+    height: 100%;
+    flex-shrink: 0;
+}
+
+.tracing-toolbar__spacer {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.tracing-toolbar__dropdown-container__label {
+    padding: 0 8px 2px 8px;
+}
+
+.tracing-toolbar__dropdown-container__button-container {
+    display: flex;
+    flex-direction: row;
+    padding-right: 0;
+}
+
+.tracing-toolbar__dropdown-container__button-container .unity-text-element {
+    margin-right: 4px;
+}
+
+.tracing-toolbar__dropdown-container__button {
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    background-color: transparent;
+    border-color: transparent;
+}
+
+.tracing-toolbar__container--no-padding {
+    padding: 0;
+}
+
+
+.tracing-toolbar__dropdown-container__speed-row {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    padding: 2px 8px 4px 8px;
+}
+
+.tracing-toolbar__dropdown-container__speed-row__label {
+    flex-shrink: 0;
+    margin-right: 4px;
+}
+
+.tracing-toolbar__dropdown-container__speed-row__slider {
+    flex-grow: 1;
+    flex-shrink: 1;
+    flex-basis: 0;
+    min-width: 40px;
+    margin: 0;
+}
+
+.tracing-toolbar__dropdown-container__speed-row__field {
+    width: 30px;
+    flex-shrink: 0;
+    margin-left: 4px;
+    margin-right: 0;
+}
+
+/*** Icon ****/
+.tracing-toolbar__icon {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    border-width: 0;
+    padding: 0;
+    flex-shrink: 0;
+    background-color: transparent;
+    background-size: 10px 10px;
+}
+
+.tracing-toolbar__icon:hover {
+    background-color: var(--unity-colors-inspector_titlebar-background-hover);
+    border-radius: 3px;
+}
+
+.tracing-toolbar__icon__record {
+    background-image: var(--toolbar-record-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__record--off {
+    background-image: var(--toolbar-record-off-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__previous-frame {
+    background-image: var(--toolbar-go-to-start-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__previous-diff {
+    background-image: var(--toolbar-step-back-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__play {
+    background-image: var(--toolbar-play-icon);
+    background-size: 10px 11px;
+}
+
+/* Dedicated replay icons for the per-tick/per-system rendering frequencies. */
+.tracing-toolbar__icon__play--per-tick {
+    background-image: var(--toolbar-replay-per-tick-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__play--per-system {
+    background-image: var(--toolbar-replay-per-system-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__pause {
+    background-image: var(--toolbar-pause-icon);
+    background-size: 10px 11px;
+}
+
+.tracing-toolbar__icon__next-diff {
+    background-image: var(--toolbar-step-forward-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__next-frame {
+    background-image: var(--toolbar-go-to-end-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__pin {
+    background-image: var(--toolbar-pin-icon);
+}
+
+.tracing-toolbar__icon__visible {
+    background-image: var(--toolbar-eye-icon);
+    background-size: 16px 10px;
+}
+
+.tracing-toolbar__icon__hidden {
+    background-image: var(--toolbar-eye-strike-icon);
+    background-size: 16px 12px;
+}
+
+/* Info icon on filter rows whose target is out of sync with the current recording */
+.tracing-toolbar__tracing-filter__row__info {
+    width: 18px;
+    height: 16px;
+    flex-shrink: 0;
+    background-image: var(--info-message-icon);
+    background-size: 14px 14px;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+/* "One or more tracing target is changed" indicator on the toolbar dropdown button */
+.tracing-toolbar__dropdown-container__changed-indicator {
+    width: 14px;
+    height: 14px;
+    margin-left: 4px;
+    flex-shrink: 0;
+    background-image: var(--info-message-icon);
+    background-size: 14px 14px;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.tracing-toolbar__icon__info {
+    background-image: var(--info-message-icon);
+    background-size: 16px 16px;
+}
+
+.tracing-toolbar__icon__system {
+    background-image: var(--system-icon);
+}
+
+.tracing-toolbar__icon__component {
+    background-image: var(--toolbar-puzzle-piece-icon);
+}
+
+
+/*** Frame Input ****/
+.tracing-toolbar__frame-field {
+    width: 40px;
+    margin-left: 2px;
+    margin-right: 0;
+}
+
+.tracing-toolbar__frame-total-label {
+    margin-left: 0;
+    margin-right: 4px;
+}
+
+.tracing-toolbar__clear-button {
+    background-color: transparent;
+    border-color: transparent;
+}
+
+.tracing-toolbar__clear-button:hover {
+    background-color: var(--unity-colors-inspector_titlebar-background-hover);
+}
+
+
+/*** Tracing filter dropdown ****/
+.tracing-toolbar__tracing-filter__button {
+    margin: 0;
+    padding: 0 6px;
+    height: 100%;
+    background-color: transparent;
+    border-width: 0;
+}
+
+.tracing-toolbar__tracing-filter__button:hover {
+    background-color: var(--unity-colors-inspector_titlebar-background-hover);
+}
+
+.tracing-toolbar__tracing-filter__popup {
+    position: absolute;
+    background-color: var(--unity-colors-window-secondary-background);
+    min-width: 350px;
+    height: auto;
+}
+
+.tracing-toolbar__tracing-filter__popup-header {
+    padding: 4px 8px;
+    height: 14px;
+    margin-top: 4px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--unity-colors-button-border_accent);
+    font-size: var(--unity-font-size);
+}
+
+.tracing-toolbar__tracing-filter__list .unity-template-container {
+    width: 100%;
+    min-height: 400px;
+}
+
+
+.tracing-toolbar__tracing-filter__no-results__container {
+    padding: 4px;
+    padding-left: 6px;
+    display: flex;
+    flex-direction: row;
+}
+
+.tracing-toolbar__tracing-filter__no-results__label {
+    font-size: 10px;
+}
+
+.tracing-toolbar__tracing-filter__no-results__icon {
+    width: 25px;
+    height: 25px;
+    margin-right: 4px;
+    margin-top: 6px;
+    background-image: var(--info-message-icon);
+}
+
+.tracing-toolbar__tracing-filter__content-container {
+    background-color: var(--unity-colors-window-background);
+}
+
+.tracing-toolbar__tracing-filter__row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 2px 8px;
+}
+
+.tracing-toolbar__tracing-filter__row--even {
+    background-color: var(--unity-colors-alternated_rows-background);
+}
+
+.tracing-toolbar__tracing-filter__row--even:hover {
+    background-color: var(--unity-colors-alternated_rows-background-hover);
+}
+
+.tracing-toolbar__tracing-filter__row__icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    flex-shrink: 0;
+    background-size: 16px 12px;
+}
+
+.tracing-toolbar__tracing-filter__row__toggle {
+    background-color: transparent;
+    border-width: 0;
+    height: 100%;
+    width: 18px;
+    /* Drop the editor button's default side margins so the eye column lines up with the select-all eye */
+    margin: 0;
+}
+
+.tracing-toolbar__tracing-filter__row__label {
+    flex-grow: 1;
+}
+
+.tracing-toolbar__tracing-filter__change-button {
+    margin: 2px 4px 4px 4px;
+}
+
+.tracing-toolbar__tracing-filter__footer-separator {
+    height: 1px;
+    margin-top: 2px;
+    background-color: rgba(0, 0, 0, 0.3);
+}
+
+.tracing-toolbar__tracing-filter__list-view {
+    max-height: 500px;
+}
+
+.tracing-toolbar__tracing-filter__tab-header {
+    flex-direction: row;
+    align-items: center;
+}
+
+.tracing-toolbar__tracing-filter__tab {
+    flex-grow: 1;
+    flex-basis: 0;
+    overflow: hidden;
+    margin: 0;
+    padding: 4px 12px;
+    border-width: 0;
+    border-bottom-width: 1px;
+    border-radius: 0;
+    border-color: rgba(0, 0, 0, 0);
+    background-color: rgba(0, 0, 0, 0);
+    color: var(--unity-colors-default-text);
+    -unity-text-align: middle-center;
+}
+
+.tracing-toolbar__tracing-filter__tab:hover {
+    background-color: var(--unity-colors-button-background-hover);
+}
+
+.tracing-toolbar__tracing-filter__tab--active {
+    border-color: var(--unity-colors-highlight-background);
+    -unity-font-style: bold;
+}
+
+.tracing-toolbar__tracing-filter__threshold-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 2px 8px;
+}
+
+.tracing-toolbar__tracing-filter__threshold-row__label {
+    flex-shrink: 0;
+    margin-right: 4px;
+}
+
+.tracing-toolbar__tracing-filter__threshold-row__slider {
+    flex-grow: 1;
+    flex-shrink: 1;
+    flex-basis: 0;
+    min-width: 40px;
+    margin: 0;
+}
+
+.tracing-toolbar__tracing-filter__threshold-row__field {
+    width: 55px;
+    flex-shrink: 0;
+    margin-left: 4px;
+    margin-right: 0;
+}
+
+/*** "Changed values only" + the active tab's select/deselect-all eye, one row under the tab strip ***/
+.tracing-toolbar__tracing-filter__options-row {
+    flex-direction: row;
+    align-items: center;
+}
+
+.tracing-toolbar__changed-values-toggle {
+    flex-grow: 1;
+    margin: 0;
+    padding: 4px 12px;
+}
+
+.tracing-toolbar__changed-values-toggle > .unity-toggle__input {
+    flex-grow: 0;
+}
+
+/* Same eye as the list rows, offset so it lines up with their eye column. When the active list shows
+   its vertical scrollbar the rows shift left, and C# bumps this margin to follow (OnListViewResize). */
+.tracing-toolbar__tracing-filter__select-all {
+    height: 18px;
+    margin-right: 14px;
+}
+
+/*** Playback controls ****/
+.tracing-toolbar__playback-controls {
+    flex-direction: row;
+    align-items: center;
+    height: 100%;
+    flex-shrink: 0;
+}
+
+.tracing-toolbar__playback-controls__icon-container {
+    min-width: 16px;
+    height: 100%;
+    padding: 0 6px;
+    flex-direction: row;
+    align-items: center;
+    border-right-width: 1px;
+    border-right-color: var(--unity-colors-default-border);
+}
+
+.tracing-toolbar__playback-controls__icon-container .unity-base-popup-field__arrow {
+    padding: 0 0 0 1px;
+    margin: 0;
+    border-width: 0;
+    background-color: transparent;
+    height: 100%;
+}
+
+.tracing-toolbar__playback-controls__icon-container .unity-base-popup-field__arrow:hover {
+    background-color: var(--unity-colors-inspector_titlebar-background-hover);
+}
+
+

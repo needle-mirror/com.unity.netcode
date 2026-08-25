@@ -25,9 +25,6 @@
     <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\EntitiesMock.cs">
       <Link>Mock\Unity.Entities.Mock\EntitiesMock.cs</Link>
     </Compile>
-    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\LambdaJobDescription.cs">
-      <Link>Mock\Unity.Entities.Mock\LambdaJobDescription.cs</Link>
-    </Compile>
   </ItemGroup>
 
 </Project>

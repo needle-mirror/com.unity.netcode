@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.CodeAnalysis;
@@ -75,6 +74,7 @@ namespace Unity.NetCode.Generators
             var isEnableableComponent = Roslyn.Extensions.ImplementsInterface(symbol, "Unity.Entities.IEnableableComponent");
             var hasGhostEnabledBitAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "GhostEnabledBitAttribute") != null;
             var fullTypeName = Roslyn.Extensions.GetFullTypeName(symbol);
+            var isRemote = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "RemoteAttribute") != null || Roslyn.Extensions.ImplementsInterface(symbol, "Unity.NetCode.IRemote");
 
             if (hasGhostEnabledBitAttribute && !isEnableableComponent)
             {
@@ -101,6 +101,9 @@ namespace Unity.NetCode.Generators
                 ShouldSerializeEnabledBit = isEnableableComponent && hasGhostEnabledBitAttribute,
                 HasDontSupportPrefabOverridesAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "DontSupportPrefabOverridesAttribute") != null,
                 IsTestVariant = false,
+                IsRemote = isRemote,
+                IsAutoInvokeRemote = false,
+                IsGhostBehaviourMethod = false,
             };
             //Mask out inherited attributes that does not apply. SubType is also never inherited, buffer fields are never interpolated
             if (typeInfo.ComponentType != ComponentType.Component)
@@ -129,6 +132,23 @@ namespace Unity.NetCode.Generators
                     var field = ParseFieldType(member, memberType, typeInfo, string.Empty, 1, ghostFieldOverride);
                     if (field != null)
                         typeInfo.GhostFields.Add(field);
+                }
+            }
+
+            //need info on handle member if we are a remote
+            if ( isRemote )
+            {
+                using (new Profiler.Auto("RemoteParseMethods"))
+                {
+                    foreach (var method in members.OfType<IMethodSymbol>())
+                    {
+                        if ( method.Name == "Handle" )
+                        {
+                            typeInfo.IsAutoInvokeRemote = true;
+                            // TODO: We need to make sure the Handle method has the correct access parameters puiblic or internal should be fine and not take any arguments
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -179,9 +199,9 @@ namespace Unity.NetCode.Generators
                 m_Reporter.LogError($"{variantSymbol.Name}: problem parsing this type, make sure the compilation unit compiles", variantSymbol.Locations[0]);
                 return null;
             }
-            if (adapteeType.DeclaredAccessibility != Accessibility.Public)
+            if (adapteeType.DeclaredAccessibility != Accessibility.Public && adapteeType.DeclaredAccessibility != Accessibility.Internal)
             {
-                m_Reporter.LogError($"{variantSymbol.Name}: the component type must be public accessible", variantSymbol.Locations[0]);
+                m_Reporter.LogError($"{variantSymbol.Name}: the target component type must be publicly accessible (or internally accessible if in the same assembly)", variantSymbol.Locations[0]);
                 return null;
             }
             if (Roslyn.Extensions.GetAttribute(adapteeType, "Unity.NetCode", "DontSupportPrefabOverridesAttribute") != null)
@@ -235,15 +255,14 @@ namespace Unity.NetCode.Generators
                        member.Name.EndsWith("k__BackingField"))
                         continue;
 
-                    var originalMember = adapteeType.GetMembers(member.Name).FirstOrDefault();
-                    if(originalMember == null ||
-                       (originalMember as IFieldSymbol)?.Type.GetFullTypeName() != member.Type.GetFullTypeName())
+                    var members = adapteeType.GetMembers(member.Name);
+                    if (members.Length == 0 || (members[0] as IFieldSymbol)?.Type.GetFullTypeName() != member.Type.GetFullTypeName())
                     {
                         hasErrors = true;
                         m_Reporter.LogError($"{variantSymbol.Name}: Cannot find member {member.Name} type: {member.Type.Name} in {adapteeType.Name}", member.Locations[0]);
                         continue;
                     }
-                    if (originalMember.DeclaredAccessibility != Accessibility.Public)
+                    if (members[0].DeclaredAccessibility != Accessibility.Public)
                     {
                         hasErrors = true;
                         m_Reporter.LogError($"{variantSymbol.Name}: member {member.Name} type: {member.Type.Name} in {adapteeType.Name} must be public", member.Locations[0]);
@@ -256,15 +275,14 @@ namespace Unity.NetCode.Generators
                     if (!CheckIsSerializableProperty(prop))
                         continue;
 
-                    var originalMember = adapteeType.GetMembers(prop.Name).FirstOrDefault();
-                    if(originalMember == null ||
-                       (originalMember as IPropertySymbol)?.Type.GetFullTypeName() != prop.Type.GetFullTypeName())
+                    var members = adapteeType.GetMembers(prop.Name);
+                    if(members.Length == 0 || (members[0] as IPropertySymbol)?.Type.GetFullTypeName() != prop.Type.GetFullTypeName())
                     {
                         hasErrors = true;
                         m_Reporter.LogError($"{variantSymbol.Name}: Cannot find property {prop.Name} type: {prop.Type.Name} in {adapteeType.Name}", prop.Locations[0]);
                         continue;
                     }
-                    if (originalMember.DeclaredAccessibility != Accessibility.Public)
+                    if (members[0].DeclaredAccessibility != Accessibility.Public)
                     {
                         hasErrors = true;
                         m_Reporter.LogError($"{variantSymbol.Name}: property {prop.Name} type: {prop.Type.Name} in {adapteeType.Name} must be public", prop.Locations[0]);
@@ -324,6 +342,131 @@ namespace Unity.NetCode.Generators
         }
 
         /// <summary>
+        /// Takes a method sysmbol and extracts it out to reptesent a type this allows us to construct types from methods
+        /// </summary>
+        /// <returns></returns>
+        public TypeInformation BuildRemoteMethodTypeInformation(CodeGenerator.Context codeGenContext, IMethodSymbol symbol, GhostComponentAttribute ghostAttribute, GhostField ghostFieldOverride = null)
+        {
+            m_context.CancellationToken.ThrowIfCancellationRequested();
+            m_Reporter.LogDebug($"Building method type info for {symbol} ");
+
+            var ns = Roslyn.Extensions.GetFullyQualifiedNamespace(symbol);
+            var generatedName = NameUtils.GetRemoteGeneratedTypeName(symbol.ContainingType, symbol); // generated backing remote RPC component type
+            var fullTypeName = string.IsNullOrEmpty(ns) ? generatedName : string.Concat(ns, ".", generatedName);
+            var isRemote = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "RemoteAttribute") != null;
+            var isGhostBehaviourMethod = Roslyn.Extensions.InheritsFromBase(symbol.ContainingType, RemotesCodeGen.GetGhostBehaviourFullTypeName());
+
+            // Perform validity checks
+            if (isRemote)
+            {
+                if (!symbol.ReturnsVoid)
+                {
+                    var diagnostic = new DiagnosticReporter(codeGenContext.executionContext);
+                    diagnostic.LogError("Remote methods must return void.", symbol.Locations[0]);
+                }
+
+                foreach( var arg in Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "RemoteAttribute").ConstructorArguments )
+                {
+                    if (Roslyn.Extensions.GetFullTypeName(arg.Type) == "Unity.NetCode.Directionality")
+                    {
+                        if ((int)arg.Value == 0)
+                        {
+                            var diagnostic = new DiagnosticReporter(codeGenContext.executionContext);
+                            diagnostic.LogError("Remote methods must specify a directionality, Undefined is not allowed.", symbol.Locations[0]);
+                        }
+                    }
+                }
+            }
+
+            var typeInfo = new TypeInformation
+            {
+                Kind = GenTypeKind.Struct,
+                ComponentType = ComponentType.Rpc,
+                TypeFullName = fullTypeName,
+                Namespace = Roslyn.Extensions.GetFullyQualifiedNamespace(symbol),
+                FieldName = string.Empty,
+                FieldTypeName = null, //Roslyn.Extensions.GetFieldTypeName(symbol),
+                UnderlyingTypeName = String.Empty,
+                Attribute = TypeAttribute.Empty(),
+                AttributeMask = m_SerializationMode != SerializationMode.Commands
+                    ? TypeAttribute.AttributeFlags.All
+                    : TypeAttribute.AttributeFlags.None,
+                GhostAttribute = ghostAttribute,
+                Location = symbol.Locations[0],
+                Symbol = null, //symbol, ugh this might get messy
+                MethodSymbol = symbol,
+                ShouldSerializeEnabledBit = false,
+                HasDontSupportPrefabOverridesAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "DontSupportPrefabOverridesAttribute") != null,
+                IsTestVariant = false,
+                IsRemote = isRemote,
+                IsAutoInvokeRemote = true, // this is depoending on usage, I think we can just make it true since the RPC generator won't care
+                IsGhostBehaviourMethod = isGhostBehaviourMethod
+            };
+            //Mask out inherited attributes that does not apply. SubType is also never inherited, buffer fields are never interpolated
+            if (typeInfo.ComponentType != ComponentType.Component)
+                typeInfo.AttributeMask &= ~TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated;
+
+            //This can be a little expensive sometime (up to tens of ms)
+            var parameters = symbol.Parameters;
+            using (new Profiler.Auto("ConvertParametersToMembers"))
+            {
+                foreach (var param in parameters)
+                {
+                    //This is a little expensive operation (up to some ms)
+                    var memberType = param.Type;
+                    var field = ParseFieldType(param, memberType, typeInfo, string.Empty, 1, ghostFieldOverride);
+                    if (field != null)
+                        typeInfo.GhostFields.Add(field);
+                }
+
+                // so we want to inject the ghost id here, this is the simplest way to get it into the RPC generator
+                // it does mean we need to handle it as a special case in the remote generator but thats OK
+                if ( isGhostBehaviourMethod )
+                {
+                    var targetGhostTypeInfo = new TypeInformation
+                    {
+                        Kind = GenTypeKind.Primitive,
+                        TypeFullName = "System.Int32",
+                        Namespace = "System",
+                        FieldName = RemotesCodeGen.GetTargetGhostIdMemberName(),
+                        UnderlyingTypeName = "",
+                        FieldTypeName = "int",
+                        Attribute = TypeAttribute.Empty(),
+                        AttributeMask = m_SerializationMode != SerializationMode.Commands
+                                    ? TypeAttribute.AttributeFlags.All
+                                    : TypeAttribute.AttributeFlags.None,
+                        Location = null,
+                        CanBatchPredict = false,
+                        Symbol = null
+                    };
+
+                    typeInfo.GhostFields.Add(targetGhostTypeInfo);
+
+                    var targetGhostTypeSpawnTickInfo = new TypeInformation
+                    {
+                        Kind = GenTypeKind.Primitive,
+                        TypeFullName = "System.UInt32",
+                        Namespace = "System",
+                        FieldName = RemotesCodeGen.GetTargetSpawnTickMemberName(),
+                        UnderlyingTypeName = "",
+                        FieldTypeName = "uint",
+                        Attribute = TypeAttribute.Empty(),
+                        AttributeMask = m_SerializationMode != SerializationMode.Commands
+                                    ? TypeAttribute.AttributeFlags.All
+                                    : TypeAttribute.AttributeFlags.None,
+                        Location = null,
+                        CanBatchPredict = false,
+                        Symbol = null
+                    };
+
+                    typeInfo.GhostFields.Add(targetGhostTypeSpawnTickInfo);
+                }
+            }
+
+            return typeInfo;
+        }
+
+        /// <summary>
         /// Build a TypeInformation tree for a field <paramref name="member"/> if fhe field should be serialized.
         /// A member of as struct is serialized if the following conditions are true:
         /// - The member must have public accessibilty.
@@ -339,7 +482,6 @@ namespace Unity.NetCode.Generators
 
             GenTypeKind typeKind;
             var isElement = parent.Kind is GenTypeKind.FixedList or GenTypeKind.FixedSizeArray;
-            var location = member.Locations.FirstOrDefault() ?? parent.Location;
             if (member is IFieldSymbol symbol && symbol.IsFixedSizeBuffer)
             {
                 typeKind = GenTypeKind.FixedSizeArray;
@@ -366,7 +508,9 @@ namespace Unity.NetCode.Generators
                 else
                     ghostField = TryGetGhostField(member);
             }
-            if(m_SerializationMode != SerializationMode.Commands)
+
+            var location = member.Locations.Length == 0 ? parent.Location : member.Locations[0];
+            if (m_SerializationMode != SerializationMode.Commands)
             {
                 if (member.IsStatic)
                 {
@@ -398,7 +542,7 @@ namespace Unity.NetCode.Generators
                 if ((ghostField != null && !ghostField.SendData))
                     return null;
             }
-            else if (member.IsStatic || member.DeclaredAccessibility < (isElement ? Accessibility.ProtectedAndInternal : Accessibility.Public))
+            else if (member.IsStatic || ( member.DeclaredAccessibility < (isElement ? Accessibility.ProtectedAndInternal : Accessibility.Public) && member.DeclaredAccessibility != Accessibility.NotApplicable ) )
                 return null;
 
             if(member.Name.StartsWith("__COMMAND", StringComparison.Ordinal) ||

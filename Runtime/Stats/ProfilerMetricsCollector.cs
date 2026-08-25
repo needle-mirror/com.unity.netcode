@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || NETCODE_DEBUG) && UNITY_6000_0_OR_NEWER
+#if (UNITY_EDITOR || NETCODE_DEBUG)
 using System;
 using System.Diagnostics;
 using Unity.Collections;
@@ -35,6 +35,10 @@ namespace Unity.NetCode
         internal ProfilerCounterValue<uint> ClientGhostSnapshotCounter;
         internal ProfilerCounterValue<float> JitterCounter;
         internal ProfilerCounterValue<float> RttCounter;
+
+        // World configuration flags
+        internal byte IsHostMode; // 1 if world has both client and server flags, 0 otherwise
+        internal byte HasConnectedClients; // 1 if there are connected clients with NetworkStreamInGame, 0 otherwise
     }
 
     /// <summary>
@@ -68,12 +72,20 @@ namespace Unity.NetCode
         bool m_WaitForConnection;
         // Flag to know if we need to clean up the profiler metrics.
         bool m_IsCleanedUp = true;
-        // Flag to track last processed client tick. Not required on server.
+        // Flag to track last processed client tick.
         NetworkTick m_LastClientTick;
+        // Flag to track last processed server tick.
+        NetworkTick m_LastServerTick;
+        // Flag to track if we've emitted session metadata.
+        bool m_SessionMetadataEmitted;
+        // Entity query to get client count.
+        EntityQuery m_ConnectedClientsQuery;
 
         void Initialize()
         {
             m_IsCleanedUp = false;
+
+            m_ConnectedClientsQuery = SystemAPI.QueryBuilder().WithAll<NetworkStreamConnection>().Build();
 
             if (!SystemAPI.TryGetSingletonEntity<ProfilerMetrics>(out var profilerMetricsSingleton))
                 profilerMetricsSingleton = EntityManager.CreateSingleton<ProfilerMetrics>("ProfilerMetrics");
@@ -144,26 +156,22 @@ namespace Unity.NetCode
             if (!m_MetricsCollectionEnabled)
                 Initialize();
 
-            // This also checks for NetworkStreamInGame, so it's important to call it before we potentially early-out
-            // due to empty stats.
             SetUncompressedSizesPerType();
 
             var ghostStatsSnapshot = SystemAPI.GetSingleton<GhostStatsSnapshotSingleton>().GetAsyncStatsReader();
-            var ghostTypeStats = ghostStatsSnapshot.PerGhostTypeStatsListRO;
             var profilerMetrics = SystemAPI.GetSingleton<ProfilerMetrics>();
-            if (!ghostStatsSnapshot.Tick.IsValid) return;
-            var hasSnapshotStats = ghostTypeStats.IsCreated && ghostTypeStats.Length > 0;
-            if (!hasSnapshotStats) return;
-
-            var ghostMetrics = SystemAPI.GetSingletonBuffer<GhostMetrics>();
-            var hasGhostMetrics = ghostMetrics.IsCreated && ghostMetrics.Length > 0;
-            if (!hasGhostMetrics) return;
-
             UpdateProfilerMetricsAndCounters(ghostStatsSnapshot, ref profilerMetrics);
 
             SystemAPI.SetSingleton(profilerMetrics);
 
 #if ENABLE_PROFILER
+            // Emit session metadata once per capture session
+            if (!m_SessionMetadataEmitted)
+            {
+                EmitSessionMetadata();
+                m_SessionMetadataEmitted = true;
+            }
+
             // Serialize component stats.
             var serializedGhostStatsSnapshot = ghostStatsSnapshot.ToBlittableData(Allocator.Temp);
 
@@ -224,10 +232,21 @@ namespace Unity.NetCode
             // Update Graph Counters
             if (World.IsServer())
             {
-                profilerMetrics.TotalSizeSentByServerInBits += ghostStatsSnapshot.SnapshotTotalSizeInBits;
-                profilerMetrics.TotalSnapshotCountSentByServer += ghostStatsSnapshot.SnapshotCount;
-                profilerMetrics.ServerGhostInstancesCounter.Value = instancesCount;
-                profilerMetrics.ServerGhostSnapshotCounter.Value = ghostStatsSnapshot.SnapshotTotalSizeInBits >> 3; // Convert to bytes;
+                if (m_LastServerTick != ghostStatsSnapshot.Tick)
+                {
+                    m_LastServerTick = ghostStatsSnapshot.Tick;
+
+                    profilerMetrics.TotalSizeSentByServerInBits += ghostStatsSnapshot.SnapshotTotalSizeInBits;
+                    profilerMetrics.TotalSnapshotCountSentByServer += ghostStatsSnapshot.SnapshotCount;
+
+                    profilerMetrics.ServerGhostInstancesCounter.Value = instancesCount;
+                    profilerMetrics.ServerGhostSnapshotCounter.Value = ghostStatsSnapshot.SnapshotTotalSizeInBits >> 3; // Convert to bytes
+                }
+                else
+                {
+                    profilerMetrics.ServerGhostInstancesCounter.Value = 0;
+                    profilerMetrics.ServerGhostSnapshotCounter.Value = 0;
+                }
             }
             else
             {
@@ -252,6 +271,19 @@ namespace Unity.NetCode
                 profilerMetrics.JitterCounter.Value = networkMetrics.Jitter * 1_000_000f;
                 profilerMetrics.RttCounter.Value = networkMetrics.Rtt * 1_000_000f;
             }
+
+            // Host mode and connected clients info
+            profilerMetrics.IsHostMode = (byte)(World.IsHost() ? 1 : 0);
+            profilerMetrics.HasConnectedClients = (byte)(m_ConnectedClientsQuery.CalculateEntityCount() > 0 ? 1 : 0);
+        }
+
+        [Conditional("ENABLE_PROFILER")]
+        void EmitSessionMetadata()
+        {
+            var guid = World.IsServer() ? ProfilerMetricsConstants.ServerGuid : ProfilerMetricsConstants.ClientGuid;
+            var worldName = new FixedString128Bytes();
+            worldName.Append(World.Name);
+            Profiler.EmitSessionMetaData(guid, ProfilerMetricsConstants.WorldNameTag, new[] { worldName });
         }
 
         [Conditional("ENABLE_PROFILER")]
@@ -293,6 +325,7 @@ namespace Unity.NetCode
             DestroySingletonEntity<GhostMetricsMonitor>();
 
             m_MetricsCollectionEnabled = false;
+            m_SessionMetadataEmitted = false;
             m_IsCleanedUp = true;
         }
 

@@ -1,4 +1,3 @@
-#if UNITY_EDITOR
 using System.Collections;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -15,22 +14,22 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
 
-            var prefabNoOwner = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("wrong ownerships");
-            var authoringNoOwner = prefabNoOwner.GetComponent<GhostAdapter>();
+            var prefabNoOwner = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("wrong ownerships");
+            var authoringNoOwner = prefabNoOwner.GetComponent<GhostObject>();
             authoringNoOwner.HasOwner = false;
             Netcode.RegisterPrefab(prefabNoOwner.gameObject);
             var server = GameObject.Instantiate(prefabNoOwner);
             await testWorld.TickAsync();
 
             // Test
-            LogAssert.Expect(LogType.Error, $"Trying to get the owner of a ghost that wasn't setup with ownership. Please update your {nameof(GhostAdapter)} component to reflect this.");
+            LogAssert.Expect(LogType.Error, $"Trying to get the owner of a ghost that wasn't setup with ownership. Please update your {nameof(GhostObject)} component to reflect this.");
             var _ = server.Ghost.OwnerNetworkId;
 
-            LogAssert.Expect(LogType.Error, $"Trying to set the owner of a ghost that wasn't setup with ownership. Please update your {nameof(GhostAdapter)} component to reflect this.");
+            LogAssert.Expect(LogType.Error, $"Trying to set the owner of a ghost that wasn't setup with ownership. Please update your {nameof(GhostObject)} component to reflect this.");
             server.Ghost.OwnerNetworkId = new NetworkId { Value = 123 };
 
-            var prefabWithOwner = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("correct ownerships", autoRegister: false);
-            var authoringWithOwner = prefabWithOwner.GetComponent<GhostAdapter>();
+            var prefabWithOwner = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("correct ownerships", autoRegister: false);
+            var authoringWithOwner = prefabWithOwner.GetComponent<GhostObject>();
             authoringWithOwner.HasOwner = true;
             Netcode.RegisterPrefab(prefabWithOwner.gameObject);
             var serverWithOwner = GameObject.Instantiate(prefabWithOwner);
@@ -40,4 +39,3 @@ namespace Unity.NetCode.Tests
         }
     }
 }
-#endif

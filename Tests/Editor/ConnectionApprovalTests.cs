@@ -38,7 +38,7 @@ namespace Unity.NetCode.Tests
                 if (TriggerDisconnect)
                 {
                     var connectionEntity = SystemAPI.GetSingletonEntity<NetworkStreamConnection>();
-                    SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO.DriverStore.Disconnect(EntityManager.GetComponentData<NetworkStreamConnection>(connectionEntity));
+                    SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Disconnect(EntityManager.GetComponentData<NetworkStreamConnection>(connectionEntity));
                     Enabled = false;
                 }
             }
@@ -207,8 +207,9 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick();
 
-                LogAssert.Expect(LogType.Error, new Regex(@"\[(Server|Host)(.*)\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerRequestApprovalAfterHandshake' from client"));
-                LogAssert.Expect(LogType.Error, new Regex(@"\[(Server|Host)(.*)\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerApprovedConnection' from client"));
+                var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
+                LogAssert.Expect(LogType.Error, new Regex($@"\[{(isHost ? "Host" : "Server")}Test-0\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerRequestApprovalAfterHandshake' from client"));
+                LogAssert.Expect(LogType.Error, new Regex($@"\[{(isHost ? "Host" : "Server")}Test-0\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerApprovedConnection' from client"));
             }
         }
 
@@ -254,8 +255,10 @@ namespace Unity.NetCode.Tests
 
                 // A few other debug messages will print so we'll just watch out for this specific one (ignore the rest)
                 // which indicates we're disconnected but processed this pending RPC in the queue
+#if !NETCODE_NDEBUG
                 LogAssert.ignoreFailingMessages = true;
                 LogAssert.Expect(LogType.Log, new Regex(@$"\[(.*)\] NetworkConnection\[id0,v1\] in disconnected state but allowing Rpc\[(\d+), Unity.NetCode.RequestProtocolVersionHandshake\] to get processed, as it's an approval RPC\!"));
+#endif
 
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick();

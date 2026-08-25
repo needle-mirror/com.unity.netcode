@@ -1,0 +1,51 @@
+:root {
+    --system-icon: url("../../../../EditorIcons/Tracing/d_System.png");
+    --component-icon: url("../../../../EditorIcons/d_Component.png");
+    --ghost-icon: url("../../../../EditorIcons/d_GhostAuthoring_monochrome.png");
+    --system-group-icon: url("../../../../EditorIcons/Tracing/d_SystemGroup.png");
+
+    /* Icon variants for diffed rows (match the normal icons in the dark theme; see the light theme). */
+    --system-icon-diff: url("../../../../EditorIcons/Tracing/d_System.png");
+    --component-icon-diff: url("../../../../EditorIcons/d_Component.png");
+    --ghost-icon-diff: url("../../../../EditorIcons/d_GhostAuthoring_monochrome.png");
+    --system-group-icon-diff: url("../../../../EditorIcons/Tracing/d_SystemGroup.png");
+    --metadata-icon: url("../../../../EditorIcons/Tracing/Text Asset.png");
+    --script-icon: url("../../../../EditorIcons/Tracing/Script.png");
+    --open-window-icon: url("../../../../EditorIcons/Tracing/d_WindowInstance.png");
+    --slider-dragger-icon: url("../../../../EditorIcons/Tracing/slider-dragger.svg");
+    --tick-background: url("../../../../EditorIcons/Tracing/d_tick-background.svg");
+    --toolbar-record-icon: url("../../../../EditorIcons/Tracing/d_record.svg");
+    --toolbar-record-off-icon: url("../../../../EditorIcons/Tracing/d_record-off.svg");
+    --toolbar-go-to-start-icon: url("../../../../EditorIcons/Tracing/d_toolbar-go-to-start.svg");
+    --toolbar-step-back-icon: url("../../../../EditorIcons/Tracing/d_toolbar-step-back.svg");
+    --toolbar-play-icon: url("../../../../EditorIcons/Tracing/d_toolbar-play.svg");
+    --toolbar-pause-icon: url("../../../../EditorIcons/Tracing/d_toolbar-pause.svg");
+    --toolbar-step-forward-icon: url("../../../../EditorIcons/Tracing/d_toolbar-step-forward.svg");
+    --toolbar-go-to-end-icon: url("../../../../EditorIcons/Tracing/d_toolbar-go-to-end.svg");
+    --toolbar-pin-icon: url("../../../../EditorIcons/Tracing/d_toolbar-pin.svg");
+    --toolbar-puzzle-piece-icon: url("../../../../EditorIcons/Tracing/d_puzzle-piece.svg");
+    --toolbar-eye-icon: url("../../../../EditorIcons/Tracing/d_eye.svg");
+    --toolbar-eye-strike-icon: url("../../../../EditorIcons/Tracing/d_eye-strike.svg");
+    --tracing-header-filter-icon: resource("d_Filter Icon");
+    --scene-view-icon: resource("d_UnityEditor.SceneView");
+    --toolbar-replay-per-tick-icon: url("../../../../EditorIcons/Tracing/d_ReplayPerTick.png");
+    --toolbar-replay-per-system-icon: url("../../../../EditorIcons/Tracing/d_ReplayPerSystem.png");
+    --timeline-frame-bg: url("../../../../EditorIcons/Tracing/d_frame_bg.svg");
+    --timeline-tick-bg: url("../../../../EditorIcons/Tracing/d_tick_bg.svg");
+    --info-message-icon: url("../../../../EditorIcons/Tracing/d_info-message@2x.png");
+
+    --selected-tick: #7BAEFA;
+
+    --tick-marker: #FF2400;
+    --tick-marker-inactive: rgba(255, 36, 0, 0.4);
+    --label-on-partial: #FFFFFF;
+    --timeline-replay-indicator-color: white;
+
+    --scarlet: #FF2400;
+    --label-on-red: #090909;
+    --label-on-tick: #C4C4C4;
+    /* Text on the scarlet diff fill; per-theme for contrast (black reads on the bright dark-theme red). */
+    --diff-highlight-text: #090909;
+    --diff-tag-deselected: #B4B4B4;
+    --diff-icon-tint: #FF2F00;
+}

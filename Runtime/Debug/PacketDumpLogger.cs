@@ -1,6 +1,3 @@
-#if USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO
-#pragma warning disable 0436
-#endif
 #if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
@@ -9,10 +6,6 @@ using Unity.Collections;
 using System;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
-#if USING_UNITY_LOGGING
-using Unity.Logging;
-using Unity.Logging.Sinks;
-#endif
 
 namespace Unity.NetCode.LowLevel.Unsafe
 {
@@ -38,34 +31,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
     /// </summary>
     unsafe struct PacketDumpLogger : IDisposable
     {
-#if USING_UNITY_LOGGING
-        private LoggerHandle m_NetDebugPacketLoggerHandle;
-
-        public void Init(in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId)
-        {
-            LogMemoryManagerParameters.GetDefaultParameters(out var parameters);
-            parameters.InitialBufferCapacity *= 64;
-            parameters.OverflowBufferSize *= 32;
-
-            m_NetDebugPacketLoggerHandle = new LoggerConfig()
-                .OutputTemplate("{Message}")
-                .MinimumLevel.Set(LogLevel.Verbose)
-                .CaptureStacktrace(false)
-                .RedirectUnityLogs(false)
-                .WriteTo.File($"{logFolder}/NetcodePacket-{worldName}-{connectionId}.log")
-                .CreateLogger(parameters).Handle;
-        }
-
-        public bool IsCreated => m_NetDebugPacketLoggerHandle.IsValid;
-
-        public void Log(in FixedString512Bytes msg)
-        {
-            Unity.Logging.Log.To(m_NetDebugPacketLoggerHandle).Info(msg);
-        }
-        public void Dispose()
-        {
-        }
-#else
         [NativeDisableUnsafePtrRestriction] private IntPtr m_FileStream;
         [NativeDisableUnsafePtrRestriction] private UnsafeText* m_buffer;
 
@@ -138,10 +103,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 m_FileStream = IntPtr.Zero;
             }
         }
-#endif
     }
 }
-#endif
-#if USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO
-#pragma warning restore 0436
 #endif

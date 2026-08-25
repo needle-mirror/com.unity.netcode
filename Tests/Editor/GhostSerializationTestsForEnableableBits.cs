@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
 using Unity.Collections;
@@ -27,17 +26,24 @@ namespace Unity.NetCode.Tests
         StartDisabledAndWaitForClientSpawn = 4,
     }
 
-    [DisableSingleWorldHostTest]
     internal class GhostSerializationTestsForEnableableBits
     {
-        void TickMultipleFrames(int numTicksToProperlyReplicate)
+        void TickUntilGhostsAreSpawned(int maxTicksToReplicate, int expectedClientInstanceCount)
         {
-            for (int i = 0; i < numTicksToProperlyReplicate; ++i)
+            var em = m_TestWorld.ClientWorlds[0].EntityManager;
+
+            using var q = em.CreateEntityQuery(typeof(GhostInstance), typeof(GhostTypeConverter.TestGhost));
+            for (int i = 0; i < maxTicksToReplicate; ++i)
             {
                 m_TestWorld.Tick();
-            }
-        }
 
+                if (q.CalculateEntityCount() >= expectedClientInstanceCount)
+                {
+                    return;
+                }
+            }
+            Assert.Fail("Max tick reached, failed to find the expected client side ghosts");
+        }
 
         void SetLinkedBufferValues<T>(int value, bool enabled)
             where T : unmanaged, IBufferElementData, IEnableableComponent, IComponentValue
@@ -1343,7 +1349,8 @@ namespace Unity.NetCode.Tests
             m_TestWorld.Connect(maxSteps:16);
 
             // Set every 4th to be the ghost owner.
-            var networkIdOfClient0 = m_TestWorld.GetSingleton<NetworkId>(m_TestWorld.ServerWorld);
+            var networkIdOfClient0Entity = m_TestWorld.TryGetSingletonEntity<NetworkStreamConnection>(m_TestWorld.ServerWorld);
+            var networkIdOfClient0 = m_TestWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(networkIdOfClient0Entity);
             for (int i = 0; i < m_ServerEntities.Length; i += 4)
             {
                 m_TestWorld.ServerWorld.EntityManager.SetComponentData(m_ServerEntities[i], new GhostOwner
@@ -1359,7 +1366,7 @@ namespace Unity.NetCode.Tests
                 m_IsFirstRun = true;
                 m_ExpectChangeFilterToChange = true;
 
-                ValidateBakedValues(flags, enabledBitBakedValue, sendForChildrenTestCase, type, predictionSetting);
+                ValidateBakedValues(flags, enabledBitBakedValue, sendForChildrenTestCase, type, predictionSetting, entityCount);
                 void SingleTest(int value, bool enabled, bool setGhostValues)
                 {
                     m_TestWorld.TryLogPacket($"SingleTest(value:{value}, enabled:{enabled}, set:{setGhostValues})");
@@ -1368,7 +1375,7 @@ namespace Unity.NetCode.Tests
                     m_LastGlobalSystemVersion = m_TestWorld.ClientWorlds[0].EntityManager.GlobalSystemVersion;
                     m_ServerTickBeforeSend = m_TestWorld.GetSingleton<NetworkTime>(m_TestWorld.ServerWorld).ServerTick;
 
-                    TickMultipleFrames(64);
+                    m_TestWorld.TickMultiple(20); // trying to keep the number ticks as low as possible here, as this takes a lot of time in tests
                     VerifyGhostValues(m_Type, value, enabled);
                 }
 
@@ -1392,7 +1399,7 @@ namespace Unity.NetCode.Tests
         /// 2. WAIT for them to be spawned on the client.
         /// 3. VERIFY that the baked value and enabled-bit matches the baked values on the prefab.
         /// </summary>
-        private void ValidateBakedValues(GhostFlags flags, EnabledBitBakedValue enabledBitBakedValue, SendForChildrenTestCase sendForChildrenTestCase, GhostTypeConverter.GhostTypes type, PredictionSetting predictionSetting)
+        private void ValidateBakedValues(GhostFlags flags, EnabledBitBakedValue enabledBitBakedValue, SendForChildrenTestCase sendForChildrenTestCase, GhostTypeConverter.GhostTypes type, PredictionSetting predictionSetting, int expectedClientInstanceCount)
         {
             if (GhostTypeConverter.WaitForClientEntitiesToSpawn(enabledBitBakedValue))
             {
@@ -1401,7 +1408,7 @@ namespace Unity.NetCode.Tests
                 m_ServerTickBeforeSend = m_TestWorld.GetSingleton<NetworkTime>(m_TestWorld.ServerWorld).ServerTick;
                 m_ExpectedServerBufferSize = kBakedBufferSize; // We haven't written to the server buffers yet.
                 const int ticks = 32;
-                TickMultipleFrames(ticks);
+                TickUntilGhostsAreSpawned(ticks, expectedClientInstanceCount);
                 VerifyGhostValues(m_Type, kBakedValue, GhostTypeConverter.BakedEnabledBitValue(enabledBitBakedValue));
                 VerifyStaticOptimization(flags, forceExpect: true);  // It's the first time sending the ghost, so we
                                                                      // expect to receive a snapshot containing this
@@ -1480,19 +1487,22 @@ namespace Unity.NetCode.Tests
         static GhostAuthoringInspectionComponent.ComponentOverride[] BuildComponentOverridesForComponents()
         {
             var testTypes = GhostTypeConverter.FetchAllTestComponentTypesRequiringSendRuleOverride();
-            var overrides = testTypes
-                .Select(x =>
+            var overrides = new GhostAuthoringInspectionComponent.ComponentOverride[testTypes.Length]; // or .Count
+            int index = 0;
+
+            foreach (var x in testTypes)
+            {
+                var componentTypeFullName = x.Item1.FullName;
+                var variantTypeName = x.Item2?.FullName ?? componentTypeFullName;
+                overrides[index++] = new GhostAuthoringInspectionComponent.ComponentOverride
                 {
-                    var componentTypeFullName = x.Item1.FullName;
-                    var variantTypeName = x.Item2?.FullName ?? componentTypeFullName;
-                    return new GhostAuthoringInspectionComponent.ComponentOverride
-                    {
-                        FullTypeName = componentTypeFullName,
-                        PrefabType = GhostPrefabType.All,
-                        SendTypeOptimization = GhostSendType.AllClients,
-                        VariantHash = GhostVariantsUtility.UncheckedVariantHashNBC(variantTypeName, componentTypeFullName),
-                    };
-                }).ToArray();
+                    FullTypeName = componentTypeFullName,
+                    PrefabType = GhostPrefabType.All,
+                    SendTypeOptimization = GhostSendType.AllClients,
+                    VariantHash = GhostVariantsUtility.UncheckedVariantHashNBC(variantTypeName, componentTypeFullName),
+                };
+            }
+
             return overrides;
         }
 
@@ -1584,9 +1594,19 @@ namespace Unity.NetCode.Tests
         private static Type FindTestVariantForType(ComponentType type)
         {
             var managedType = type.GetManagedType();
-            var foundPair = s_Variants.FirstOrDefault(x => x.Item1 == managedType);
+            (Type, Type) foundPair = default;
+            foreach (var valueTuple in s_Variants)
+            {
+                if (valueTuple.Item1 == managedType)
+                {
+                    foundPair = valueTuple;
+                    break;
+                }
+            }
             if (foundPair.Item1 == null)
+            {
                 return managedType;
+            }
             var variantType = foundPair.Item2 ?? foundPair.Item1;
             return variantType;
         }
@@ -1628,9 +1648,16 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        static Dictionary<Type, GhostComponentAttribute> s_CachedAttributes = new();
         private static GhostComponentAttribute GetGhostComponentAttribute(Type variantType)
         {
-            return variantType.GetCustomAttribute(typeof(GhostComponentAttribute)) as GhostComponentAttribute ?? new GhostComponentAttribute();
+            if (!s_CachedAttributes.TryGetValue(variantType, out var ghostComponentAttribute))
+            {
+                ghostComponentAttribute = variantType.GetCustomAttribute(typeof(GhostComponentAttribute)) as GhostComponentAttribute ?? new GhostComponentAttribute();
+                s_CachedAttributes.Add(variantType, ghostComponentAttribute);
+            }
+            return ghostComponentAttribute;
+
         }
 
         private static bool HasSendForChildrenFlagOnAttribute(GhostComponentAttribute attribute) => attribute != null && attribute.SendDataForChildEntity;

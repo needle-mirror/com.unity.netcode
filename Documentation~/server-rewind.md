@@ -16,7 +16,7 @@ You can also selectively disable server-side rewind in certain game scenarios, s
 
 ## Implement server-side rewind
 
-To implement server-side rewind in your project, you need to fetch the collision history from the `PhysicsWorldHistorySingleton` component, which stores the history of the server's physics state, and use the delay value available from [`CommandDataInterpolationDelay`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.CommandDataInterpolationDelay.html) to find out how far back in time the server should rewind to validate the client's input. Both client and server can use the same logic when calculating collisions, but the client calculates its inputs with no delay.
+To implement server-side rewind in your project, you need to fetch the collision history from the `PhysicsWorldHistorySingleton` component, which stores the history of the server's physics state, and use the delay value available from [`CommandDataInterpolationDelay`](xref:Unity.NetCode.CommandDataInterpolationDelay) to find out how far back in time the server should rewind to validate the client's input. Both client and server can use the same logic when calculating collisions, but the client calculates its inputs with no delay.
 
 The following code example shows an example implementation of server-side rewind logic. For the full context of this example implementation, refer to the [`ShootingSystem` sample](https://github.com/Unity-Technologies/EntityComponentSystemSamples/blob/master/NetcodeSamples/Assets/Samples/HelloNetcode/2_Intermediate/03_HitScanWeapon/ShootingSystem.cs).
 

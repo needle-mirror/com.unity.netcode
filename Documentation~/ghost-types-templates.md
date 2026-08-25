@@ -92,7 +92,7 @@ For types with multiple templates, the available options are as follows:
 | Setting          | Options                                                | Description                                                                                                                                                                                                                                                                                                                                                                                 |
 |------------------|--------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Quantization     | Quantized or unquantized                               | Quantization involves limiting the precision of data for the sake of reducing the number of bits required to send and receive that data. For example, a float value `12.456789` with a quantization factor of `1000` is sent as `int 12345`. Unquantized means the float is sent with full precision. Refer to [quantization](optimization/compression.md#quantization) for more details. |
-| Smoothing method | `Clamp`, `Interpolate`, or `InterpolateAndExtrapolate` | Smoothing method specifies how a new value is applied on the client when a snapshot is received. Refer to the [`SmoothingAction` API documentation](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.SmoothingAction.html) for more details.                                                                                                         |
+| Smoothing method | `Clamp`, `Interpolate`, or `InterpolateAndExtrapolate` | Smoothing method specifies how a new value is applied on the client when a snapshot is received. Refer to the [`SmoothingAction` API documentation](xref:Unity.NetCode.SmoothingAction) for more details.                                                                                                         |
 
 Each of these options changes how the original value is serialized, deserialized, and applied on the client, and each template uses different, named regions to handle these cases. The code generator chooses the appropriate regions to generate, and bakes your user-defined serialization settings for fields on your types directly into the serializer for your type. You can explore these generated types in the projects' `Temp/NetCodeGenerated` folder (note that they're deleted when Unity is closed).
 
@@ -111,12 +111,12 @@ When fixed-size list are serialized in RPC/Command or as a field in replicated c
 When fixed-size list fields are replicated in RPCs the maximum allowed capacity (and thus length) for any fixed size list field element is limited to 1024 elements.
 
 > [!NOTE]
-> Sending an RPC larger than the max transmission unit (MTU) isn't supported. This limitation on packet size means that the maximum number of serializable elements can be lower than 1024, depending on the [size of your MTU](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.NetworkParameterConstants.html#Unity_Networking_Transport_NetworkParameterConstants_MTU).
+> Sending an RPC larger than the max transmission unit (MTU) isn't supported. This limitation on packet size means that the maximum number of serializable elements can be lower than 1024, depending on the [size of your MTU](xref:Unity.Networking.Transport.NetworkParameterConstants.MTU).
 
 When fixed-size list fields are replicated in `IComponentData`, `IBufferElementData`, `ICommandData` and `IInputComponentData` the maximum allowed fixed-list capacity is capped to 64 elements.
 
 Because there is no way to enforce a lower capacity for a fixed list of the give byte size (the size implicitly define the capacity) it is permitted to use larger list with exceeding capacity, but sufficient then to hold the number of element that you require.
-When this necessity arise, it is mandatory to use the [`GhostFixedListCapacity`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostFixedListCapacityAttribute.html) attribute to declare what it is the expected capacity of the list.
+When this necessity arise, it is mandatory to use the [`GhostFixedListCapacity`](xref:Unity.NetCode.GhostFixedListCapacityAttribute) attribute to declare what it is the expected capacity of the list.
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-types-templates.cs#RPC)]
 
@@ -231,13 +231,13 @@ If none of the elements different in respect the baseline, a `0` is set int the 
 
 ## Changing how a type is serialized using variants
 
-You can use [`GhostComponentVariationAttribute`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostComponentVariationAttribute.html) to create [variants](ghost-variants.md) that allow you to overwrite the default serializer at compile time. Variants can also be applied on a per-ghost, per-component basis, using [`GhostAuthoringInspectionComponent`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostAuthoringInspectionComponent.html)
+You can use [`GhostComponentVariationAttribute`](xref:Unity.NetCode.GhostComponentVariationAttribute) to create [variants](ghost-variants.md) that allow you to overwrite the default serializer at compile time. Variants can also be applied on a per-ghost, per-component basis, using [`GhostAuthoringInspectionComponent`](xref:Unity.NetCode.GhostAuthoringInspectionComponent)
 
 Refer to [Creating replication schemas with `GhostComponentVariationAttribute`](ghost-variants.md) for more information.
 
 ### Changing how a type is serialized using the `SubType` property
 
-You can also have multiple templates defined and available for a given type. For example, having a 2D and a 3D template for `float3` values. The [`SubType` property](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostFieldAttribute.html#Unity_NetCode_GhostFieldAttribute_SubType) of `GhostFieldAttribute` allows you to choose which one to use, on a per-`[GhostField]` basis. Refer to the [Defining SubType templates section](#defining-subtype-templates) for more details.
+You can also have multiple templates defined and available for a given type. For example, having a 2D and a 3D template for `float3` values. The [`SubType` property](xref:Unity.NetCode.GhostFieldAttribute.SubType) of `GhostFieldAttribute` allows you to choose which one to use, on a per-`[GhostField]` basis. Refer to the [Defining SubType templates section](#defining-subtype-templates) for more details.
 
 ## Defining additional templates
 
@@ -389,7 +389,7 @@ public struct MyComponent : Unity.Entities.IComponentData
 
 ```
 
-`SubType`s are added to projects by implementing a partial class, [`GhostFieldSubTypes`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostFieldSubType.html), and then injecting it into the `Unity.Netcode` package using an [Assembly Definition Reference](https://docs.unity3d.com/Documentation/Manual/class-AssemblyDefinitionReferenceImporter.html). This adds new constant string literals to that class and which are then available to all your packages that already reference the `Unity.Netcode` assembly.
+`SubType`s are added to projects by implementing a partial class, [`GhostFieldSubTypes`](xref:Unity.NetCode.GhostFieldSubType), and then injecting it into the `Unity.Netcode` package using an [Assembly Definition Reference](https://docs.unity3d.com/Documentation/Manual/class-AssemblyDefinitionReferenceImporter.html). This adds new constant string literals to that class and which are then available to all your packages that already reference the `Unity.Netcode` assembly.
 
 ```c#
 namespace Unity.NetCode
@@ -430,7 +430,7 @@ As when using any template registration like this, you need to be careful to spe
 
 ### Registering a template
 
-You can register a template with Netcode for Entities by implementing a partial class, [`UserDefinedTemplates`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.Generators.UserDefinedTemplates.html), and then injecting it into the `Unity.Netcode` package using an [Assembly Definition Reference](https://docs.unity3d.com/Documentation/Manual/class-AssemblyDefinitionReferenceImporter.html).
+You can register a template with Netcode for Entities by implementing a partial class, [`UserDefinedTemplates`](xref:Unity.NetCode.Generators.UserDefinedTemplates), and then injecting it into the `Unity.Netcode` package using an [Assembly Definition Reference](https://docs.unity3d.com/Documentation/Manual/class-AssemblyDefinitionReferenceImporter.html).
 
 The partial implementation must define the method `RegisterTemplates` and add a new `TypeRegistry` entry (or entries). The class must also exist inside the `Unity.NetCode.Generators` namespace. Refer to the following example.
 

@@ -8,11 +8,13 @@ namespace Unity.NetCode.Editor
         Label m_Label;
         VisualElement m_Icon;
 
+        const string k_LabelWithIconUssClassName = "label-with-icon";
+        const string k_LabelWithIconAlignedSuffix = "__aligned";
+
         const string k_OverheadIconSuffix = "__overhead-icon";
         const string k_WarningIconSuffix = "__warning-icon";
         const string k_GhostPrefabIconSuffix = "__ghost-prefab-icon";
         const string k_GhostComponentIconSuffix = "__ghost-component-icon";
-
 
         internal LabelWithIcon(IconPosition iconPosition)
         {
@@ -48,6 +50,14 @@ namespace Unity.NetCode.Editor
 
             m_Icon.AddToClassList($"{MultiColumnController.cellUssClassName}{iconStyleClassSuffix}");
             SetIconEnabled(true);
+        }
+
+        internal void SetIsAligned(bool isAligned)
+        {
+            if (isAligned)
+                AddToClassList($"{k_LabelWithIconUssClassName}{k_LabelWithIconAlignedSuffix}");
+            else
+                RemoveFromClassList($"{k_LabelWithIconUssClassName}{k_LabelWithIconAlignedSuffix}");
         }
 
         internal void SetText(string t)

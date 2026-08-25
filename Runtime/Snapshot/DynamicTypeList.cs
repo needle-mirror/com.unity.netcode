@@ -25,7 +25,7 @@ namespace Unity.NetCode
         public const int MaxCapacity = 128;
         #endif
 
-        public static unsafe void PopulateList(ref SystemState system, DynamicBuffer<GhostCollectionComponentType> ghostComponentCollection, bool readOnly, ref DynamicTypeList list)
+        public static unsafe void PopulateList(ref SystemState system, DynamicBuffer<GhostCollectionComponentType> ghostComponentCollection, bool readOnly, ref DynamicTypeList list, bool addDependencyToSystem = true)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (UnsafeUtility.SizeOf<DynamicComponentTypeHandle32>() != UnsafeUtility.SizeOf<DynamicComponentTypeHandle>()*32)
@@ -43,11 +43,14 @@ namespace Unity.NetCode
                 var compType = ghostComponentCollection[i].Type;
                 if (readOnly)
                     compType.AccessModeType = ComponentType.AccessMode.ReadOnly;
-                GhostChunkComponentTypesPtr[i] = system.GetDynamicComponentTypeHandle(compType);
+                if (addDependencyToSystem)
+                    GhostChunkComponentTypesPtr[i] = system.GetDynamicComponentTypeHandle(compType);
+                else
+                    GhostChunkComponentTypesPtr[i] = system.EntityManager.GetDynamicComponentTypeHandle(compType);
             }
         }
 
-        public static unsafe void PopulateListFromArray(ref SystemState system, NativeArray<ComponentType> componentTypes,  bool readOnly, ref DynamicTypeList list)
+        public static unsafe void PopulateListFromArray(ref SystemState system, NativeArray<ComponentType> componentTypes,  bool readOnly, ref DynamicTypeList list, bool addDependencyToSystem = true)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (UnsafeUtility.SizeOf<DynamicComponentTypeHandle32>() != UnsafeUtility.SizeOf<DynamicComponentTypeHandle>()*32)
@@ -65,7 +68,10 @@ namespace Unity.NetCode
                 var compType = componentTypes[i];
                 if (readOnly)
                     compType.AccessModeType = ComponentType.AccessMode.ReadOnly;
-                componentTypesPtr[i] = system.GetDynamicComponentTypeHandle(compType);
+                if (addDependencyToSystem)
+                    componentTypesPtr[i] = system.GetDynamicComponentTypeHandle(compType);
+                else
+                    componentTypesPtr[i] = system.EntityManager.GetDynamicComponentTypeHandle(compType);
             }
         }
 

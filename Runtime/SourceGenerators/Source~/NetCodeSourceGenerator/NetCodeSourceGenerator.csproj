@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
@@ -121,6 +121,12 @@
     </Content>
     <Content Include="..\..\Templates\NEW_TEMPLATE_README.txt">
       <Link>Templates\NEW_TEMPLATE_README.txt</Link>
+    </Content>
+    <Content Include="..\..\Templates\RemoteStructSerializer.NetCodeSourceGenerator.additionalfile">
+      <Link>Templates\RemoteStructSerializer.NetCodeSourceGenerator.additionalfile</Link>
+    </Content>
+    <Content Include="..\..\Templates\RemoteStructSerializerRegistrationSystem.NetCodeSourceGenerator.additionalfile">
+      <Link>Templates\RemoteStructSerializerRegistrationSystem.NetCodeSourceGenerator.additionalfile</Link>
     </Content>
     <Content Include="..\..\Templates\RpcCommandSerializer.NetCodeSourceGenerator.additionalfile">
       <Link>Templates\RpcCommandSerializer.NetCodeSourceGenerator.additionalfile</Link>

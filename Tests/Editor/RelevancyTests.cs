@@ -1,11 +1,15 @@
 #pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
+using System;
 using NUnit.Framework;
 using Unity.Entities;
 using Unity.Jobs;
 using UnityEngine;
 using Unity.Collections;
 using System.Collections.Generic;
+using Unity.Burst;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
+using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Transforms;
 
 namespace Unity.NetCode.Tests
@@ -36,24 +40,45 @@ namespace Unity.NetCode.Tests
             IrrelevantGhosts.Dispose();
         }
 
+        struct ClearRelevancyJob : IJob
+        {
+            public NativeParallelHashMap<RelevantGhostForConnection, int> RelevancySetToClear;
+            public void Execute()
+            {
+                RelevancySetToClear.Clear();
+            }
+        }
+
+        partial struct MarkIrrelevantJob : IJobEntity
+        {
+            public int ConnectionId;
+            public NativeHashSet<int> IrrelevantGhosts;
+            public NativeParallelHashMap<RelevantGhostForConnection, int> RelevancySetToUpdate;
+
+            public void Execute(in GhostInstance ghost, in GhostOwner owner)
+            {
+                if (IrrelevantGhosts.Contains(owner.NetworkId))
+                    RelevancySetToUpdate.TryAdd(new RelevantGhostForConnection(ConnectionId, ghost.ghostId), 1);
+            }
+        }
+
         protected override void OnUpdate()
         {
             ref var ghostRelevancy = ref SystemAPI.GetSingletonRW<GhostRelevancy>().ValueRW;
             var relevancySet = ghostRelevancy.GhostRelevancySet;
-            var clearDep = Job.WithCode(() => {
-                relevancySet.Clear();
-            }).Schedule(Dependency);
+
+            var clearJob = new ClearRelevancyJob { RelevancySetToClear = relevancySet };
+
+            var clearDep = clearJob.Schedule(Dependency);
             Dependency = JobHandle.CombineDependencies(clearDep, Dependency);
             var connectionId = ConnectionId;
             var irrelevantGhosts = IrrelevantGhosts;
-            Entities.ForEach((in GhostInstance ghost, in GhostOwner owner) => {
-                if (irrelevantGhosts.Contains(owner.NetworkId))
-                    relevancySet.TryAdd(new RelevantGhostForConnection(connectionId, ghost.ghostId), 1);
-            }).Schedule();
+
+            new MarkIrrelevantJob{ConnectionId=ConnectionId, IrrelevantGhosts=IrrelevantGhosts, RelevancySetToUpdate = ghostRelevancy.GhostRelevancySet }.Schedule();
         }
     }
 
-    [DisableSingleWorldHostTest]
+    [BurstCompile]
     internal class RelevancyTests
     {
         GameObject bootstrapAndSetup(NetCodeTestWorld testWorld, System.Type additionalSystem = null)
@@ -88,7 +113,7 @@ namespace Unity.NetCode.Tests
             // Go in-game
             testWorld.GoInGame();
 
-            var con = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+            var con = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
             Assert.AreNotEqual(Entity.Null, con);
             return testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(con).Value;
         }
@@ -670,7 +695,7 @@ namespace Unity.NetCode.Tests
                 entId++;
             }
 
-            var client0NetworkId = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+            var client0NetworkId = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
             testWorld.ServerWorld.EntityManager.AddComponentData(client0NetworkId, new GhostConnectionPosition
             {
                 Position = new float3(0),
@@ -912,7 +937,7 @@ namespace Unity.NetCode.Tests
             Clear();
 
             // test hash map is union with query
-            var connection = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId)).GetSingleton<NetworkId>();
+            var connection = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection), typeof(NetworkId)).GetSingleton<NetworkId>();
             var ghostIDA = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(ghostEntityA).ghostId;
             var ghostIDB = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(ghostEntityB).ghostId;
 
@@ -1022,22 +1047,36 @@ namespace Unity.NetCode.Tests
             Assert.That(clientGhostQueryB.IsEmpty);
         }
 
-        [Test(Description = "Set the relevancy of EntityA only, then ensures the relevancy sub-system works correctly (and that GhostCount's are correct).")]
-        [TestCase(GhostRelevancyMode.SetIsRelevant, true, true, true)]
-        [TestCase(GhostRelevancyMode.SetIsRelevant, true, false, true)]
-        [TestCase(GhostRelevancyMode.SetIsRelevant, false, true, true)]
-        [TestCase(GhostRelevancyMode.SetIsRelevant, false, false, false)]
-        [TestCase(GhostRelevancyMode.SetIsIrrelevant, true, true, false)]
-        [TestCase(GhostRelevancyMode.SetIsIrrelevant, true, false, true)]
-        [TestCase(GhostRelevancyMode.SetIsIrrelevant, false, true, false)]
-        [TestCase(GhostRelevancyMode.SetIsIrrelevant, false, false, true)] // if set does not contain, then implicitly we want the ghost replicated
-        [TestCase(GhostRelevancyMode.Disabled, true, true, true)]
-        [TestCase(GhostRelevancyMode.Disabled, true, false, true)]
-        [TestCase(GhostRelevancyMode.Disabled, false, true, true)]
-        [TestCase(GhostRelevancyMode.Disabled, false, false, true)]
-        public void TestRelevancyScenarios(GhostRelevancyMode mode, bool queryMatchesGhost, bool setContainsGhost, bool expectedRelevancyResult)
+        internal struct TestForceRelevancyShared : ISharedComponentData
         {
-            // Setup spawn
+            public bool? ForcedValue;
+        }
+        static readonly PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate> TestForceRelevancyFastPathFunctionPointer =
+            new PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate>(TestForceRelevancyFastPath);
+
+        [BurstCompile(DisableDirectCall = true)]
+        [AOT.MonoPInvokeCallback(typeof(GhostImportance.ScaleImportanceDelegate))]
+        private static unsafe void TestForceRelevancyFastPath(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr sharedComponentTypeHandlePtr,
+            ref UnsafeList<PrioChunk> chunks)
+        {
+            var sharedType = GhostComponentSerializer.TypeCast<DynamicSharedComponentTypeHandle>(sharedComponentTypeHandlePtr);
+            for (int i = 0; i < chunks.Length ; ++i)
+            {
+                ref var data = ref chunks.ElementAt(i);
+                if (data.chunk.Has(ref sharedType))
+                {
+                    var forcedValue = (TestForceRelevancyShared*) data.chunk.GetDynamicSharedComponentDataAddress(ref sharedType);
+                    if(forcedValue->ForcedValue.HasValue)
+                        data.isRelevant = forcedValue->ForcedValue.Value;
+                }
+            }
+        }
+
+        [Test(Description = "Set the relevancy of four ghost entities to different fast-path values, then ensures the relevancy sub-system works correctly (and that GhostCount's are correct).")]
+        public void TestRelevancyScenarios([Values]GhostRelevancyMode mode, [Values]bool queryMatchesGhost,
+            [Values]bool setContainsGhost)
+        {
+            // Setup spawn.
             using var testWorld = new NetCodeTestWorld();
             testWorld.SetTestLatencyProfile(NetCodeTestLatencyProfile.RTT16ms_PL5);
             testWorld.Bootstrap(true);
@@ -1050,10 +1089,28 @@ namespace Unity.NetCode.Tests
             testWorld.CreateWorlds(true, 1);
             var prefabCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ServerWorld);
             var prefabA = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection)[0].Value;
-            var ghostEntityA = testWorld.ServerWorld.EntityManager.Instantiate(prefabA);
+
+            // Test all three relevancy fast-path values within this test, as well as the case where you don't add a shared component at all:
+            var ghostEntityRelevantChunk = testWorld.ServerWorld.EntityManager.Instantiate(prefabA);
+            var ghostEntityIrrelevantChunk = testWorld.ServerWorld.EntityManager.Instantiate(prefabA);
+            var ghostEntityNotSetChunk = testWorld.ServerWorld.EntityManager.Instantiate(prefabA);
+            var ghostEntityNoSharedComp = testWorld.ServerWorld.EntityManager.Instantiate(prefabA);
+
+            testWorld.ServerWorld.EntityManager.AddSharedComponent(ghostEntityRelevantChunk, new TestForceRelevancyShared { ForcedValue = true });
+            testWorld.ServerWorld.EntityManager.AddSharedComponent(ghostEntityIrrelevantChunk, new TestForceRelevancyShared { ForcedValue = false });
+            testWorld.ServerWorld.EntityManager.AddSharedComponent(ghostEntityNotSetChunk, new TestForceRelevancyShared { ForcedValue = null });
+            //testWorld.ServerWorld.EntityManager.AddSharedComponent(ghostEntityNoSharedComp, NULL); // We intentionally don't add a shared component for this case.
+
+            // Setup ghost distance importance to enable chunk relevancy:
+            testWorld.ServerWorld.EntityManager.CreateSingleton(new GhostImportance
+            {
+                BatchScaleImportanceFunction = TestForceRelevancyFastPathFunctionPointer,
+                GhostConnectionComponentType = ComponentType.ReadOnly<GhostConnectionPosition>(),
+                GhostImportanceDataType = default,
+                GhostImportancePerChunkDataType = ComponentType.ReadOnly<TestForceRelevancyShared>(),
+            });
 
             var serverRelevancyQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostRelevancy));
-            var clientGhostQueryA = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostRelevancyA));
             var relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
 
             relevancy.ValueRW.GhostRelevancyMode = mode;
@@ -1065,8 +1122,14 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick();
             }
 
-            var connection = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId)).GetSingleton<NetworkId>();
-            var ghostIDA = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(ghostEntityA).ghostId;
+            var networkConnectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId), typeof(NetworkStreamConnection));
+            var connectionEntity = networkConnectionQuery.GetSingletonEntity();
+            var connection = networkConnectionQuery.GetSingleton<NetworkId>();
+            var ghostIDRelevantChunk = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(ghostEntityRelevantChunk);
+            var ghostIDIrrelevantChunk = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(ghostEntityIrrelevantChunk);
+            var ghostIDNotSetChunk = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(ghostEntityNotSetChunk);
+            var ghostIDNoSharedComp = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(ghostEntityNoSharedComp);
+            testWorld.ServerWorld.EntityManager.AddComponentData(connectionEntity, new GhostConnectionPosition());
 
             relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
             if (queryMatchesGhost)
@@ -1080,7 +1143,10 @@ namespace Unity.NetCode.Tests
 
             if (setContainsGhost)
             {
-                relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDA), 0);
+                relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDRelevantChunk.ghostId), 0);
+                relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDIrrelevantChunk.ghostId), 0);
+                relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDNotSetChunk.ghostId), 0);
+                relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDNoSharedComp.ghostId), 0);
             }
 
             for (int i = 0; i < 8; i++)
@@ -1088,15 +1154,42 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick();
             }
 
-            Assert.That(clientGhostQueryA.CalculateEntityCount(), expectedRelevancyResult ? Is.EqualTo(1) : Is.EqualTo(0));
+            bool expectGhostIDRelevantChunk = CalculateShouldBeRelevant(true);
+            bool expectGhostIDIrrelevantChunk = CalculateShouldBeRelevant(false);
+            bool expectGhostIDNotSetChunk = CalculateShouldBeRelevant(null);
+            bool expectGhostIDNoSharedComp = CalculateShouldBeRelevant(null);
+            Assert.That(testWorld.TryFindGhostByInstance(testWorld.ClientWorlds[0], ghostIDRelevantChunk, out _), Is.EqualTo(expectGhostIDRelevantChunk), "RelevantChunk");
+            Assert.That(testWorld.TryFindGhostByInstance(testWorld.ClientWorlds[0], ghostIDIrrelevantChunk, out _), Is.EqualTo(expectGhostIDIrrelevantChunk), "IrrelevantChunk");
+            Assert.That(testWorld.TryFindGhostByInstance(testWorld.ClientWorlds[0], ghostIDNotSetChunk, out _), Is.EqualTo(expectGhostIDNotSetChunk), "NotSetChunk");
+            Assert.That(testWorld.TryFindGhostByInstance(testWorld.ClientWorlds[0], ghostIDNoSharedComp, out _), Is.EqualTo(expectGhostIDNoSharedComp), "NoSharedComp");
 
-            // GhostCount Singleton:
+            bool CalculateShouldBeRelevant(bool? chunkIsRelevant)
+            {
+                return mode switch
+                {
+                    GhostRelevancyMode.Disabled => true,
+                    GhostRelevancyMode.SetIsRelevant => queryMatchesGhost || (chunkIsRelevant ?? false) || setContainsGhost,
+                    GhostRelevancyMode.SetIsIrrelevant => (queryMatchesGhost || (chunkIsRelevant ?? true)) && !setContainsGhost,
+                    _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
+                };
+            }
+            Debug.Log(@$"Relevancy when queryMatchesGhost:{queryMatchesGhost} & setContainsGhost:{setContainsGhost}:
+    GhostIDRelevantChunk:{expectGhostIDRelevantChunk}
+    GhostIDIrrelevantChunk:{expectGhostIDIrrelevantChunk}
+    GhostIDNotSetChunk:{expectGhostIDNotSetChunk}
+    GhostIDNoSharedComp:{expectGhostIDNoSharedComp}
+            ");
+
+            //GhostCount Singleton:
             var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
             string msg = ghostCount.ToString();
-            int expectedGhostInstancesCount = expectedRelevancyResult ? 1 : 0;
-            Assert.AreEqual(expectedGhostInstancesCount, ghostCount.GhostCountOnServer, msg);
-            Assert.AreEqual(expectedGhostInstancesCount, ghostCount.GhostCountReceivedOnClient, msg);
-            Assert.AreEqual(expectedGhostInstancesCount, ghostCount.GhostCountInstantiatedOnClient, msg);
+            int expectedGhostInstancesCount = (expectGhostIDRelevantChunk ? 1 : 0)
+                                              + (expectGhostIDIrrelevantChunk ? 1 : 0)
+                                              + (expectGhostIDNotSetChunk ? 1 : 0)
+                                              + (expectGhostIDNoSharedComp ? 1 : 0);
+            Assert.That(ghostCount.GhostCountOnServer, Is.EqualTo(expectedGhostInstancesCount), msg);
+            Assert.That(ghostCount.GhostCountReceivedOnClient, Is.EqualTo(expectedGhostInstancesCount), msg);
+            Assert.That(ghostCount.GhostCountInstantiatedOnClient, Is.EqualTo(expectedGhostInstancesCount), msg);
         }
     }
 }

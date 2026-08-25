@@ -20,16 +20,19 @@ Refer to the [prediction switching page](../prediction-switching.md) for more de
 
 ## Using `MaxSendRate` to reduce client prediction costs
 
-Predicted ghosts are particularly impacted by the [`GhostAuthoringComponent.MaxSendRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostAuthoringComponent.html#Unity_NetCode_GhostAuthoringComponent_MaxSendRate) setting, because predicted ghosts are only rolled back and re-simulated after being received in a snapshot.
+Predicted ghosts are particularly impacted by the [`GhostAuthoringComponent.MaxSendRate`](xref:Unity.NetCode.GhostAuthoringComponent.MaxSendRate) setting, because predicted ghosts are only rolled back and re-simulated after being received in a snapshot.
 
 Reducing the frequency with which a ghost chunk is added to the snapshot indirectly reduces the predicted ghost re-simulation rate, saving client CPU cycles overall. However, it can cause larger client misprediction errors, which leads to larger corrections that may be more visible to players.
 
 > [!NOTE]
 > Ghost group children do not support `MaxSendRate` (nor Relevancy, Importance, Static-Optimization etc.) until they've left the group, refer to the [ghost groups page](../ghost-groups.md) for more details.
 
+Lowering a ghost's send rate also increases the chance it's omitted from any given snapshot, which can cause [partial-snapshot mispredictions](../prediction-details.md#interactions-between-predicted-ghosts-using-partial-snapshots) when it interacts with ghosts that did roll back.
+If these mispredictions become a problem, enable [`ClientTickRate.AlwaysRollbackAllPredictedGhosts`](xref:Unity.NetCode.ClientTickRate.AlwaysRollbackAllPredictedGhosts), which rolls back every predicted ghost whenever required, fixing this problem at the cost of extra CPU consumption and prediction-history memory.
+
 ## Using `ForcedInputLatencyTicks`
 
-[`ClientTickRate.ForcedInputLatencyTicks`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.ForcedInputLatencyTicks.html) reduces the number of client prediction steps needed to be performed each frame, on average,
+[`ClientTickRate.ForcedInputLatencyTicks`](xref:Unity.NetCode.ClientTickRate.ForcedInputLatencyTicks) reduces the number of client prediction steps needed to be performed each frame, on average,
 at the considerable expense of increased input latency (which will make the game feel less responsive to players).
 
 It has two other benefits:
@@ -53,6 +56,9 @@ In general, setting `RollbackPredictionOnStructuralChanges` to false can be a go
 If you remove and re-add a replicated component to a ghost during runtime, then having `RollbackPredictionOnStructuralChanges` set to false can cause inconsistencies in outcomes.
 
 When a new update for the ghost is received, the snapshot data contains the last value from the server. However, if the component is missing at that time, then the value of the component won't be restored. If the component is re-added later, because the entity is not rolled back and re-predicted, then the current state of the re-added component will remain default (all zeros). By comparison, if `RollbackPredictionOnStructuralChanges` is enabled, then the entity will be repredicted and the value of the re-added component will be restored correctly.
+
+> [!NOTE]
+> Minimize structural changes (adding or removing components) on predicted ghosts, as each structural change moves an entity to a new chunk, and excessive changes between backup ticks can leave the entity's rollback backup unavailable at the wanted tick, so that entity won't roll back.
 
 ## Additional resources
 

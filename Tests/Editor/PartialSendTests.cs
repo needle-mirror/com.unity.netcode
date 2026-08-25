@@ -29,7 +29,6 @@ namespace Unity.NetCode.Tests
     }
 
     [Category(NetcodeTestCategories.Foundational)]
-    [DisableSingleWorldHostTest]
     internal class PartialSendTests
     {
         [Test]
@@ -79,15 +78,17 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(Entity.Null, serverEnt);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostPredictedOnly{Value = 1});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostInterpolatedOnly{Value = 1});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = predicted ? 1 : 2});
 
                 // Connect and make sure the connection could be established
                 testWorld.Connect();
 
                 // Check the clients network id
-                var serverCon = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = predicted ? clientNetworkId.Value : -1}); // set to client nid or invalid
+                var serverCon = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, serverCon);
-                Assert.AreEqual(1, testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(serverCon).Value);
+                Assert.AreEqual(clientNetworkId.Value, testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(serverCon).Value);
+                Assert.Greater(clientNetworkId.Value, 0);
 
                 // Go in-game
                 testWorld.GoInGame();
@@ -295,6 +296,8 @@ namespace Unity.NetCode.Tests
                 $"[diag: peakServerStartIndex={peakServerStartIndex}, serverChunkCount={observedChunkCount}]");
         }
 
+#if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
+        // The zero-change re-arm timing depends on the default snapshot history depth.
         [Test, Description("After a constantly-changing static over-full chunk settles, every ghost must receive the final value and the chunk must then go quiet (zero-change re-armed).")]
         public void StaticOverfullChunk_ReArmsZeroChange_AfterChangesStop()
         {
@@ -343,6 +346,7 @@ namespace Unity.NetCode.Tests
                     $"Static ghost {i} kept receiving snapshots after coming to rest (zero-change was not re-armed).");
             }
         }
+#endif
 
         /// <summary>Count instantiated ghosts of the over-full-chunk type on the (single) client.</summary>
         static int CountClientGhosts(NetCodeTestWorld testWorld)

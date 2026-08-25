@@ -3,7 +3,9 @@ using Unity.Collections;
 using Unity.Core;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.Profiling;
+using UnityEngine;
 using static Unity.NetCode.ClientServerTickRate.FrameRateMode;
 
 namespace Unity.NetCode
@@ -26,7 +28,7 @@ namespace Unity.NetCode
         }
 
         internal int RemainingTicksToRun; // number of prediction loops to run
-        private float m_AccumulatedTime;
+        internal float AccumulatedTime;
         private bool m_IsFirstTimeExecuting = true;
         private double m_ElapsedTime;
         private Count m_UpdateCount;
@@ -42,6 +44,7 @@ namespace Unity.NetCode
 
             var netTimeEntity = group.World.EntityManager.CreateEntity(ComponentType.ReadWrite<NetworkTime>());
             group.World.EntityManager.SetName(netTimeEntity, "NetworkTimeSingleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(group.World.EntityManager, netTimeEntity);
             networkTimeQuery.SetSingleton(new NetworkTime
             {
                 ServerTick = new NetworkTick(0),
@@ -51,12 +54,12 @@ namespace Unity.NetCode
 
         internal Count RefreshUpdateCount(float deltaTime, float fixedTimeStep, int maxTimeSteps, int maxTimeStepLength)
         {
-            return UpdateAccumulatorForDeltaTime(deltaTime, fixedTimeStep, maxTimeSteps, maxTimeStepLength, ref m_AccumulatedTime);
+            return UpdateAccumulatorForDeltaTime(deltaTime, fixedTimeStep, maxTimeSteps, maxTimeStepLength, ref AccumulatedTime);
         }
 
         internal Count GetUpdateCountReadonly(float deltaTime, float fixedTimeStep, int maxTimeSteps, int maxTimeStepLength)
         {
-            var accumulatedTime = m_AccumulatedTime;
+            var accumulatedTime = AccumulatedTime;
             return UpdateAccumulatorForDeltaTime(deltaTime, fixedTimeStep, maxTimeSteps, maxTimeStepLength, ref accumulatedTime);
         }
 
@@ -113,7 +116,7 @@ namespace Unity.NetCode
         internal bool InitializeNetworkTimeForFrame(ComponentSystemGroup group, ClientServerTickRate tickRate, Count updateCount)
         {
             // initialize all runs of prediction system group this frame
-            // for whole frame server side. for prediction group only host side. TODO-2.0 all this should only be prediction group even for DGS? more consistent DGS vs host?
+            // for whole frame server side. for prediction group only host side.
             m_UpdateCount = updateCount;
             RemainingTicksToRun = m_UpdateCount.TotalSteps;
             m_PredictedFixedStepSimulationSystemGroup.ConfigureTimeStep(tickRate); // TODO-MovePred
@@ -171,23 +174,25 @@ namespace Unity.NetCode
             networkTime.ElapsedNetworkTime = math.max(m_ElapsedTime, 0);
         }
 
+        /// <summary>
+        /// If <see cref="ClientServerTickRate.TargetFrameRateMode"/> is set to <see cref="ClientServerTickRate.FrameRateMode.Sleep"/>
+        /// (which is typical on headless servers), we nudge the <see cref="Application.targetFrameRate"/> back and forth
+        /// around the actual framerate -- always trying to have a remaining time of as close to 0.5 as we can get.
+        /// The goal/purpose of which is to have the while loop above tick exactly 1 time.
+        /// With this, the server can sleep between frames, saving CPU costs.
+        /// </summary>
+        /// <param name="tickRate"></param>
+        /// <param name="fixedTimeStep"></param>
         private void AdjustTargetFrameRate(int tickRate, float fixedTimeStep)
         {
-            //
-            // If running as headless we nudge the Application.targetFramerate back and forth
-            // around the actual framerate -- always trying to have a remaining time of half a frame
-            // The goal is to have the while loop above tick exactly 1 time
-            //
-            // The reason for using targetFramerate is to allow Unity to sleep between frames
-            // reducing cpu usage on server.
-            //
+            var nudge = tickRate >= 30 ? 2 : (tickRate >= 2 ? 1 : 0);
             int rate = tickRate;
             const float aboveHalfRange = 0.75f;
             const float belowHalfRange = 0.25f;
-            if (m_AccumulatedTime > aboveHalfRange * fixedTimeStep)
-                rate += 2; // higher rate means smaller deltaTime which means remaining accumulatedTime gets smaller
-            else if (m_AccumulatedTime < belowHalfRange * fixedTimeStep)
-                rate -= 2; // lower rate means bigger deltaTime which means remaining accumulatedTime gets bigger
+            if (AccumulatedTime > aboveHalfRange * fixedTimeStep)
+                rate += nudge; // higher rate means smaller deltaTime which means remaining accumulatedTime gets smaller
+            else if (AccumulatedTime < belowHalfRange * fixedTimeStep)
+                rate -= nudge; // lower rate means bigger deltaTime which means remaining accumulatedTime gets bigger
 
             UnityEngine.Application.targetFrameRate = rate;
         }

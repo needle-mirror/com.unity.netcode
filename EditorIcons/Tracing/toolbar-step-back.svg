@@ -1,0 +1,6 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Vertical bar: 5% shorter and 5% thinner -->
+    <path d="M3.575 4.4H6.425V10.0L5 12.0L3.575 10.0V4.4Z" fill="#DC143C"/>
+    <!-- Left-pointing triangle: 5% narrower -->
+    <path d="M11.413 4.64941C11.7403 4.38774 12.2253 4.62102 12.226 5.04004V10.96C12.2253 11.379 11.7403 11.6123 11.413 11.3506L7.714 8.39062C7.46381 8.19046 7.46381 7.80954 7.714 7.60938L11.413 4.64941Z" fill="#555555"/>
+</svg>

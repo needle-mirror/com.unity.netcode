@@ -6,7 +6,6 @@ using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode.Tests
 {
-    [DisableSingleWorldHostTest]
     class SendToOwnerTests
     {
         internal class TestComponentConverter : TestNetCodeAuthoring.IConverter
@@ -115,6 +114,12 @@ namespace Unity.NetCode.Tests
                 testWorld.GoInGame();
                 var serverEntities = new NativeArray<Entity>(10, Allocator.Temp);
 
+                // Query the real NetworkId for each remote client (under single-world-host NetworkId 1 is the host,
+                // so remote clients start at 2). Ghost group ent/5==i is assigned to ClientWorlds[i]'s real id.
+                var clientNetIds = new int[2];
+                clientNetIds[0] = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
+                clientNetIds[1] = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[1]).Value;
+
                 for (int ent = 0; ent < 10; ++ent)
                 {
                     var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
@@ -123,7 +128,7 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostTypeIndex {Value = 20000});
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostPredictedOnly {Value = 30000});
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostInterpolatedOnly {Value = 40000});
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = ent/5 + 1});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = clientNetIds[ent/5]});
                     var serverBuffer1 = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverEnt);
                     serverBuffer1.Capacity = 10;
                     for (int i = 0; i < 10; ++i)
@@ -239,6 +244,12 @@ namespace Unity.NetCode.Tests
                 testWorld.GoInGame();
                 var serverEntities = new NativeArray<Entity>(10, Allocator.Temp);
 
+                // Query the real NetworkId for each remote client (under single-world-host NetworkId 1 is the host,
+                // so remote clients start at 2). Ghost group ent/5==i is assigned to ClientWorlds[i]'s real id.
+                var clientNetIds = new int[2];
+                clientNetIds[0] = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
+                clientNetIds[1] = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[1]).Value;
+
                 for (int ent = 0; ent < 10; ++ent)
                 {
                     var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
@@ -247,7 +258,7 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostTypeIndex {Value = 20000});
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostPredictedOnly {Value = 30000});
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostInterpolatedOnly {Value = 40000});
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = ent/5 + 1});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = clientNetIds[ent/5]});
                     var serverBuffer1 = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverEnt);
                     serverBuffer1.Capacity = 10;
                     for (int i = 0; i < 10; ++i)
@@ -258,8 +269,8 @@ namespace Unity.NetCode.Tests
                         serverBuffer2.Add(new GhostGenTest_Buffer());
                 }
 
-                //spawn the entities
-                for(int i=0;i<8;++i)
+                //spawn the entities and tick some more to stabilize test world tick
+                for(int i=0;i<10;++i)
                     testWorld.Tick();
 
                 //Run a partial tick here to ensure the last predicted tick was partial and so the successive tick
@@ -272,31 +283,31 @@ namespace Unity.NetCode.Tests
 
                 //verify we are sync and that the owner flag has been respected (so value for certain components are not
                 //overwritten by server authority
-                for (int tick = 0; tick < 4; ++tick)
+                for (int tickIndex = 0; tickIndex < 4; ++tickIndex)
                 {
                     //overwrite the values for all the components for partial ticks and verify that:
                     // - replicated data are actually reset to the authoritative value if they match owner / non-owner
                     // - replicated data for owner are reset to the authoritative value
-                    for (int i = 0; i < 2; ++i)
+                    for (int clientIndex = 0; clientIndex < 2; ++clientIndex)
                     {
-                        var spawnMap = testWorld.GetSingletonRW<SpawnedGhostEntityMap>(testWorld.ClientWorlds[i]);
+                        var spawnMap = testWorld.GetSingletonRW<SpawnedGhostEntityMap>(testWorld.ClientWorlds[clientIndex]);
                         for (int ent = 0; ent < 10; ++ent)
                         {
                             var serverEnt = serverEntities[ent];
                             var ghost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt);
                             spawnMap.ValueRW.Value.TryGetValue(new SpawnedGhost(ghost.ghostId, ghost.spawnTick),
                                 out var clientEnt);
-                            testWorld.ClientWorlds[i].EntityManager.SetComponentData(clientEnt, new GhostGen_IntStruct
+                            testWorld.ClientWorlds[clientIndex].EntityManager.SetComponentData(clientEnt, new GhostGen_IntStruct
                             {
-                                IntValue = 1 + tick * 1000
+                                IntValue = 1 + tickIndex * 1000
                             });
-                            testWorld.ClientWorlds[i].EntityManager.SetComponentData(clientEnt, new GhostTypeIndex
+                            testWorld.ClientWorlds[clientIndex].EntityManager.SetComponentData(clientEnt, new GhostTypeIndex
                             {
-                                Value = 1 + tick * 1000
+                                Value = 1 + tickIndex * 1000
                             });
-                            testWorld.ClientWorlds[i].EntityManager.SetComponentData(clientEnt, new GhostPredictedOnly
+                            testWorld.ClientWorlds[clientIndex].EntityManager.SetComponentData(clientEnt, new GhostPredictedOnly
                             {
-                                Value = 1 + tick * 1000
+                                Value = 1 + tickIndex * 1000
                             });
                         }
                     }
@@ -305,13 +316,13 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick((1f/60)/4f);
                     //What are the expectation in this case?
                     //We expect that:
-                    //data that should be replicated only for onwers/non-owner, are not backup for the respective objects, thus they are unaffected by the partial tick restored
-                    for (int i = 0; i < 2; ++i)
+                    //data that should be replicated only for owners/non-owner, are not backup for the respective objects, thus they are unaffected by the partial tick restored
+                    for (int clientIndex = 0; clientIndex < 2; ++clientIndex)
                     {
-                        var spawnMap = testWorld.GetSingletonRW<SpawnedGhostEntityMap>(testWorld.ClientWorlds[i]);
+                        var spawnMap = testWorld.GetSingletonRW<SpawnedGhostEntityMap>(testWorld.ClientWorlds[clientIndex]);
                         //entities 0-5 owned by client 1
                         //entities 5-9 owned by client 2
-                        for (int ent = i*5; ent < (i+1)*5; ++ent)
+                        for (int ent = clientIndex*5; ent < (clientIndex+1)*5; ++ent)
                         {
                             var serverEnt = serverEntities[ent];
                             var serverBuffer1 = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverEnt);
@@ -320,19 +331,19 @@ namespace Unity.NetCode.Tests
 
                             var ghost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt);
                             spawnMap.ValueRW.Value.TryGetValue(new SpawnedGhost(ghost.ghostId,ghost.spawnTick), out var clientEnt);
-                            var intStruct_ToOwner = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostGen_IntStruct>(clientEnt);
-                            var typeIndex_NonOwner = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostTypeIndex>(clientEnt);
-                            var clientPredOnly_ToOwner = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostPredictedOnly>(clientEnt);
+                            var intStruct_ToOwner = testWorld.ClientWorlds[clientIndex].EntityManager.GetComponentData<GhostGen_IntStruct>(clientEnt);
+                            var typeIndex_NonOwner = testWorld.ClientWorlds[clientIndex].EntityManager.GetComponentData<GhostTypeIndex>(clientEnt);
+                            var clientPredOnly_ToOwner = testWorld.ClientWorlds[clientIndex].EntityManager.GetComponentData<GhostPredictedOnly>(clientEnt);
 
-                            var clientBuffer1 = testWorld.ClientWorlds[i].EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(clientEnt);
-                            var clientBuffer2_ToNonOwner = testWorld.ClientWorlds[i].EntityManager.GetBuffer<GhostGenTest_Buffer>(clientEnt);
+                            var clientBuffer1 = testWorld.ClientWorlds[clientIndex].EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(clientEnt);
+                            var clientBuffer2_ToNonOwner = testWorld.ClientWorlds[clientIndex].EntityManager.GetBuffer<GhostGenTest_Buffer>(clientEnt);
 
-                            Assert.AreEqual(serverComp1.IntValue, intStruct_ToOwner.IntValue,$"Client {i}");
-                            Assert.AreEqual(predictedOnly.Value, clientPredOnly_ToOwner.Value,$"Client {i}");
-                            Assert.AreEqual(1 + tick*1000, typeIndex_NonOwner.Value,$"Client {i}");
+                            Assert.AreEqual(serverComp1.IntValue, intStruct_ToOwner.IntValue,$"Client {clientIndex}");
+                            Assert.AreEqual(predictedOnly.Value, clientPredOnly_ToOwner.Value,$"Client {clientIndex}");
+                            Assert.AreEqual(1 + tickIndex*1000, typeIndex_NonOwner.Value,$"Client {clientIndex}");
                             Assert.AreEqual(true, 10 ==clientBuffer1.Length);
                             for (int k = 0; k < clientBuffer1.Length; ++k)
-                                Assert.AreEqual(serverBuffer1[k].Value, clientBuffer1[k].Value,$"Client {i}");
+                                Assert.AreEqual(serverBuffer1[k].Value, clientBuffer1[k].Value,$"Client {clientIndex}");
                             Assert.AreEqual(0, clientBuffer2_ToNonOwner.Length);
                         }
                     }

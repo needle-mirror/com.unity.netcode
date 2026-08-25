@@ -47,7 +47,7 @@ By default, the source generator .dll in the package is already set up with the 
 
 By default, the Netcode for Entities generator puts all the generated files in the `Temp/NetcodeGenerated` folder, which is accessible from the **Multiplayer** menu in the Editor. A subfolder is created for each assembly for which serialization code has been generated.
 
-When the `write_logs_to_disk` option is used, the source generator writes all informational and debugging logs inside the `Temp/NetcodeGenerated/sourcegenerator.log` folder.
+The generator writes all informational and debugging logs inside the `Temp/NetcodeGenerated/sourcegenerator.log` folder. Errors and warnings are also emitted in the Editor console.
 
 ## Config files and logging
 
@@ -72,9 +72,9 @@ Netcode for Entities supports the following keys:
 |---------------------------------------------------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `unity.netcode.sourcegenerator.outputfolder`        | A valid relative string .         | Override the output folder where the generator puts logs and generated files. File path must be relative to the project path. Default is `Temp/NetCodeGenerated`.                           |
 | `unity.netcode.sourcegenerator.write_files_to_disk` | Empty or 1 (enabled), or 0 (disabled). | Set whether to write generated files to disk.                                                                                                                                      |
-| `unity.netcode.sourcegenerator.write_logs_to_disk`  | Empty or 1 (enabled), or 0 (disabled). | Set whether to write logs to disk.                                                             |
+| `unity.netcode.sourcegenerator.write_logs_to_disk`  | Empty or 1 (enabled), or 0 (disabled). | Set whether to write logs to disk. All logs are redirected to the Editor logs if disabled.                                                                       |
 | `unity.netcode.sourcegenerator.emit_timing`         | Empty or 1 (enabled), or 0 (disabled). | Set whether to log timing information for each compiled assembly.                                                                                                                               |
-| `unity.netcode.sourcegenerator.logging_level`       | `debug`, `info`, `warning`, or `error`.             | Set the logging level. Default is `info`.                                                                                                                                |
+| `unity.netcode.sourcegenerator.logging_level`       | `Info`, `warning`, or `error`.             | Set the logging level. Default is `error`.                                                                                                                                |
 | `unity.netcode.sourcegenerator.attach_debugger`     | An optional assembly name.        | Stop the generator execution and wait for a debugger to be attached. If the assembly name is non-empty, the generator waits for the debugger only when the assembly is being processed. |
 
 ## Build the source generator

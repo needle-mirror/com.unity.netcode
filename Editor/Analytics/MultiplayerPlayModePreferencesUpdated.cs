@@ -8,11 +8,7 @@ using Prefs = Unity.NetCode.MultiplayerPlayModePreferences;
 namespace Unity.NetCode.Analytics
 {
     [Serializable]
-#if UNITY_2023_2_OR_NEWER
     internal class MultiplayerPlaymodePreferencesUpdatedData : IAnalytic.IData, IEquatable<MultiplayerPlaymodePreferencesUpdatedData>
-#else
-    internal class MultiplayerPlaymodePreferencesUpdatedData : IEquatable<MultiplayerPlaymodePreferencesUpdatedData>
-#endif
     {
         public bool simulatorEnabled;
         public string requestedSimulatorView;
@@ -96,28 +92,22 @@ namespace Unity.NetCode.Analytics
         }
     }
 
-#if UNITY_2023_2_OR_NEWER
     // Schema: com.unity3d.data.schemas.editor.analytics.n4eToolsMPMPrefsUpdated_v1
     // Taxonomy: editor.analytics.n4eToolsMPMPrefsUpdated.v1
     [AnalyticInfo(eventName: "n4eToolsMPMPrefsUpdated", vendorKey: "unity.netcode", version:1, maxEventsPerHour: 100)]
     internal class MultiplayerPlayModePreferencesUpdatedAnalytic : IAnalytic
-#else
-    internal class MultiplayerPlayModePreferencesUpdatedAnalytic
-#endif
     {
         public MultiplayerPlayModePreferencesUpdatedAnalytic(MultiplayerPlaymodePreferencesUpdatedData data)
         {
             m_Data = data;
         }
 
-#if UNITY_2023_2_OR_NEWER
         public bool TryGatherData(out IAnalytic.IData data, out Exception error)
         {
             error = null;
             data = m_Data;
             return true;
         }
-#endif
 
         private MultiplayerPlaymodePreferencesUpdatedData m_Data;
     }

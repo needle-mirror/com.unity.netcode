@@ -5,6 +5,7 @@ using Unity.Entities;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Transforms;
 using UnityEngine;
+using Unity.Burst;
 
 namespace Unity.NetCode.Tests
 {
@@ -62,10 +63,7 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnUpdate()
         {
-            Entities.ForEach((ref Data data) =>
-            {
-                data.Value++;
-            }).Run();
+            foreach (var data in SystemAPI.Query<RefRW<Data>>()) { data.ValueRW.Value++; }
         }
     }
 
@@ -94,33 +92,34 @@ namespace Unity.NetCode.Tests
             var spawnListEntity = SystemAPI.GetSingletonEntity<PredictedGhostSpawnList>();
             var spawnListFromEntity = GetBufferLookup<PredictedGhostSpawn>();
             var predictedEntities = PredictedEntities;
-            Entities
-                .WithAll<GhostSpawnQueue>()
-                .ForEach((DynamicBuffer<GhostSpawnBuffer> ghosts) =>
-                {
-                    var spawnList = spawnListFromEntity[spawnListEntity];
-                    for (int i = 0; i < ghosts.Length; ++i)
-                    {
-                        var ghost = ghosts[i];
-                        if (ghost.SpawnType != GhostSpawnBuffer.Type.Predicted || ghost.HasClassifiedPredictedSpawn || ghost.PredictedSpawnEntity != Entity.Null)
-                            continue;
 
-                        // Only classify the first item in the list (default system will then catch the rest) and
-                        // handle it no matter what (no spawn tick checks etc)
-                        if (spawnList.Length > 1)
+            Dependency.Complete();
+
+            foreach( var ghosts in SystemAPI.Query<DynamicBuffer<GhostSpawnBuffer>>().WithAll<GhostSpawnQueue>())
+            {
+                var spawnList = spawnListFromEntity[spawnListEntity];
+                for (int i = 0; i < ghosts.Length; ++i)
+                {
+                    var ghost = ghosts[i];
+                    if (ghost.SpawnType != GhostSpawnBuffer.Type.Predicted || ghost.HasClassifiedPredictedSpawn || ghost.PredictedSpawnEntity != Entity.Null)
+                        continue;
+
+                    // Only classify the first item in the list (default system will then catch the rest) and
+                    // handle it no matter what (no spawn tick checks etc)
+                    if (spawnList.Length > 1)
+                    {
+                        if (ghost.GhostType == spawnList[0].ghostType)
                         {
-                            if (ghost.GhostType == spawnList[0].ghostType)
-                            {
-                                ghost.PredictedSpawnEntity = spawnList[0].entity;
-                                ghost.HasClassifiedPredictedSpawn = true;
-                                spawnList.RemoveAtSwapBack(0);
-                                predictedEntities.Add(ghost.PredictedSpawnEntity);
-                                ghosts[i] = ghost;
-                                break;
-                            }
+                            ghost.PredictedSpawnEntity = spawnList[0].entity;
+                            ghost.HasClassifiedPredictedSpawn = true;
+                            spawnList.RemoveAtSwapBack(0);
+                            predictedEntities.Add(ghost.PredictedSpawnEntity);
+                            ghosts.ElementAt(i) = ghost;
+                            break;
                         }
                     }
-                }).Run();
+                }
+            }
         }
     }
 
@@ -265,8 +264,23 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    // Parameterized so every test exercising predicted-spawn rollback runs under both AlwaysRollbackAllPredictedGhosts modes.
+    [TestFixture(RollbackType.AlwaysRollback)]
+    [TestFixture(RollbackType.PartialRollback)]
     class PredictedGhostSpawnTests
     {
+        readonly bool m_AlwaysRollbackAllGhosts;
+
+        public PredictedGhostSpawnTests(RollbackType rollbackType)
+        {
+            m_AlwaysRollbackAllGhosts = rollbackType == RollbackType.AlwaysRollback;
+        }
+        internal enum RollbackType
+        {
+            AlwaysRollback,
+            PartialRollback,
+        }
+
         /* Set up 2 prefabs with a predicted ghost and interpolated ghost
          *  - Verify spawning the predicted one on the client works as expected
          *  - Verify server spawning interpolated ghosts works as well
@@ -306,6 +320,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(predictedGhostGO, interpolatedGhostGO));
 
                 testWorld.CreateWorlds(true, 1);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(m_AlwaysRollbackAllGhosts);
 
                 testWorld.Connect();
                 testWorld.GoInGame();
@@ -428,6 +443,7 @@ namespace Unity.NetCode.Tests
 
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGO));
             testWorld.CreateWorlds(true, 1);
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(m_AlwaysRollbackAllGhosts);
             testWorld.Connect();
             testWorld.GoInGame();
 
@@ -473,6 +489,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(predictedGhostGO));
 
                 testWorld.CreateWorlds(true, 1);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(m_AlwaysRollbackAllGhosts);
 
                 testWorld.Connect();
                 testWorld.GoInGame();
@@ -542,10 +559,12 @@ namespace Unity.NetCode.Tests
             testWorld.CreateWorlds(true, 1);
             var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             clientTickRate.NumAdditionalClientPredictedGhostLifetimeTicks = (ushort) additionalDespawnDelayTicks;
+            clientTickRate.AlwaysRollbackAllPredictedGhosts = m_AlwaysRollbackAllGhosts;
             var clientServerTickRate = new ClientServerTickRate();
             clientServerTickRate.ResolveDefaults();
             var interpolationBufferTimeInTicks = clientTickRate.CalculateInterpolationBufferTimeInTicks(in clientServerTickRate);
-            testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+            var ent = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[0]);
+            testWorld.ClientWorlds[0].EntityManager.SetComponentData(ent, clientTickRate);
             testWorld.Connect();
             testWorld.GoInGame();
             for (int i = 0; i < 16; ++i)
@@ -612,6 +631,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(predictedGhostGO));
 
                 testWorld.CreateWorlds(true, 1);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(m_AlwaysRollbackAllGhosts);
 
                 testWorld.Connect();
                 testWorld.GoInGame();
@@ -734,6 +754,7 @@ namespace Unity.NetCode.Tests
 
             Assert.IsTrue(testWorld.CreateGhostCollection(predictedGhostGO));
             testWorld.CreateWorlds(true, 1);
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(m_AlwaysRollbackAllGhosts);
             testWorld.Connect();
             testWorld.GoInGame();
 
@@ -801,6 +822,7 @@ namespace Unity.NetCode.Tests
 
             Assert.IsTrue(testWorld.CreateGhostCollection(gameObjects));
             testWorld.CreateWorlds(true, 1);
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(m_AlwaysRollbackAllGhosts);
             testWorld.Connect();
             testWorld.GoInGame();
 
@@ -910,7 +932,6 @@ namespace Unity.NetCode.Tests
 
         [Test(Description = "The test verify that predicted spawned ghost instantiated inside in the prediction loop" +
                             "don't mispredict and rewind correctly")]
-        [DisableSingleWorldHostTest]
         public void PredictSpawnGhost_InsidePrediction_AlwaysRollbackCorrectly([Values]PredictedSpawnRollbackOptions rollback,
             [Values]KeepHistoryBufferOptions keepHistoryBufferOnStructuralChanges)
         {
@@ -920,6 +941,7 @@ namespace Unity.NetCode.Tests
                 typeof(PredictSpawnGhostUpdate), typeof(CountNumberOfRollbacksSystem));
             Assert.IsTrue(testWorld.CreateGhostCollection(gameObjects));
             testWorld.CreateWorlds(true, 1);
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(m_AlwaysRollbackAllGhosts);
             testWorld.Connect();
             testWorld.GoInGame();
 
@@ -1142,6 +1164,150 @@ namespace Unity.NetCode.Tests
             var existsClient = !testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance)).IsEmpty;
             Assert.IsFalse(existsClient);
             Assert.IsFalse(existsServer);
+        }
+
+        [Test, Description("Irrelevant-then-destroyed ghost: FindNewDespawns must upgrade the pending entry's despawnTick from Invalid to the real destruction tick, keeping OldestPendingDespawnTick from freeing the ghostId prematurely. Packet drops hold the despawn in flight while the ghost is destroyed. Asserts the internal upgrade and that the despawn reaches the client.")]
+        public void IrrelevantThenDestroyedGhost_DespawnTickUpgradedAndClientReceivesDespawn()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.DriverSimulatedDelay = 1; // Required for SetPacketDropPercentForWorld
+            testWorld.Bootstrap(true);
+
+            var ghostGameObject = new GameObject("IrrelevantThenDestroyedGhost");
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostIdReuseConverter();
+            ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+            ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+
+            var serverConnection = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
+            Assert.AreNotEqual(Entity.Null, serverConnection);
+            var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(serverConnection).Value;
+
+            var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
+            testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostOwner { NetworkId = 1 });
+
+            testWorld.TickMultiple(8);
+
+            using var clientGhostQuery = testWorld.ClientWorlds[0].EntityManager
+                .CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GhostOwner>());
+
+            var ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntity).ghostId;
+            ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, ghostId), 1);
+
+            testWorld.TickMultiple(16);
+
+            Assert.AreEqual(1, clientGhostQuery.CalculateEntityCount(), "Setup: client must receive the ghost before marking it irrelevant.");
+
+            // Drop packets: despawn is queued but stays unacked, letting us inspect despawnTick.
+            testWorld.SetPacketDropPercentForWorld(testWorld.ClientWorlds[0], 100);
+            ghostRelevancy.GhostRelevancySet.Remove(new RelevantGhostForConnection(serverConnectionId, ghostId));
+            testWorld.Tick();
+
+            Assert.IsTrue(ReadPendingDespawnTickForGhost(testWorld, serverConnection, ghostId, out var beforeDestroyTick),
+                $"Ghost {ghostId} should be in PendingDespawns after being marked irrelevant.");
+            Assert.IsFalse(beforeDestroyTick.IsValid,
+                $"Entry should have despawnTick=Invalid immediately after irrelevancy (entity not yet destroyed).");
+
+            testWorld.ServerWorld.EntityManager.DestroyEntity(serverEntity);
+            testWorld.Tick();
+
+            Assert.IsTrue(ReadPendingDespawnTickForGhost(testWorld, serverConnection, ghostId, out var afterDestroyTick),
+                $"Entry for ghost {ghostId} should still exist (packets still dropped).");
+            Assert.IsTrue(afterDestroyTick.IsValid,
+                $"FindNewDespawns must upgrade despawnTick from Invalid to the actual destruction tick.");
+
+            testWorld.SetPacketDropPercentForWorld(testWorld.ClientWorlds[0], 0);
+
+            bool clientLostGhost = false;
+            for (int tickIndex = 0; tickIndex < 64; ++tickIndex)
+            {
+                testWorld.Tick();
+                if (clientGhostQuery.CalculateEntityCount() == 0)
+                {
+                    clientLostGhost = true;
+                    break;
+                }
+            }
+            Assert.IsTrue(clientLostGhost,
+                "Client must receive the despawn even after the initial snapshot was dropped.");
+        }
+        /// <summary>Converter for ghostId-reuse regression tests: bakes a <see cref="GhostOwner"/> onto the entity.</summary>
+        internal class GhostIdReuseConverter : TestNetCodeAuthoring.IConverter
+        {
+            /// <summary>Bakes <see cref="GhostOwner"/> so tests can stamp a unique NetworkId on each spawn.</summary>
+            public void Bake(GameObject gameObject, IBaker baker)
+            {
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostOwner());
+            }
+        }
+
+        /// <summary>Returns the despawnTick of the PendingDespawns entry for <paramref name="ghostId"/>, or false if none exists.</summary>
+        private static unsafe bool ReadPendingDespawnTickForGhost(NetCodeTestWorld testWorld, Entity serverConnection, int ghostId, out NetworkTick despawnTick)
+        {
+            despawnTick = NetworkTick.Invalid;
+            testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs();
+            var ghostSendSystemHandle = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
+            ref var ghostSendSystem = ref testWorld.ServerWorld.Unmanaged.GetUnsafeSystemRef<GhostSendSystem>(ghostSendSystemHandle);
+            var (jobHandle, connectionStateData) = ghostSendSystem.GetConnectionStateData(serverConnection);
+            jobHandle.Complete();
+            var pendingList = connectionStateData.PendingDespawns;
+            if (pendingList == null) return false;
+            for (int i = 0; i < pendingList->Length; ++i)
+            {
+                if (pendingList->ElementAt(i).Ghost.ghostId == ghostId)
+                {
+                    despawnTick = pendingList->ElementAt(i).Ghost.despawnTick;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [Test(Description = "Despawn for a still-placeholder ghost was silently dropped, then GhostSpawnSystem.TrySpawnFromDelayedQueue promoted the placeholder into a real entity.")]
+        public void GhostDespawn_WhileGhostIsStillPendingSpawnPlaceholder_DestroysPlaceholder()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var ghostGO = new GameObject("DespawnDuringPlaceholderTest_Ghost");
+            ghostGO.AddComponent<TestNetCodeAuthoring>().Converter = new DataConverter();
+            var ghostConfig = ghostGO.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
+            ghostConfig.SupportedGhostModes = GhostModeMask.Interpolated;
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGO));
+
+            testWorld.CreateWorlds(true, 1);
+            var serverEntity = testWorld.SpawnOnServer(ghostGO);
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            var clientWorld = testWorld.ClientWorlds[0];
+            using var placeholderQuery = clientWorld.EntityManager.CreateEntityQuery(
+                ComponentType.ReadOnly<PendingSpawnPlaceholder>(),
+                ComponentType.ReadOnly<GhostInstance>());
+
+            // The placeholder window (snapshot received but InterpolationTick still behind snapshotTick) is
+            // only a few ticks wide, so poll-and-break rather than tick a fixed count past it.
+            for (int i = 0; i < 16; ++i)
+            {
+                testWorld.Tick();
+                if (placeholderQuery.CalculateEntityCount() > 0) break;
+            }
+            Assert.Greater(placeholderQuery.CalculateEntityCount(), 0,
+                "Setup never produced a PendingSpawnPlaceholder; cannot exercise the placeholder-despawn race.");
+
+            testWorld.ServerWorld.EntityManager.DestroyEntity(serverEntity);
+            testWorld.TickMultiple(64);
+
+            var clientGhostMap = testWorld.GetSingleton<SpawnedGhostEntityMap>(clientWorld).ClientGhostEntityMap;
+            Assert.AreEqual(0, placeholderQuery.CalculateEntityCount(), "PendingSpawnPlaceholder survived the despawn-deadline.");
+            Assert.AreEqual(0, clientGhostMap.Count(), "ClientGhostEntityMap still tracks the despawned placeholder (TrySpawnFromDelayedQueue promoted it).");
         }
     }
 }

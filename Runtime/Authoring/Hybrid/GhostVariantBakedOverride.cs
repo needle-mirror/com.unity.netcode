@@ -36,9 +36,9 @@ namespace Unity.NetCode
         /// <summary>Typed sentinel for an unset <see cref="SendTypeOptimization"/>. Use this rather than casting -1 by hand.</summary>
         public const GhostSendType NoSendTypeOverride = (GhostSendType)NoOverride;
 
-        /// <summary>The id of the GameObject this override targets, mirroring <see cref="EntityGuid.OriginatingId"/>.
+        /// <summary>The id of the GameObject this override targets, mirroring <see cref="EntityGuid.OriginatingEntityId"/>.
         /// Leave as <c>default</c> to mean "the entity this buffer lives on" — the common case.</summary>
-        public int TargetGameObjectInstanceId;
+        public EntityId TargetGameObjectInstanceId;
 
         /// <summary>The serial of the target entity, mirroring <see cref="EntityGuid.Serial"/>. Set to 0 to mean
         /// "the primary entity for the target GameObject".</summary>
@@ -73,8 +73,8 @@ namespace Unity.NetCode
         /// for both targeting fields when self-targeting is in effect.</param>
         public static void ResolveSelfTargeting(ref GhostVariantBakedOverride entry, in EntityGuid hostGuid)
         {
-            if (entry.TargetGameObjectInstanceId != 0) return;
-            entry.TargetGameObjectInstanceId = hostGuid.OriginatingId;
+            if (entry.TargetGameObjectInstanceId != default(EntityId)) return;
+            entry.TargetGameObjectInstanceId = hostGuid.OriginatingEntityId;
             if (entry.TargetEntitySerial == 0)
                 entry.TargetEntitySerial = hostGuid.Serial;
         }
@@ -121,7 +121,7 @@ namespace Unity.NetCode
                 VariantHash = GhostVariantsUtility.ResolveVariantHashFromType(typeof(TVariant), componentType),
                 PrefabType = GhostVariantBakedOverride.NoPrefabTypeOverride,
                 SendTypeOptimization = GhostVariantBakedOverride.NoSendTypeOverride,
-                TargetGameObjectInstanceId = targetGameObject != null ? targetGameObject.GetInstanceID() : default,
+                TargetGameObjectInstanceId = targetGameObject != null ? targetGameObject.GetEntityId() : default,
                 TargetEntitySerial = targetEntitySerial,
             };
             AssertNoDuplicate(buffer, entry, componentType);
@@ -145,7 +145,7 @@ namespace Unity.NetCode
                 VariantHash = GhostVariantsUtility.DontSerializeHash,
                 PrefabType = GhostVariantBakedOverride.NoPrefabTypeOverride,
                 SendTypeOptimization = GhostVariantBakedOverride.NoSendTypeOverride,
-                TargetGameObjectInstanceId = targetGameObject != null ? targetGameObject.GetInstanceID() : default,
+                TargetGameObjectInstanceId = targetGameObject != null ? targetGameObject.GetEntityId() : default,
                 TargetEntitySerial = targetEntitySerial,
             };
             AssertNoDuplicate(buffer, entry, componentType);
@@ -172,7 +172,7 @@ namespace Unity.NetCode
                 VariantHash = 0,
                 PrefabType = prefabType,
                 SendTypeOptimization = GhostVariantBakedOverride.NoSendTypeOverride,
-                TargetGameObjectInstanceId = targetGameObject != null ? targetGameObject.GetInstanceID() : default,
+                TargetGameObjectInstanceId = targetGameObject != null ? targetGameObject.GetEntityId() : default,
                 TargetEntitySerial = targetEntitySerial,
             };
             AssertNoDuplicate(buffer, entry, componentType);
@@ -198,7 +198,7 @@ namespace Unity.NetCode
                 VariantHash = 0,
                 PrefabType = GhostVariantBakedOverride.NoPrefabTypeOverride,
                 SendTypeOptimization = sendType,
-                TargetGameObjectInstanceId = targetGameObject != null ? targetGameObject.GetInstanceID() : default,
+                TargetGameObjectInstanceId = targetGameObject != null ? targetGameObject.GetEntityId() : default,
                 TargetEntitySerial = targetEntitySerial,
             };
             AssertNoDuplicate(buffer, entry, componentType);

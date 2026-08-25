@@ -1,0 +1,1 @@
+The goal of this folder is to be the only point of access for entities internal APIs, to limit potential unexpected usage of their internal things. Most of Netcode's code shouldn't be here, only specific features should.

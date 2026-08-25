@@ -115,8 +115,8 @@ namespace Unity.NetCode.Editor
 
         static LegacyHierarchyDrawer()
         {
-            EditorApplication.hierarchyWindowItemOnGUI -= GhostAuthoringSetCustomColors;
-            EditorApplication.hierarchyWindowItemOnGUI += GhostAuthoringSetCustomColors;
+            EditorApplication.hierarchyWindowItemByEntityIdOnGUI -= GhostAuthoringSetCustomColors;
+            EditorApplication.hierarchyWindowItemByEntityIdOnGUI += GhostAuthoringSetCustomColors;
         }
 
         public static Texture2D GhostIcon => EditorGUIUtility.isProSkin
@@ -125,13 +125,9 @@ namespace Unity.NetCode.Editor
 
         public static Color NetcodeColor => EditorGUIUtility.isProSkin ? new Color(0.91f, 0.55f, 0.86f) : new Color(0.8f, 0.14f, 0.5f);
 
-        static void GhostAuthoringSetCustomColors(int instanceID, Rect selectionRect)
+        static void GhostAuthoringSetCustomColors(EntityId instanceID, Rect selectionRect)
         {
-#if UNITY_6000_3_OR_NEWER
             var obj = EditorUtility.EntityIdToObject(instanceID);
-#else
-            var obj = EditorUtility.InstanceIDToObject(instanceID);
-#endif
             if (obj != null && obj is GameObject go)
             {
                 if (go.GetComponent<GhostAuthoringComponent>())

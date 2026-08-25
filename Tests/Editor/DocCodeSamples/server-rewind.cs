@@ -25,15 +25,6 @@ namespace DocumentationCodeSamples
 
     partial class ServerRewind : SystemBase
     {
-#pragma warning disable CS0618 // Disable Aspects obsolete warnings
-        public readonly partial struct CharacterAspect : IAspect
-        {
-            public readonly Entity Self;
-            readonly RefRO<CharacterControllerPlayerInput> m_Input;
-            public CharacterControllerPlayerInput Input => m_Input.ValueRO;
-        }
-#pragma warning restore CS0618
-
         protected override void OnUpdate()
         {
             var rayInput = new RaycastInput
@@ -52,15 +43,15 @@ namespace DocumentationCodeSamples
             if (!networkTime.IsFirstTimeFullyPredictingTick)
                 return;
 
-            foreach (var (character, interpolationDelay, hitComponent) in SystemAPI.Query<CharacterAspect, RefRO<CommandDataInterpolationDelay>, RefRW<Hit>>().WithAll<Simulate>())
+            foreach (var (characterInput, interpolationDelay, hitComponent, entity) in SystemAPI.Query<RefRO<CharacterControllerPlayerInput>, RefRO<CommandDataInterpolationDelay>, RefRW<Hit>>().WithAll<Simulate>().WithEntityAccess())
             {
-                if (character.Input.SecondaryFire.IsSet)
+                if (characterInput.ValueRO.SecondaryFire.IsSet)
                 {
-                    hitComponent.ValueRW.Victim = character.Self;
+                    hitComponent.ValueRW.Victim = entity;
                     hitComponent.ValueRW.Tick = predictingTick;
                     continue;
                 }
-                if (!character.Input.PrimaryFire.IsSet)
+                if (!characterInput.ValueRO.PrimaryFire.IsSet)
                 {
                     continue;
                 }
@@ -79,7 +70,7 @@ namespace DocumentationCodeSamples
                 // - On the server, we process this input on ServerTick:100.
                 // - CommandDataInterpolationTick.Delay:-2 = 98 (-2)
                 // - So the server also needs to subtract the rendering delay to be consistent with what the client sees and queries against (97).
-                var delay = lagCompensationEnabledFromEntity.HasComponent(character.Self)
+                var delay = lagCompensationEnabledFromEntity.HasComponent(entity)
                     ? interpolationDelay.ValueRO.Delay + additionalRenderDelay
                     : additionalRenderDelay;
 

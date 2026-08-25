@@ -4,7 +4,6 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Networking.Transport;
-using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -77,6 +76,9 @@ namespace Unity.NetCode
 
         public ClientServerBootstrap()
         {
+            // Make sure we clear out these worlds, on multiple test runs if there is a failure we can have destroyed worlds left in the lists causing issues on cleanup.
+            ClientServerTracker.Clear();
+
             s_NextThinClientId = 1;
             s_OverrideCache = default;
             s_OverrideCacheHasResult = default;
@@ -99,7 +101,7 @@ namespace Unity.NetCode
             if (World.DefaultGameObjectInjectionWorld == null)
                 World.DefaultGameObjectInjectionWorld = world;
 
-            var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
+            var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.Default);
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
             return world;
@@ -138,15 +140,13 @@ namespace Unity.NetCode
             // Note that GetActiveScene will return invalid when domain reloads are ENABLED.
             var activeScene = SceneManager.GetActiveScene();
             // We must use `FindObjectsInactive.Include` here, otherwise we'll get zero results.
-#if UNITY_6000_4_OR_NEWER
             var sceneConfigurations = UnityEngine.Object.FindObjectsByType<OverrideAutomaticNetcodeBootstrap>(FindObjectsInactive.Include);
-#else
-            var sceneConfigurations = UnityEngine.Object.FindObjectsByType<OverrideAutomaticNetcodeBootstrap>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-#endif
             if (sceneConfigurations.Length <= 0)
             {
-                if(logNonErrors)
-                    UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Did not find any instances of `OverrideAutomaticNetcodeBootstrap`.");
+                if (logNonErrors)
+                {
+                    Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Did not find any instances of `OverrideAutomaticNetcodeBootstrap`.");
+                }
                 return s_OverrideCache;
             }
             Array.Sort(sceneConfigurations); // Attempt to make the results somewhat deterministic and reliable via sorting by `name`, then `InstanceId`.
@@ -224,7 +224,7 @@ namespace Unity.NetCode
 #if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
             if (NetCodeConfig.Global != null && NetCodeConfig.Global.HostWorldModeSelection == NetCodeConfig.HostWorldMode.SingleWorld && RequestedPlayType == PlayType.ClientAndServer)
             {
-                CreateSingleWorldHost("ClientAndServerWorld");
+                CreateSingleWorldHost("HostWorld");
             }
             else
 #endif
@@ -283,7 +283,7 @@ namespace Unity.NetCode
             {
                 name = "ThinClientWorld" + s_NextThinClientId++;
             }
-            var world = new World(name, WorldFlags.GameThinClient);
+            var world = new NetcodeWorld(name, WorldFlags.GameThinClient);
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
 
@@ -320,16 +320,13 @@ namespace Unity.NetCode
 #if (UNITY_CLIENT || UNITY_SERVER) && !UNITY_EDITOR
                 throw new NotImplementedException();
 #endif
-            var world = new World(name, WorldFlags.GameServer | WorldFlags.GameClient);
+            var world = new NetcodeWorld(name, WorldFlags.GameServer | WorldFlags.GameClient);
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
 
             if (World.DefaultGameObjectInjectionWorld == null)
                 World.DefaultGameObjectInjectionWorld = world;
-
-            Netcode.Client.Init();
-            Netcode.Server.Init();
 
             return world;
         }
@@ -355,16 +352,13 @@ namespace Unity.NetCode
 #if UNITY_SERVER && !UNITY_EDITOR
             throw new PlatformNotSupportedException("This executable was built using a 'server-only' build target (likely DGS). Thus, cannot create client worlds.");
 #else
-            var world = new World(name, WorldFlags.GameClient);
-            ClientWorlds.Add(world); // Needs to happen before system creation, so ClientServerBootstrap.ClientWorld is initialized
+            var world = new NetcodeWorld(name, WorldFlags.GameClient);
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
 
             if (World.DefaultGameObjectInjectionWorld == null)
                 World.DefaultGameObjectInjectionWorld = world;
-
-            Netcode.Client.Init();
 
             return world;
 #endif
@@ -460,16 +454,13 @@ namespace Unity.NetCode
             throw new PlatformNotSupportedException("This executable was built using a 'client-only' build target. Thus, cannot create a server world. In your ProjectSettings, change your 'Client Build Target' to `ClientAndServer` to support creating client-hosted servers.");
 #else
 
-            var world = new World(name, WorldFlags.GameServer);
-            ServerWorlds.Add(world); // Needs to happen before system creation, so ClientServerBootstrap.ServerWorld is initialized
+            var world = new NetcodeWorld(name, WorldFlags.GameServer);
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
 
             if (World.DefaultGameObjectInjectionWorld == null)
                 World.DefaultGameObjectInjectionWorld = world;
-
-            Netcode.Server.Init();
 
             return world;
 #endif
@@ -593,6 +584,13 @@ namespace Unity.NetCode
                 ClientWorlds = new List<World>();
                 ThinClientWorlds = new List<World>();
             }
+
+            internal static void Clear()
+            {
+                ClientServerTracker.ClientWorlds.Clear();
+                ClientServerTracker.ServerWorlds.Clear();
+                ClientServerTracker.ThinClientWorlds.Clear();
+            }
         }
 
         /// <summary>
@@ -647,7 +645,7 @@ namespace Unity.NetCode
         /// <returns>Whether <paramref name="world"/> is a thin client world.</returns>
         public static bool IsThinClient(this World world)
         {
-            return (world.Flags&WorldFlags.GameThinClient) == WorldFlags.GameThinClient;
+            return (world.Flags & WorldFlags.GameThinClient) == WorldFlags.GameThinClient;
         }
         /// <summary>
         /// Check if an unmanaged world is a thin client.
@@ -656,7 +654,7 @@ namespace Unity.NetCode
         /// <returns>Whether <paramref name="world"/> is a thin client world.</returns>
         public static bool IsThinClient(this WorldUnmanaged world)
         {
-            return (world.Flags&WorldFlags.GameThinClient) == WorldFlags.GameThinClient;
+            return (world.Flags & WorldFlags.GameThinClient) == WorldFlags.GameThinClient;
         }
         /// <summary>
         /// Check if a world is a client, will also return true for thin clients.
@@ -665,7 +663,7 @@ namespace Unity.NetCode
         /// <returns>Whether <paramref name="world"/> is a client or a thin client world.</returns>
         public static bool IsClient(this World world)
         {
-            return ((world.Flags&WorldFlags.GameClient) == WorldFlags.GameClient) || world.IsThinClient();
+            return ((world.Flags & WorldFlags.GameClient) == WorldFlags.GameClient) || world.IsThinClient();
         }
         /// <summary>
         /// Check if an unmanaged world is a client, will also return true for thin clients.
@@ -674,7 +672,7 @@ namespace Unity.NetCode
         /// <returns>Whether <paramref name="world"/> is a client or a thin client world.</returns>
         public static bool IsClient(this WorldUnmanaged world)
         {
-            return ((world.Flags&WorldFlags.GameClient) == WorldFlags.GameClient) || world.IsThinClient();
+            return ((world.Flags & WorldFlags.GameClient) == WorldFlags.GameClient) || world.IsThinClient();
         }
         /// <summary>
         /// Check if a world is a server.
@@ -683,7 +681,7 @@ namespace Unity.NetCode
         /// <returns>Whether <paramref name="world"/> is a server world.</returns>
         public static bool IsServer(this World world)
         {
-            return (world.Flags&WorldFlags.GameServer) == WorldFlags.GameServer;
+            return (world.Flags & WorldFlags.GameServer) == WorldFlags.GameServer;
         }
         /// <summary>
         /// Check if an unmanaged world is a server.
@@ -692,7 +690,7 @@ namespace Unity.NetCode
         /// <returns>Whether <paramref name="world"/> is a server world.</returns>
         public static bool IsServer(this WorldUnmanaged world)
         {
-            return (world.Flags&WorldFlags.GameServer) == WorldFlags.GameServer;
+            return (world.Flags & WorldFlags.GameServer) == WorldFlags.GameServer;
         }
 
         /// <summary>
@@ -724,7 +722,7 @@ namespace Unity.NetCode
 
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
-    [CreateBefore(typeof(PrefabRegistryInitSystem))]
+    [CreateBefore(typeof(ApplyOfflineCacheOnInitializationSystem))]
     internal partial struct ConfigureServerWorldSystem : ISystem
     {
         EntityQuery m_SendDataQuery;
@@ -744,6 +742,7 @@ namespace Unity.NetCode
             var predictionGroup = state.World.GetExistingSystemManaged<PredictedSimulationSystemGroup>();
             predictionGroup.RateManager = new NetcodeServerPredictionRateManager(predictionGroup);
             ++ClientServerBootstrap.WorldCounts.Data.serverWorlds;
+            ClientServerBootstrap.ServerWorlds.Add(state.World);
             if (ClientServerBootstrap.WillServerAutoListen)
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Listen(ClientServerBootstrap.DefaultListenAddress.WithPort(ClientServerBootstrap.AutoConnectPort));
@@ -751,28 +750,6 @@ namespace Unity.NetCode
 
             m_SendDataQuery = state.GetEntityQuery(typeof(GhostSendSystemData));
             m_TickRateQuery = state.GetEntityQuery(typeof(ClientServerTickRate));
-            ApplyGlobalNetCodeConfigIfPresent(state.World, m_TickRateQuery, m_SendDataQuery);
-
-        }
-
-#if UNITY_EDITOR
-        public void OnUpdate(ref SystemState state)
-        {
-            ApplyGlobalNetCodeConfigIfPresent(state.World, m_TickRateQuery, m_SendDataQuery);
-        }
-#endif
-
-        internal static void ApplyGlobalNetCodeConfigIfPresent(World world, EntityQuery tickRateQuery, EntityQuery ghostSendQuery)
-        {
-            var serverConfig = NetCodeConfig.Global;
-            if (serverConfig)
-            {
-                if (tickRateQuery.TryGetSingletonRW<ClientServerTickRate>(out var clientServerTickRate))
-                    clientServerTickRate.ValueRW = serverConfig.ClientServerTickRate;
-                else
-                    world.EntityManager.CreateSingleton(serverConfig.ClientServerTickRate);
-                ghostSendQuery.GetSingletonRW<GhostSendSystemData>().ValueRW = NetCodeConfig.Global.GhostSendSystemData;
-            }
         }
 
         public void OnDestroy(ref SystemState state)
@@ -782,11 +759,13 @@ namespace Unity.NetCode
 
             --ClientServerBootstrap.WorldCounts.Data.serverWorlds;
             ClientServerBootstrap.ServerWorlds.Remove(state.World);
+
+            Netcode.SetSuccessorActiveWorld((NetcodeWorld)state.World);
         }
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    [CreateBefore(typeof(PrefabRegistryInitSystem))]
+    [CreateBefore(typeof(ApplyOfflineCacheOnInitializationSystem))]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     internal partial struct ConfigureClientWorldSystem : ISystem
     {
@@ -807,31 +786,12 @@ namespace Unity.NetCode
             predictionGroup.SetRateManagerCreateAllocator(new NetcodeClientPredictionRateManager(predictionGroup));
 
             ++ClientServerBootstrap.WorldCounts.Data.clientWorlds;
+            ClientServerBootstrap.ClientWorlds.Add(state.World);
             if (ClientServerBootstrap.TryFindAutoConnectEndPoint(out var autoConnectEp))
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(state.EntityManager, autoConnectEp);
             }
             m_TickRateQuery = state.GetEntityQuery(typeof(ClientTickRate));
-            ApplyGlobalNetCodeConfigIfPresent(state.World, m_TickRateQuery);
-        }
-
-#if UNITY_EDITOR
-        public void OnUpdate(ref SystemState state)
-        {
-            ApplyGlobalNetCodeConfigIfPresent(state.World, m_TickRateQuery);
-        }
-#endif
-
-        internal static void ApplyGlobalNetCodeConfigIfPresent(World world, EntityQuery tickRateQuery)
-        {
-            var clientConfig = NetCodeConfig.Global;
-            if (clientConfig)
-            {
-                if (tickRateQuery.TryGetSingletonRW<ClientTickRate>(out var clientTickRate))
-                    clientTickRate.ValueRW = clientConfig.ClientTickRate;
-                else
-                    world.EntityManager.CreateSingleton(clientConfig.ClientTickRate);
-            }
         }
 
         public void OnDestroy(ref SystemState state)
@@ -841,11 +801,13 @@ namespace Unity.NetCode
 
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
             ClientServerBootstrap.ClientWorlds.Remove(state.World);
+
+            Netcode.SetSuccessorActiveWorld((NetcodeWorld)state.World);
         }
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ThinClientSimulation)]
-    [CreateBefore(typeof(PrefabRegistryInitSystem))]
+    [CreateBefore(typeof(ApplyOfflineCacheOnInitializationSystem))]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     internal partial struct ConfigureThinClientWorldSystem : ISystem
     {
@@ -881,12 +843,13 @@ namespace Unity.NetCode
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
             ClientServerBootstrap.ThinClientWorlds.Remove(state.World);
             AutomaticThinClientWorldsUtility.AutomaticallyManagedWorlds.Remove(state.World);
+            Netcode.SetSuccessorActiveWorld((NetcodeWorld)state.World);
         }
     }
 
 
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    [CreateBefore(typeof(PrefabRegistryInitSystem))]
+    [CreateBefore(typeof(ApplyOfflineCacheOnInitializationSystem))]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     internal partial struct ConfigureSingleWorldHostSystem : ISystem
     {
@@ -923,17 +886,8 @@ namespace Unity.NetCode
             m_SendDataQuery = state.GetEntityQuery(typeof(GhostSendSystemData));
             m_ClientTickRateQuery = state.GetEntityQuery(typeof(ClientTickRate));
             m_ClientServerTickRateQuery = state.GetEntityQuery(typeof(ClientServerTickRate));
-            ConfigureServerWorldSystem.ApplyGlobalNetCodeConfigIfPresent(state.World, m_ClientServerTickRateQuery, m_SendDataQuery);
-            ConfigureClientWorldSystem.ApplyGlobalNetCodeConfigIfPresent(state.World, m_ClientTickRateQuery);
         }
 
-#if UNITY_EDITOR
-        public void OnUpdate(ref SystemState state)
-        {
-            ConfigureServerWorldSystem.ApplyGlobalNetCodeConfigIfPresent(state.World, m_ClientServerTickRateQuery, m_SendDataQuery);
-            ConfigureClientWorldSystem.ApplyGlobalNetCodeConfigIfPresent(state.World, m_ClientTickRateQuery);
-        }
-#endif
         public void OnDestroy(ref SystemState state)
         {
             if (!state.WorldUnmanaged.IsHost())
@@ -943,6 +897,7 @@ namespace Unity.NetCode
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
             ClientServerBootstrap.ServerWorlds.Remove(state.World);
             ClientServerBootstrap.ClientWorlds.Remove(state.World);
+            Netcode.SetSuccessorActiveWorld((NetcodeWorld)state.World);
         }
     }
 }

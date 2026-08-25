@@ -115,25 +115,86 @@ namespace Unity.NetCode
         public int Importance = 1;
 
         /// <summary>
-        ///     The theoretical maximum send frequency (in Hz) for ghost chunks of this ghost prefab type (excluding a few nuanced exceptions).
-        ///     Important Note: The MaxSendRate only denotes the maximum possible replication frequency, and cannot be enforced in all cases.
-        ///     Other factors (like <see cref="ClientServerTickRate.NetworkTickRate"/>, ghost instance count, <see cref="Importance"/>,
-        ///     Importance-Scaling, <see cref="GhostSendSystemData.DefaultSnapshotPacketSize"/>, and structural changes etc.)
-        ///     will determine the final/live send rate.
+        ///     The maximum send frequency (in Hertz) for ghost chunks of this ghost prefab type (except when
+        ///     structural changes occur).
+        ///     Important Notes:
+        ///     <list type="bullet">
+        ///         <item>
+        ///             MaxSendRate is ignored when structural changes occur. Therefore, if ghosts of this type are spawning
+        ///             and/or being destroyed each tick, it's possible to send the same chunk far more frequently than expected.
+        ///         </item>
+        ///         <item>
+        ///             In practice, snapshot throughput limitations (like NetworkTickRate, Importance
+        ///             prioritization, Importance-Scaling, DefaultSnapshotPacketSize etc.) may cause the
+        ///             effective update rate to be significantly less than this.
+        ///         </item>
+        ///         <item>
+        ///             MaxSendRate can be a cause of client mispredictions, when used with predicted ghosts, because
+        ///             Netcode for Entities will only rollback and re-simulate ghosts that are added to the snapshot, and
+        ///             MaxSendRate limits the frequency of predicted ghosts being added to the snapshot.
+        ///         </item>
+        ///     </list>
         /// </summary>
         /// <remarks>
-        /// Use this to brute-force reduce the bandwidth consumption of your most impactful ghost types.
-        /// Note: Predicted ghosts are particularly impacted by this, as a lower value here reduces rollback and re-simulation frequency
-        /// (as we only rollback and re-simulate a predicted ghost after it is received), which can save client CPU cycles in aggregate.
-        /// However, it may cause larger client misprediction errors, which leads to larger corrections.
+        ///     Use this to brute-force reduce the bandwidth consumption of your most impactful ghost types.
         /// </remarks>
-        [Tooltip(@"The <b>theoretical</b> maximum send frequency (in <b>Hertz</b>) for ghost chunks of this ghost prefab type.
+        [Tooltip(@"The maximum send frequency (in <b>Hertz</b>) for ghost chunks of this ghost prefab type, except when structural changes occur (as we don't want to rate-limit spawns and despawns).
 
-<b>Important Note:</b> The <b>MaxSendRate</b> only denotes the maximum possible replication frequency. Other factors (like <b>NetworkTickRate</b>, ghost instance count, <b>Importance</b>, <b>Importance-Scaling</b>, <b>DefaultSnapshotPacketSize</b> etc.) will determine the live send rate.
+<b>Important Notes:</b>
+
+ • <b>MaxSendRate</b> is ignored when structural changes occur. Therefore, if ghosts of this type are spawning and/or being destroyed each tick, it's possible to send the same chunk far more frequently than expected.
+
+ • In practice, snapshot throughput limitations (like <b>NetworkTickRate</b>, <b>Importance</b> prioritization, <b>Importance-Scaling</b>, <b>DefaultSnapshotPacketSize</b> etc.) may cause the effective update rate to be significantly less than this.
+
+ • <b>MaxSendRate</b> can be a cause of client mispredictions, when used with predicted ghosts, because Netcode for Entities will only rollback and re-simulate ghosts that are added to the snapshot, and <b>MaxSendRate</b> limits the frequency of predicted ghosts being added to the snapshot.
 
 <i>Use this to brute-force reduce the bandwidth consumption of your most impactful ghost types.</i>")]
         public byte MaxSendRate;
 
+        /// <summary>
+        /// When hosting a game via the <b>Single World</b> option, partial ticks cannot be performed.
+        /// Therefore, when there is a mismatch between the <see cref="ClientServerTickRate.SimulationTickRate"/> and the render rate,
+        /// jittery movement will be visible.
+        /// To solve that, this option is enabled by default, which adds the <see cref="NetcodeSmoothHostLocalToWorld"/>
+        /// component to this ghost prefab, causing interpolation-based smoothing to be applied to the ghost's LocalToWorld.
+        /// When not hosting, this component will not be added, and this option has no effect.
+        /// </summary>
+        /// <remarks>
+        /// Note: Interpolation smoothing introduces roughly half a ticks worth of render latency to the ghost, in a mechanism
+        /// that is similar to the interpolation window in binary worlds.
+        /// </remarks>
+        [Tooltip("When interpolation is enabled (the default), adds the <b>NetcodeSmoothHostLocalToWorld</b> component to this ghost prefab when playing in single world host mode, causing interpolation-based smoothing to be applied to the ghost's <b>LocalToWorld</b>. Otherwise, has no impact.\n\n<i>Note: Interpolation smoothing introduces roughly half a ticks worth of render latency, on average.</i>")]
+        public SingleWorldHostInterpolationMode SingleWorldHostInterpolationSmoothing = SingleWorldHostInterpolationMode.Interpolate;
+
+        internal bool SupportsSendTypeOptimization => SupportedGhostModes != GhostModeMask.All || DefaultGhostMode == GhostMode.OwnerPredicted;
+
+        /// <summary>
+        /// Value-based hash of all serialized ghost settings edited via the authoring inspector.
+        /// Used to detect whether an inspector edit actually changed a setting (a clamped drag can leave
+        /// the value unchanged), so we only trigger a re-bake when something really changed.
+        /// </summary>
+        /// <returns>A hash of all serialized ghost settings.</returns>
+        public override int GetHashCode()
+        {
+            var hash = new HashCode();
+            hash.Add(HasOwner);
+            hash.Add(SupportAutoCommandTarget);
+            hash.Add(TrackInterpolationDelay);
+            hash.Add(GhostGroup);
+            hash.Add(UsePreSerialization);
+            hash.Add(UseSingleBaseline);
+            hash.Add(RollbackPredictedSpawnedGhostState);
+            hash.Add(RollbackPredictionOnStructuralChanges);
+            hash.Add(DefaultGhostMode);
+            hash.Add(SupportedGhostModes);
+            hash.Add(OptimizationMode);
+            hash.Add(Importance);
+            hash.Add(MaxSendRate);
+            hash.Add(SingleWorldHostInterpolationSmoothing);
+            return hash.ToHashCode();
+        }
+
+        // TODO-next@backports for GhostObject smoothing backport, should make sure to test single world host smoothing as well.
 
 #if UNITY_EDITOR
         void OnValidate()
@@ -181,6 +242,7 @@ namespace Unity.NetCode
                 UsePreSerialization = UsePreSerialization,
                 PredictedSpawnedGhostRollbackToSpawnTick = RollbackPredictedSpawnedGhostState,
                 RollbackPredictionOnStructuralChanges = RollbackPredictionOnStructuralChanges,
+                SingleWorldHostInterpolationSmoothing = SingleWorldHostInterpolationSmoothing,
             };
         }
 

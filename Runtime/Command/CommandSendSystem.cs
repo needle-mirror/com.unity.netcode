@@ -9,6 +9,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Burst.CompilerServices;
 using Unity.Mathematics;
+using Unity.NetCode.EntitiesInternalAccess;
 
 namespace Unity.NetCode
 {
@@ -88,6 +89,7 @@ namespace Unity.NetCode
             m_UniqueInputTicks = new NativeParallelHashMap<NetworkTick, NetworkTick>(CommandDataUtility.k_CommandDataMaxSize * 4, Allocator.Persistent);
             var singletonEntity = EntityManager.CreateEntity(ComponentType.ReadWrite<UniqueInputTickMap>());
             EntityManager.SetName(singletonEntity, "UniqueInputTickMap-Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(EntityManager, singletonEntity);
             EntityManager.SetComponentData(singletonEntity, new UniqueInputTickMap{Value = m_UniqueInputTicks.AsParallelWriter(), TickMap = m_UniqueInputTicks});
 
             base.OnCreate();

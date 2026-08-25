@@ -75,7 +75,6 @@ namespace Unity.NetCode.Tests
     internal class BootstrapTests
     {
         [Test]
-        [DisableSingleWorldHostTest]
         public void BootstrapRespectsUpdateInWorld()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -91,7 +90,11 @@ namespace Unity.NetCode.Tests
                 Assert.IsNull(testWorld.ClientWorlds[0].GetExistingSystemManaged<ExplicitDefaultSystem>());
 
                 Assert.IsNull(testWorld.DefaultWorld.GetExistingSystemManaged<ExplicitClientSystem>());
-                Assert.IsNull(testWorld.ServerWorld.GetExistingSystemManaged<ExplicitClientSystem>());
+                if (NetCodeTestWorld.OverrideUseSingleWorldHost)
+                    Assert.IsNotNull(testWorld.ServerWorld.GetExistingSystemManaged<ExplicitClientSystem>());
+                else
+                    Assert.IsNull(testWorld.ServerWorld.GetExistingSystemManaged<ExplicitClientSystem>());
+
                 Assert.IsNotNull(testWorld.ClientWorlds[0].GetExistingSystemManaged<ExplicitClientSystem>());
 
                 Assert.IsNull(testWorld.DefaultWorld.GetExistingSystemManaged<ExplicitServerSystem>());
@@ -158,6 +161,7 @@ namespace Unity.NetCode.Tests
             }
             testWorld.Connect();
         }
+
         [Test]
         public void ResetNetworkDriverStore_ThrowIfConnectionsArePresent()
         {

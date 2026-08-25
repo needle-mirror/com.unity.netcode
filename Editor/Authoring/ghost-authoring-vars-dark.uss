@@ -1,0 +1,20 @@
+/*
+ * Dark palette for the GhostAuthoringInspectionComponent drawer.
+ */
+:root {
+    --ghost-inspection-replicated-icon-tint: #E88CDB;
+    --ghost-inspection-non-replicated-icon-tint: #FFFFFF;
+    --ghost-inspection-override-bar: #FFFFFF;
+    --ghost-inspection-prefabtype-background: #2B2B2B;
+    --ghost-inspection-prefabtype-background-stripped: #7A2626;
+    --ghost-inspection-prefabtype-text: var(--unity-colors-button-text);
+    --ghost-inspection-broken-background: #593030;
+    --ghost-inspection-broken-text: #E6A39C;
+}
+
+.ghost-inspection-tooltip-host {
+    --ghost-inspection-tooltip-muted: #808080;
+    --ghost-inspection-tooltip-highlight: #FFFF00;
+    --ghost-inspection-tooltip-positive: #008000;
+    --ghost-inspection-tooltip-negative: #FF0000;
+}

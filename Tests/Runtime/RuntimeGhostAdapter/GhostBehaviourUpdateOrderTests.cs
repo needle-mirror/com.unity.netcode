@@ -1,4 +1,3 @@
-#if UNITY_EDITOR
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -27,12 +26,12 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
 
-            var predictedPrefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("Predicted", autoRegister: false);
-            var runnerPrefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("Runner", autoRegister: false);
+            var predictedPrefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("Predicted", autoRegister: false);
+            var runnerPrefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("Runner", autoRegister: false);
             Netcode.RegisterPrefab(runnerPrefab.gameObject);
             var runnerObj = UnityEngine.Object.Instantiate(runnerPrefab);
             runnerObj.CallbackHolder = null; // make sure the following callbacks execute only on the target object, not the runner.
-            var authoringComponent = predictedPrefab.GetComponent<GhostAdapter>();
+            var authoringComponent = predictedPrefab.GetComponent<GhostObject>();
             authoringComponent.DefaultGhostMode = GhostMode.Predicted;
             authoringComponent.HasOwner = true; // for InputBehaviour
             Netcode.RegisterPrefab(predictedPrefab.gameObject);
@@ -41,7 +40,7 @@ namespace Unity.NetCode.Tests
 
             List<EventType> GetEventList(GameObject go)
             {
-                return go.GetComponent<GhostAdapter>().World.IsServer() ? serverEvents : clientEvents;
+                return go.GetComponent<GhostObject>().World.IsServer() ? serverEvents : clientEvents;
             }
             predictedPrefab.CallbackHolder.OnAwake += go =>
             {
@@ -76,7 +75,7 @@ namespace Unity.NetCode.Tests
             void RunOnceOnUpdate(GameObject _)
             {
                 var instance = UnityEngine.Object.Instantiate(predictedPrefab);
-                instance.GetComponent<GhostAdapter>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);;
+                instance.GetComponent<GhostObject>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);;
             }
 
             runnerObj.OnUpdate += RunOnceOnUpdate; // make sure the order of events is realistic. We don't care about Awake being called from a test runner, we care about being called from an actual Update
@@ -113,4 +112,3 @@ namespace Unity.NetCode.Tests
         }
     }
 }
-#endif

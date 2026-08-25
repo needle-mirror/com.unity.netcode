@@ -75,7 +75,7 @@ namespace Unity.NetCode.Generators
             fixedListHelperGenerator.Replacements["COMMAND_FIXEDLIST_CAP"] = typeInformation.ElementCount.ToString();
             fixedListHelperGenerator.Replacements["COMMAND_FIXEDLIST_LEN_BITS"] = (32-CodeGenerator.lzcnt((uint)typeInformation.ElementCount)).ToString();
             fixedListHelperGenerator.Replacements["GHOST_NAMESPACE"] = context.generatedNs;
-            fixedListHelperGenerator.Replacements["COMMAND_COMPONENT_TYPE"] = fixedListArgGen.m_TypeInformation.FieldTypeName;
+            fixedListHelperGenerator.Replacements["COMMAND_COMPONENT_TYPE"] = CodeGenerator.GetGlobalQualifiedTypeName(fixedListArgGen.m_TypeInformation);
             if (!context.generatedTypes.Contains(argumentHelperName))
             {
                 fixedListArgGen.CommandGenerator.AppendFragment("COMMAND_READ", fixedListHelperGenerator);
@@ -158,8 +158,9 @@ namespace Unity.NetCode.Generators
             {
                 {"COMMAND_NAME", context.generatorName.Replace(".", "").Replace('+', '_')},
                 {"COMMAND_NAMESPACE", context.generatedNs},
-                {"COMMAND_COMPONENT_TYPE", typeFullName},
+                {"COMMAND_COMPONENT_TYPE", CodeGenerator.GetGlobalQualifiedTypeName(typeInfo)},
                 {"COMMAND_COMPONENT_TYPE_DISPLAY_NAME", CodeGenerator.SmartTruncateDisplayNameForFs64B(displayName)},
+                {"COMMAND_EXECUTE_CREATE_REQUEST_COMPONENT", !typeInfo.IsRemote ? "ExecuteCreateRequestComponent" : "ExecuteCreateRequestComponentWithAutoInvoke" }
             };
 
             if (!string.IsNullOrEmpty(typeInfo.Namespace))
@@ -169,6 +170,23 @@ namespace Unity.NetCode.Generators
             {
                 replacements["COMMAND_USING"] = CodeGenerator.GetValidNamespaceForType(context.generatedNs, ns);
                 m_CommandGenerator.GenerateFragment("COMMAND_USING_STATEMENT", replacements);
+            }
+
+            if (typeInfo.IsRemote)
+            {
+                var fullname = typeInfo.TypeFullName;
+                if (fullname.EndsWith("_BackingRemote"))
+                    replacements["COMMAND_EXECUTE_CREATE_REQUEST_COMPONENT_ADDITIONAL_ARG"] = $"{fullname}.HandleFunctionID";
+                else if (typeInfo.IsAutoInvokeRemote)
+                {
+                    replacements["COMMAND_EXECUTE_CREATE_REQUEST_COMPONENT_ADDITIONAL_ARG"] = $"new RemoteInvokeID({RemotesCodeGen.ComputeRemoteHash(context).ToString()})";
+                }
+                else
+                {
+                    replacements["COMMAND_EXECUTE_CREATE_REQUEST_COMPONENT_ADDITIONAL_ARG"] = $"new RemoteInvokeID(0)";
+                }
+
+                m_CommandGenerator.GenerateFragment("COMMAND_EXECUTE_CREATE_REQUEST_COMPONENT_ADDITIONAL_ARGS", replacements);
             }
 
             var serializerName = context.generatedFilePrefix + "CommandSerializer.cs";

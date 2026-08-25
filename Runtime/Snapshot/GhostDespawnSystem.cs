@@ -1,10 +1,9 @@
 using System;
-using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.Mathematics;
+using Unity.NetCode.EntitiesInternalAccess;
 using UnityEngine;
 
 namespace Unity.NetCode
@@ -43,14 +42,20 @@ namespace Unity.NetCode
     {
         NativeQueue<DelayedDespawnGhost> m_InterpolatedDespawnQueue;
         NativeQueue<DelayedDespawnGhost> m_PredictedDespawnQueue;
-        NativeList<DelayedDespawnGhost> m_AllGameObjectDespawns;
         ComponentLookup<GhostGameObjectLink> m_GameObjectLookup;
-        EntityQuery m_GameObjectQuery;
+        ComponentLookup<GhostInstance> m_GhostInstanceLookup;
+        BufferLookup<GameObjectDespawnTracking> m_DelayedDespawnLookup;
+        Entity m_DelayedGODespawnEntity;
 
+        /// <summary>A pending despawn produced by <see cref="GhostReceiveSystem"/> and consumed by <see cref="DespawnJob"/>.</summary>
         internal struct DelayedDespawnGhost
         {
+            /// <summary>Identity of the ghost on the server, used to resolve the client entity through <see cref="SpawnedGhostEntityMap"/>.</summary>
             public SpawnedGhost ghost;
+            /// <summary>Server tick on which the despawn was issued; the despawn is held until the client's tick reaches it.</summary>
             public NetworkTick tick;
+            /// <summary>Client entity captured at receive time. Used as a fallback when the spawn-map lookup misses (despawn arrived before placeholder promotion).</summary>
+            public Entity entity;
         }
 
         /// <inheritdoc/>
@@ -61,19 +66,23 @@ namespace Unity.NetCode
                 state.Enabled = false;
                 return;
             }
-            m_GameObjectQuery = state.GetEntityQuery(ComponentType.ReadOnly<GhostGameObjectLink>());
 
             var singleton = state.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostDespawnQueues>());
             state.EntityManager.SetName(singleton, "GhostLifetimeComponent-Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, singleton);
             m_InterpolatedDespawnQueue = new NativeQueue<DelayedDespawnGhost>(Allocator.Persistent);
             m_PredictedDespawnQueue = new NativeQueue<DelayedDespawnGhost>(Allocator.Persistent);
-            m_AllGameObjectDespawns = new(allocator: Allocator.Persistent);
+
+            m_DelayedGODespawnEntity = state.EntityManager.CreateEntity(typeof(GameObjectDespawnTracking));
+            m_DelayedDespawnLookup = state.GetBufferLookup<GameObjectDespawnTracking>();
+
             SystemAPI.SetSingleton(new GhostDespawnQueues
             {
                 InterpolatedDespawnQueue = m_InterpolatedDespawnQueue,
                 PredictedDespawnQueue = m_PredictedDespawnQueue,
             });
             m_GameObjectLookup = state.GetComponentLookup<GhostGameObjectLink>();
+            m_GhostInstanceLookup = state.GetComponentLookup<GhostInstance>(true);
         }
 
         /// <inheritdoc/>
@@ -83,7 +92,6 @@ namespace Unity.NetCode
             state.CompleteDependency();
             m_InterpolatedDespawnQueue.Dispose();
             m_PredictedDespawnQueue.Dispose();
-            m_AllGameObjectDespawns.Dispose();
         }
 
         /// <inheritdoc/>
@@ -103,12 +111,12 @@ namespace Unity.NetCode
 
             // TODO-release handle hybrid scenario where entity is destroyed first server side. GO needs to react to this and self destruct (or have a system to handle it for us)
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-
-            m_AllGameObjectDespawns.Resize(math.min(m_InterpolatedDespawnQueue.Count + m_PredictedDespawnQueue.Count, m_GameObjectQuery.CalculateEntityCount()), NativeArrayOptions.UninitializedMemory);
-            m_AllGameObjectDespawns.Clear();
-
+            m_DelayedDespawnLookup.Update(ref state);
+            var allGameObjectDespawns = m_DelayedDespawnLookup[m_DelayedGODespawnEntity];
+            allGameObjectDespawns.Clear();
             var spawnedGhostMap = SystemAPI.GetSingletonRW<SpawnedGhostEntityMap>().ValueRO.SpawnedGhostMapRW;
             m_GameObjectLookup.Update(ref state);
+            m_GhostInstanceLookup.Update(ref state);
             state.Dependency = new DespawnJob
             {
                 spawnedGhostMap = spawnedGhostMap,
@@ -117,17 +125,12 @@ namespace Unity.NetCode
                 interpolatedTick = networkTime.InterpolationTick,
                 predictedTick = networkTime.ServerTick,
                 commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged),
-                isGo = m_GameObjectLookup,
-                GODelayedDespawns = m_AllGameObjectDespawns.AsParallelWriter(),
-            }.Schedule(state.Dependency);
-
-            if (!m_GameObjectQuery.IsEmpty)
-            {
+                isGOLookup = m_GameObjectLookup,
+                ghostInstanceLookup = m_GhostInstanceLookup,
                 // Delay the GameObject destruction to a subsequent managed system since we can't burst GameObject Destroy right now TODO-next@domino after domino: merge that system back here
-                state.Dependency.Complete();
-                ref var GODespawnTracking = ref SystemAPI.GetSingletonRW<GameObjectDespawnTracking>().ValueRW;
-                GODespawnTracking.allGODespawns = m_AllGameObjectDespawns;
-            }
+                despawnTrackingLookup = m_DelayedDespawnLookup,
+                despawnSingleton = m_DelayedGODespawnEntity,
+            }.Schedule(state.Dependency);
         }
 
         [BurstCompile]
@@ -136,65 +139,70 @@ namespace Unity.NetCode
             public NativeQueue<DelayedDespawnGhost> interpolatedDespawnQueue;
             public NativeParallelHashMap<SpawnedGhost, Entity> spawnedGhostMap;
             public NativeQueue<DelayedDespawnGhost> predictedDespawnQueue;
-            public NativeList<DelayedDespawnGhost>.ParallelWriter GODelayedDespawns;
             public NetworkTick interpolatedTick, predictedTick;
             public EntityCommandBuffer commandBuffer;
-            public ComponentLookup<GhostGameObjectLink> isGo;
+            public ComponentLookup<GhostGameObjectLink> isGOLookup;
+            [ReadOnly] public ComponentLookup<GhostInstance> ghostInstanceLookup;
+            [NativeDisableParallelForRestriction] public BufferLookup<GameObjectDespawnTracking> despawnTrackingLookup;
+            public Entity despawnSingleton;
+
+            /// <summary>Destroys a single despawned ghost. When the spawn-map lookup misses, destroys the captured placeholder entity instead (despawn arrived before placeholder promotion).</summary>
+            void ProcessDespawn(ref DelayedDespawnGhost spawnedGhost, DynamicBuffer<GameObjectDespawnTracking> despawnTracking)
+            {
+                if (!spawnedGhostMap.TryGetValue(spawnedGhost.ghost, out var ent))
+                {
+                    if (spawnedGhost.entity != Entity.Null && ghostInstanceLookup.HasComponent(spawnedGhost.entity))
+                        commandBuffer.DestroyEntity(spawnedGhost.entity);
+                    return;
+                }
+                spawnedGhost.entity = ent;
+                if (isGOLookup.HasComponent(ent))
+                {
+                    despawnTracking.Add(new() { oneDespawn = spawnedGhost });
+                }
+                else
+                {
+                    commandBuffer.DestroyEntity(ent);
+                    spawnedGhostMap.Remove(spawnedGhost.ghost);
+                }
+            }
 
             [BurstCompile]
             public void Execute()
             {
+                var despawnTracking = despawnTrackingLookup[despawnSingleton];
                 while (interpolatedDespawnQueue.Count > 0 &&
                        !interpolatedDespawnQueue.Peek().tick.IsNewerThan(interpolatedTick))
                 {
                     var spawnedGhost = interpolatedDespawnQueue.Dequeue();
-                    if (spawnedGhostMap.TryGetValue(spawnedGhost.ghost, out var ent))
-                    {
-                        if (isGo.HasComponent(ent))
-                        {
-                            GODelayedDespawns.AddNoResize(spawnedGhost);
-                        }
-                        else
-                        {
-                            commandBuffer.DestroyEntity(ent);
-                            spawnedGhostMap.Remove(spawnedGhost.ghost);
-                        }
-                    }
+                    ProcessDespawn(ref spawnedGhost, despawnTracking);
                 }
 
                 while (predictedDespawnQueue.Count > 0 &&
                        !predictedDespawnQueue.Peek().tick.IsNewerThan(predictedTick))
                 {
                     var spawnedGhost = predictedDespawnQueue.Dequeue();
-                    if (spawnedGhostMap.TryGetValue(spawnedGhost.ghost, out var ent))
-                    {
-                        if (isGo.HasComponent(ent))
-                        {
-                            GODelayedDespawns.AddNoResize(spawnedGhost);
-                        }
-                        else
-                        {
-                            commandBuffer.DestroyEntity(ent);
-                            spawnedGhostMap.Remove(spawnedGhost.ghost);
-                        }
-                    }
+                    ProcessDespawn(ref spawnedGhost, despawnTracking);
                 }
             }
         }
     }
 
-    internal struct GameObjectDespawnTracking : IComponentData
+    internal struct GameObjectDespawnTracking : IBufferElementData
     {
-        public NativeList<GhostDespawnSystem.DelayedDespawnGhost> allGODespawns;
+        public GhostDespawnSystem.DelayedDespawnGhost oneDespawn;
     }
 
     // TODO-next@trunk once we're in trunk, check slack thread see if they were able to get to it: GO despawn doesn't have APIs for burst compatible GO destruction. Raised this on slack. Disabling burst for now, since this is really just a system that schedules a job that's itself bursted anyway. But should come back to this if/when that's available. Slack thread https://unity.slack.com/archives/C0575F6KEAY/p1757546583041179
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateAfter(typeof(GhostDespawnSystem))]
+    [UpdateAfter(typeof(PredictedGhostDespawnSystem))]
+    [UpdateAfter(typeof(GhostReceiveSystem))] // for the despawns on disconnect
     internal partial class GhostGameObjectDespawnManagedSystem : SystemBase
     {
+        EntityQuery m_DelayedDespawnQuery;
         protected override void OnCreate()
         {
             if (World.IsHost())
@@ -203,33 +211,77 @@ namespace Unity.NetCode
                 return;
             }
             RequireForUpdate<GhostGameObjectLink>();
-            this.EntityManager.CreateEntity(typeof(GameObjectDespawnTracking));
+            m_DelayedDespawnQuery = this.GetEntityQuery(typeof(GameObjectDespawnTracking));
+            RequireForUpdate<GameObjectDespawnTracking>();
         }
 
         protected override void OnUpdate()
         {
-            ref var GODespawnTracking = ref SystemAPI.GetSingletonRW<GameObjectDespawnTracking>().ValueRW;
             var spawnedGhostMap = SystemAPI.GetSingletonRW<SpawnedGhostEntityMap>().ValueRO.SpawnedGhostMapRW;
-            ProcessGameObjectDespawns(ref this.CheckedStateRef, GODespawnTracking.allGODespawns, spawnedGhostMap);
+            var trackingEntity = m_DelayedDespawnQuery.GetSingletonEntity();
+            var despawnTrackingBufferRO = EntityManager.GetBuffer<GameObjectDespawnTracking>(trackingEntity, isReadOnly: true);
+            var goDespawnTracking = despawnTrackingBufferRO.ToNativeArray(Allocator.Temp); // Using ToNativeArray since there seems to be a bug with DynamicBuffer's safety handles right now. Slack thread https://unity.slack.com/archives/C0575F6KEAY/p1772128053576089
+
+            for (int i = 0; i < goDespawnTracking.Length; i++)
+            {
+                var spawnedGhost = goDespawnTracking[i];
+                spawnedGhostMap.Remove(spawnedGhost.oneDespawn.ghost);
+
+                var goIdToDespawn = EntityManager.GetComponentData<GhostGameObjectLink>(spawnedGhost.oneDespawn.entity).AssociatedGameObject;
+
+                GameObject.DestroyImmediate(Resources.EntityIdToObject(goIdToDespawn));
+
+                // This should be the last release, as all the other OnDestroy should have been called by the DestroyImmediate above.
+                // This in turn removes the GhostGameObjectLink cleanup component
+                GhostEntityMapping.ReleaseGameObjectEntityReference(goIdToDespawn, worldIsCreated: true);
+            }
+
+            // Same reason as above from slack thread, there's a bug right now where we need to get the buffer again in order to clear it.
+            var despawnTrackingBufferRW = EntityManager.GetBuffer<GameObjectDespawnTracking>(trackingEntity, isReadOnly: false);
+            despawnTrackingBufferRW.Clear();
+        }
+    }
+
+    /// <summary>
+    /// System in charge of destroying the GameObject side of ghosts. This is centralized and will read from a pending list of despawns coming from multiple
+    /// entity side destroy points.
+    /// You can schedule any systems assuming GameObjects are destroyed after this system.
+    /// </summary>
+    [CreateAfter(typeof(RegisterGhostTransformTrackingSystem))] // so that the OnDestroy here happens before we dispose the various tracking collections
+    [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.BakingSystem)] // This should run everywhere there's a ghost object, including baking worlds
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+    public
+#endif
+        partial class DespawnGameObjectGhostsOnWorldDestruction : SystemBase
+    {
+        EntityQuery m_GOGhostsQuery;
+        EntityQuery m_GOGhostsQueryWithPrefabs;
+        protected override void OnCreate()
+        {
+            m_GOGhostsQuery = this.GetEntityQuery(typeof(GhostGameObjectLink));
+            m_GOGhostsQueryWithPrefabs = this.GetEntityQuery(typeof(GhostGameObjectLink), typeof(Prefab));
+            Enabled = false;
         }
 
-        [Conditional("UNITY_6000_3_OR_NEWER")]  // Required to use GameObject bridge with EntityID
-        void ProcessGameObjectDespawns(ref SystemState state, NativeList<GhostDespawnSystem.DelayedDespawnGhost> allGODespawns, NativeParallelHashMap<SpawnedGhost, Entity> spawnedGhostMap)
+        protected override void OnUpdate()
         {
-            foreach (var spawnedGhost in allGODespawns)
-            {
-                if (spawnedGhostMap.TryGetValue(spawnedGhost.ghost, out var ent))
-                {
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-                    var goIdToDespawn = state.EntityManager.GetComponentData<GhostGameObjectLink>(ent).AssociatedGameObject;
+        }
 
-                    GameObject.DestroyImmediate(Resources.EntityIdToObject(goIdToDespawn));
-                    spawnedGhostMap.Remove(spawnedGhost.ghost);
-                    // This should be the last release, as all the other OnDestroy should have been called by the DestroyImmediate above.
-                    // This in turn removes the GhostGameObjectLink cleanup component
-                    GhostEntityMapping.ReleaseGameObjectEntityReference(goIdToDespawn, worldIsCreated: true);
-#endif
-                }
+        protected override void OnDestroy()
+        {
+            var ghosts = m_GOGhostsQuery.ToComponentDataArray<GhostGameObjectLink>(Allocator.Temp);
+            foreach (var ghostGameObjectLink in ghosts)
+            {
+                var gameObject = ghostGameObjectLink.AssociatedGameObject;
+                GameObject.DestroyImmediate(Resources.EntityIdToObject(gameObject)); // immediate since user side OnDestroy could call entity related APIs, which wouldn't be accessible anymore after world destruction.
+                GhostEntityMapping.ForceReleaseOnWorldDestroy(gameObject);
+            }
+
+            var ghostPrefabs = m_GOGhostsQueryWithPrefabs.ToComponentDataArray<GhostGameObjectLink>(Allocator.Temp);
+            foreach (var ghostPrefabLink in ghostPrefabs)
+            {
+                var gameObject = ghostPrefabLink.AssociatedGameObject;
+                GhostEntityMapping.ForceReleaseOnWorldDestroy(gameObject);
             }
         }
     }

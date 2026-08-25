@@ -1,6 +1,3 @@
-#if USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO
-#pragma warning disable 0436
-#endif
 #if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
@@ -12,12 +9,6 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
-#if USING_UNITY_LOGGING
-using Logger = Unity.Logging.Logger;
-using Unity.Logging;
-using Unity.Logging.Internal;
-using Unity.Logging.Sinks;
-#endif
 
 namespace Unity.NetCode
 {
@@ -188,6 +179,7 @@ namespace Unity.NetCode
 
     /// <summary>
     /// Singleton handling NetCode logging and log management.
+    /// Created in <see cref="NetDebugSystem"/>.
     /// Use <see cref="NetCodeDebugConfig"/> to configure this programmatically.
     /// </summary>
     public struct NetDebug : IComponentData
@@ -205,7 +197,6 @@ namespace Unity.NetCode
                 return DefaultLogLevel;
             }
         }
-
         /// <summary>
         /// Use this method to retrieve the platform specific folder where the NetCode logs files
         /// will be stored.
@@ -246,48 +237,6 @@ namespace Unity.NetCode
         internal NativeHashMap<int, FixedString128Bytes>.ReadOnly ComponentTypeNameLookup;
 #endif
 
-#if USING_UNITY_LOGGING
-        private LogLevel m_CurrentLogLevel;
-        private LoggerHandle m_LoggerHandle;
-
-        private Logger GetOrCreateLogger()
-        {
-            Logger logger = null;
-            if (m_LoggerHandle.IsValid)
-                logger = LoggerManager.GetLogger(m_LoggerHandle);
-
-            if (logger == null)
-            {
-                logger = new LoggerConfig()
-                    .MinimumLevel.Set(m_CurrentLogLevel)
-                    .CaptureStacktrace(false)
-                    .RedirectUnityLogs(false)
-                    //Use correct format that is compatible with current unity logging
-                    .WriteTo.UnityDebugLog(minLevel: m_CurrentLogLevel, outputTemplate: new FixedString512Bytes("{Message}"))
-                    .CreateLogger();
-                m_LoggerHandle = logger.Handle;
-            }
-
-            return logger;
-        }
-#endif
-        private void SetLoggerLevel(LogLevelType newLevel)
-        {
-#if USING_UNITY_LOGGING
-            m_CurrentLogLevel = newLevel switch
-            {
-                LogLevelType.Debug => Logging.LogLevel.Debug,
-                LogLevelType.Notify => Logging.LogLevel.Info,
-                LogLevelType.Warning => Logging.LogLevel.Warning,
-                LogLevelType.Error => Logging.LogLevel.Error,
-                LogLevelType.Exception => Logging.LogLevel.Fatal,
-                _ => throw new ArgumentOutOfRangeException()
-            };
-
-            var logger = GetOrCreateLogger();
-            logger.SetMinimalLogLevelAcrossAllSinks(m_CurrentLogLevel);
-#endif
-        }
         internal void Initialize()
         {
             MaxRpcAgeFrames = 4;
@@ -305,14 +254,6 @@ namespace Unity.NetCode
         /// </summary>
         public void Dispose()
         {
-#if USING_UNITY_LOGGING
-            if (!m_LoggerHandle.IsValid)
-                return;
-            var logger = LoggerManager.GetLogger(m_LoggerHandle);
-            logger?.Dispose();
-
-            m_LoggerHandle = default;
-#endif
         }
 
         /// <summary>
@@ -382,8 +323,6 @@ namespace Unity.NetCode
             set
             {
                 m_LogLevel = value;
-
-                SetLoggerLevel(m_LogLevel);
             }
             get => m_LogLevel;
         }
@@ -423,12 +362,8 @@ namespace Unity.NetCode
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
         public readonly void DebugLog(in FixedString512Bytes msg)
         {
-#if USING_UNITY_LOGGING
-            Unity.Logging.Log.To(m_LoggerHandle).Debug(msg);
-#else
             if(m_LogLevel <= LogLevelType.Debug)
                 UnityEngine.Debug.Log(msg);
-#endif
         }
 
         /// <summary>
@@ -437,12 +372,8 @@ namespace Unity.NetCode
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
         public readonly void Log(in FixedString512Bytes msg)
         {
-#if USING_UNITY_LOGGING
-            Unity.Logging.Log.To(m_LoggerHandle).Info(msg);
-#else
             if(m_LogLevel <= LogLevelType.Notify)
                 UnityEngine.Debug.Log(msg);
-#endif
         }
 
         /// <summary>
@@ -451,12 +382,8 @@ namespace Unity.NetCode
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
         public readonly void LogWarning(in FixedString512Bytes msg)
         {
-#if USING_UNITY_LOGGING
-            Unity.Logging.Log.To(m_LoggerHandle).Warning(msg);
-#else
             if(m_LogLevel <= LogLevelType.Warning)
                 UnityEngine.Debug.LogWarning(msg);
-#endif
         }
 
         /// <summary>
@@ -464,6 +391,16 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
         public readonly void LogError(in FixedString512Bytes msg)
+        {
+            if(m_LogLevel <= LogLevelType.Error)
+                UnityEngine.Debug.LogError(msg);
+        }
+
+        /// <summary>
+        /// Print a log message with error priority
+        /// </summary>
+        /// <param name="msg">The ascii message string. Unicode are not supported</param>
+        public readonly void LogError(in FixedString4096Bytes msg)
         {
 #if USING_UNITY_LOGGING
             Unity.Logging.Log.To(m_LoggerHandle).Error(msg);
@@ -547,7 +484,3 @@ namespace Unity.NetCode
         }
     }
 }
-
-#if USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO
-#pragma warning restore 0436
-#endif

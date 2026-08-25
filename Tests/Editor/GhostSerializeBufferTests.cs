@@ -7,6 +7,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
 using Unity.NetCode.LowLevel.Unsafe;
+using NUnit.Framework.Constraints;
 
 namespace Unity.NetCode.Tests
 {
@@ -182,7 +183,9 @@ namespace Unity.NetCode.Tests
             return clientEntities;
         }
 
+#if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
         //Validate that client dynamic snapshot data as the content layout has we expect
+        // This raw-layout walk hardcodes the default snapshot history size (32 slots, 128-byte header) and does not hold at a reduced history size.
         public static void ValidateMultiBufferSnapshotDataContents(in DynamicBuffer<SnapshotDynamicDataBuffer> dynamicBuffer,
             int structBufLen, int b1, int byteBufLen, int b2)
         {
@@ -236,6 +239,7 @@ namespace Unity.NetCode.Tests
                 }
             }
         }
+#endif
     }
 
     [TestFixture]
@@ -394,9 +398,11 @@ namespace Unity.NetCode.Tests
 
                 void Validate(int len1, int b1, int len2, int b2)
                 {
+#if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
                     var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager
                         .GetBuffer<NetCode.SnapshotDynamicDataBuffer>(clientEntities[0]);
                     BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, len1, b1, len2, b2);
+#endif
                     BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 }
 
@@ -746,9 +752,11 @@ namespace Unity.NetCode.Tests
 
                 //Verify that the client snapshot data contains the right things
                 var shouldChildReceiveData = GhostSerializationTestsForEnableableBits.IsExpectedToReplicateBuffer<GhostGenTest_Buffer>(sendForChildrenTestCase, false);
+#if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
                 var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<NetCode.SnapshotDynamicDataBuffer>(clientEntities[0]);
                 if(shouldChildReceiveData)
                     BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, 3, 0, 10, 10);
+#endif
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
@@ -853,13 +861,13 @@ namespace Unity.NetCode.Tests
         }
 
         [GhostComponent(PrefabType = GhostPrefabType.Server)]
-        internal struct GhostServerOnlyBuffer : IBufferElementData
+        internal struct GhostServerBuffer : IBufferElementData
         {
             [GhostField] public byte Value;
         }
 
         [GhostComponent(PrefabType = GhostPrefabType.Client)]
-        internal struct GhostClientOnlyBuffer : IBufferElementData
+        internal struct GhostClientBuffer : IBufferElementData
         {
             [GhostField] public byte Value;
         }
@@ -886,9 +894,8 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
-        [TestCase(typeof(GhostServerOnlyBuffer), true, false, TestName = "ServerOnly")]
-        [TestCase(typeof(GhostClientOnlyBuffer), false, true, TestName = "ClientOnly")]
+        [TestCase(typeof(GhostServerBuffer), true, false, TestName = "ServerOnly")]
+        [TestCase(typeof(GhostClientBuffer), false, true, TestName = "ClientOnly")]
         public void BuffersAreNotSerialized(Type bufferType, bool presentOnServer, bool presentOnClient)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -913,8 +920,11 @@ namespace Unity.NetCode.Tests
                 testWorld.Connect();
                 testWorld.GoInGame();
 
+                var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
+
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
-                Assert.AreEqual(presentOnServer, testWorld.ServerWorld.EntityManager.HasComponent(serverEntity, bufferType));
+                var bufferPresentOnServerWorld = presentOnServer || testWorld.ServerWorld.IsHost();
+                Assert.AreEqual(bufferPresentOnServerWorld, testWorld.ServerWorld.EntityManager.HasComponent(serverEntity, bufferType));
 
                 var serverCollectionEntity = testWorld.TryGetSingletonEntity<GhostCollectionPrefabSerializer>(testWorld.ServerWorld);
                 var clientCollectionEntity = testWorld.TryGetSingletonEntity<GhostCollectionPrefabSerializer>(testWorld.ClientWorlds[0]);
@@ -949,7 +959,7 @@ namespace Unity.NetCode.Tests
                 var deltaTime = SystemAPI.Time.DeltaTime;
                 var bufferFromEntity = GetBufferLookup<GhostPredictedOnlyBuffer>();
                 //FIXME: updating child entities is not efficient this way.
-                Entities.WithAll<Simulate, GhostInstance>().ForEach((in DynamicBuffer<LinkedEntityGroup> group) =>
+                foreach( var group in SystemAPI.Query<DynamicBuffer<LinkedEntityGroup>>().WithAll<Simulate, GhostInstance>())
                 {
                     for (int i = 0; i < group.Length; ++i)
                     {
@@ -960,7 +970,7 @@ namespace Unity.NetCode.Tests
                         v.Value += deltaTime * 60.0f;
                         buf[t] = v;
                     }
-                }).Run();
+                }
             }
         }
 
@@ -1130,30 +1140,31 @@ namespace Unity.NetCode.Tests
                 var spawnListEntity = SystemAPI.GetSingletonEntity<PredictedGhostSpawnList>();
                 var spawnListFromEntity = GetBufferLookup<PredictedGhostSpawn>();
                 var predictedEntities = m_PredictedEntities;
-                Entities
-                    .WithAll<GhostSpawnQueue>()
-                    .ForEach((DynamicBuffer<GhostSpawnBuffer> ghosts) =>
+
+                Dependency.Complete();
+
+                foreach( var ghosts in SystemAPI.Query<DynamicBuffer<GhostSpawnBuffer>>().WithAll<GhostSpawnQueue>() )
+                {
+                    var spawnList = spawnListFromEntity[spawnListEntity];
+                    for (int i = 0; i < ghosts.Length; ++i)
                     {
-                        var spawnList = spawnListFromEntity[spawnListEntity];
-                        for (int i = 0; i < ghosts.Length; ++i)
+                        var ghost = ghosts[i];
+                        if (ghost.SpawnType != GhostSpawnBuffer.Type.Predicted)
+                            continue;
+                        for (int j = 0; j < spawnList.Length; ++j)
                         {
-                            var ghost = ghosts[i];
-                            if (ghost.SpawnType != GhostSpawnBuffer.Type.Predicted)
-                                continue;
-                            for (int j = 0; j < spawnList.Length; ++j)
+                            if (ghost.GhostType == spawnList[j].ghostType &&
+                                math.abs(ghost.ServerSpawnTick.TicksSince(spawnList[j].spawnTick)) < 5)
                             {
-                                if (ghost.GhostType == spawnList[j].ghostType &&
-                                    math.abs(ghost.ServerSpawnTick.TicksSince(spawnList[j].spawnTick)) < 5)
-                                {
-                                    ghost.PredictedSpawnEntity = spawnList[j].entity;
-                                    spawnList.RemoveAtSwapBack(j);
-                                    predictedEntities.Add(ghost.PredictedSpawnEntity);
-                                    break;
-                                }
+                                ghost.PredictedSpawnEntity = spawnList[j].entity;
+                                spawnList.RemoveAtSwapBack(j);
+                                predictedEntities.Add(ghost.PredictedSpawnEntity);
+                                break;
                             }
-                            ghosts[i] = ghost;
                         }
-                    }).Run();
+                        ghosts.ElementAt(i) = ghost;
+                    }
+                }
             }
         }
 

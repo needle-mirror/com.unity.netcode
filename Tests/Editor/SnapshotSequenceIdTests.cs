@@ -10,30 +10,6 @@ namespace Unity.NetCode.Tests
     internal class SnapshotSequenceIdTests
     {
         [Test]
-        public void CalculateSequenceIdDelta_Works()
-        {
-            // Check SSId's that we've confirmed (via ServerTick) are NEW:
-            const bool confirmedNewer = true;
-            Assert.AreEqual(0, NetworkSnapshotAck.CalculateSequenceIdDelta(5, 5, confirmedNewer));
-            Assert.AreEqual(0, NetworkSnapshotAck.CalculateSequenceIdDelta(250, 250, confirmedNewer));
-            Assert.AreEqual(1, NetworkSnapshotAck.CalculateSequenceIdDelta(1, 0, confirmedNewer));
-            Assert.AreEqual(1, NetworkSnapshotAck.CalculateSequenceIdDelta(2, 1, confirmedNewer));
-            Assert.AreEqual(2, NetworkSnapshotAck.CalculateSequenceIdDelta(1, byte.MaxValue, confirmedNewer));
-            Assert.AreEqual(10, NetworkSnapshotAck.CalculateSequenceIdDelta(130, 120, confirmedNewer));
-            Assert.AreEqual(255, NetworkSnapshotAck.CalculateSequenceIdDelta(5, 6, confirmedNewer));
-
-            // Check SSId's that we've confirmed (via ServerTick) are OLD (i.e. stale):
-            const bool confirmedStale = false;
-            Assert.AreEqual(0, NetworkSnapshotAck.CalculateSequenceIdDelta(5, 5, confirmedStale));
-            Assert.AreEqual(0, NetworkSnapshotAck.CalculateSequenceIdDelta(250, 250, confirmedStale));
-            Assert.AreEqual(-1, NetworkSnapshotAck.CalculateSequenceIdDelta(0, 1, confirmedStale));
-            Assert.AreEqual(-255, NetworkSnapshotAck.CalculateSequenceIdDelta(0, byte.MaxValue, confirmedStale));
-            Assert.AreEqual(-2, NetworkSnapshotAck.CalculateSequenceIdDelta(byte.MaxValue, 1, confirmedStale));
-            Assert.AreEqual(-(256 - 10), NetworkSnapshotAck.CalculateSequenceIdDelta(130, 120, confirmedStale));
-            Assert.AreEqual(-255, NetworkSnapshotAck.CalculateSequenceIdDelta(6, 5, confirmedStale));
-        }
-
-        [Test]
         public void SnapshotSequenceId_Statistics_NetworkPacketLoss_Works()
         {
             // Test transport packet loss:

@@ -19,6 +19,7 @@ namespace Unity.NetCode
             public ulong TypeHash;
             public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> Execute;
             public byte IsApprovalType;
+            public byte IsOutOfBand;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS || UNITY_DOTS_DEBUG
             public ComponentType RpcType;
 #endif
@@ -152,6 +153,10 @@ namespace Unity.NetCode
             if (IsApprovalRpcType(type))
                 isApprovalType = 1;
 
+            byte isOutOfBand = 0;
+            if (IsOutOfBandRpcType(type))
+                isOutOfBand = 1;
+
             if (m_RpcTypeHashToIndex.TryGetValue(hash, out var index))
             {
                 var rpcData = m_RpcData[index];
@@ -167,6 +172,7 @@ namespace Unity.NetCode
                 }
 
                 rpcData.IsApprovalType = isApprovalType;
+                rpcData.IsOutOfBand = isOutOfBand;
                 rpcData.TypeHash = hash;
                 rpcData.Execute = exec;
                 m_RpcData[index] = rpcData;
@@ -179,6 +185,7 @@ namespace Unity.NetCode
                     TypeHash = hash,
                     Execute = exec,
                     IsApprovalType = isApprovalType,
+                    IsOutOfBand = isOutOfBand,
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     RpcType = type
 #endif
@@ -190,6 +197,12 @@ namespace Unity.NetCode
         {
             // TODO - Infer via code-gen, rather than runtime reflection!
             return typeof(IApprovalRpcCommand).IsAssignableFrom(type.GetManagedType());
+        }
+
+        internal static bool IsOutOfBandRpcType(ComponentType type)
+        {
+            // TODO - Infer via code-gen, rather than runtime reflection!
+            return typeof(IOutOfBandRpcCommand).IsAssignableFrom(type.GetManagedType());
         }
 
         /// <summary>

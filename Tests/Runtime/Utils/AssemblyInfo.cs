@@ -8,4 +8,5 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Unity.NetCode.UI.Editor.Tests")]
 [assembly: InternalsVisibleTo("Unity.NetCode.Physics.Editor.Tests")]
 [assembly: InternalsVisibleTo("Unity.NetcodeSamples.PlayModeTests.Samples")]
-[assembly: InternalsVisibleTo("Unity.NetCode.GhostAdapter.Runtime.Tests")]
+[assembly: InternalsVisibleTo("Unity.NetCode.GhostAdapterRuntime.Tests")]
+[assembly: InternalsVisibleTo("Unity.NetcodeSamples.PhysicsCustomLoopTests")]

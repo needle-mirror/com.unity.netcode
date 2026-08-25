@@ -13,7 +13,6 @@ namespace Unity.NetCode.Tests
     internal class RpcTests
     {
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_UsingBroadcastOnClient_Works()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -39,7 +38,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_UsingConnectionEntityOnClient_Works()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -68,7 +66,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_SerializedRpcFlow_Works()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -99,21 +96,23 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_ServerBroadcast_Works([Values(32, 64)] int windowSize)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.DriverReliablePipelineWindowSize = windowSize;
+                var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
                 testWorld.Bootstrap(true,
                     typeof(ServerRpcBroadcastSendSystem),
                     typeof(MultipleClientBroadcastRpcReceiveSystem),
-                    typeof(NonSerializedRpcCommandRequestSystem));
+                    typeof(NonSerializedRpcCommandRequestSystemToClient));
                 testWorld.CreateWorlds(true, 2);
 
                 ServerRpcBroadcastSendSystem.SendCount = 0;
-                MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[0] = 0;
-                MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[1] = 0;
+                MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[testWorld.ClientWorlds[0]] = 0;
+                MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[testWorld.ClientWorlds[1]] = 0;
+                if (isHost)
+                    MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[testWorld.ServerWorld] = 0;
 
                 // Connect and make sure the connection could be established
                 testWorld.Connect();
@@ -124,8 +123,10 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
 
-                Assert.AreEqual(SendCount, MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[0]);
-                Assert.AreEqual(SendCount, MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[1]);
+                Assert.AreEqual(SendCount, MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[testWorld.ClientWorlds[0]]);
+                Assert.AreEqual(SendCount, MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[testWorld.ClientWorlds[1]]);
+                if (isHost)
+                    Assert.AreEqual(SendCount, MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[testWorld.ServerWorld], "host's own client role should receive the server broadcast via passthrough");
             }
         }
 
@@ -281,6 +282,7 @@ namespace Unity.NetCode.Tests
         [Test]
         public void Rpc_IndividualRpcIncorrectDeserialization_ThrowsAndLogError([Values] bool useDynamicAssemblyList, [Values] IncorrectDeserializationCommand.IncorrectMode incorrectDeserializationMode)
         {
+            bool isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true, typeof(IncorrectDeserializationCommandRequestSystem));
@@ -300,7 +302,7 @@ namespace Unity.NetCode.Tests
 
                 if (incorrectDeserializationMode == IncorrectDeserializationCommand.IncorrectMode.DeserializeTooManyBytes)
                     LogAssert.Expect(LogType.Error, new Regex(@"Trying to read \d bytes from a stream where only \d are available"));
-                LogAssert.Expect(LogType.Error, new Regex(@"\[(Server|Host)Test(.*)\](.*)RpcSystem failed to deserialize RPC(.*)as bits read(.*)did not match expected"));
+                LogAssert.Expect(LogType.Error, new Regex(@$"\[{(isHost ? "HostTest" : "ServerTest")}(.*)\](.*)RpcSystem failed to deserialize RPC(.*)as bits read(.*)did not match expected"));
                 // Note: When failing to deserialize, the received RPC will still be created!
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
@@ -311,7 +313,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_CanSendMoreThanOnePacketPerFrame([Values] bool useDynamicAssemblyList, [Values(2, 100)] int sendCount, [Values(32, 64)] int windowSize)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -385,7 +386,7 @@ namespace Unity.NetCode.Tests
 
                 // Directly disconnect the client on the server side
                 var clientConnectionOnServer = testWorld.GetSingletonRW<NetworkStreamConnection>(testWorld.ServerWorld);
-                testWorld.GetSingleton<NetworkStreamDriver>(testWorld.ServerWorld).DriverStore.Disconnect(clientConnectionOnServer.ValueRO);
+                testWorld.GetSingleton<NetworkStreamDriver>(testWorld.ServerWorld).Disconnect(clientConnectionOnServer.ValueRO);
 
                 var clientConnectionQuery = client.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
                 Assert.AreEqual(1, clientConnectionQuery.CalculateEntityCount());
@@ -398,7 +399,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
+        [DisableSingleWorldHostTest] // TODO what does disconnecting a host look like? Should that be a supported flow? would that be just when we stop listening?
         public void Rpc_IsRemovedWithConnectionDeletionInSystem()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -422,7 +423,7 @@ namespace Unity.NetCode.Tests
                 // The RPC would be processed on server without cleanup in NetworkGroupCommandBufferSystem.PatchConnectionEvents
                 testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
                 var clientConnection = testWorld.GetSingletonRW<NetworkStreamConnection>(testWorld.ClientWorlds[0]);
-                testWorld.GetSingleton<NetworkStreamDriver>(testWorld.ClientWorlds[0]).DriverStore.Disconnect(clientConnection.ValueRO);
+                testWorld.GetSingleton<NetworkStreamDriver>(testWorld.ClientWorlds[0]).Disconnect(clientConnection.ValueRO);
 
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick();
@@ -466,7 +467,6 @@ namespace Unity.NetCode.Tests
         //   "Cannot send RPC 'Unity.NetCode.Tests.FastReconnectRpc' with no remote connection." - The SendRpcData job
         //     ran when the connection was disconnected. We sent an RPC and immediately disconnected in the same frame.
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_IsCleanedUpWithFastReconnectManual(
             [Values] bool useApproval,
             [Values] SystemSetup systemSetup)
@@ -499,7 +499,7 @@ namespace Unity.NetCode.Tests
 
                         testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
                         var clientConnection = testWorld.GetSingletonRW<NetworkStreamConnection>(testWorld.ClientWorlds[0]);
-                        testWorld.GetSingleton<NetworkStreamDriver>(testWorld.ClientWorlds[0]).DriverStore.Disconnect(clientConnection.ValueRO);
+                        testWorld.GetSingleton<NetworkStreamDriver>(testWorld.ClientWorlds[0]).Disconnect(clientConnection.ValueRO);
 
                         for (int i = 0; i < ticksBeforeReconnecting; i++)
                             testWorld.Tick();
@@ -509,7 +509,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_IsCleanedUpWithFastReconnectInSystems(
             [Values] bool useApproval,
             [Values] SystemSetup systemSetup,
@@ -561,7 +560,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_CanPackMultipleRPCs()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -601,14 +599,13 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_CanSendEntityFromClientAndServer()
         {
             void SendRpc(World world, Entity entity)
             {
                 var req = world.EntityManager.CreateEntity();
                 world.EntityManager.AddComponentData(req, new RpcWithEntity { entity = entity });
-                world.EntityManager.AddComponentData(req, new SendRpcCommandRequest { TargetConnection = Entity.Null });
+                world.EntityManager.AddComponentData(req, new SendRpcCommandRequest { TargetConnection = Entity.Null, BroadcastTargets = RpcBroadcastTargets.NonLocal});
             }
 
             RpcWithEntity RecvRpc(World world)
@@ -635,8 +632,7 @@ namespace Unity.NetCode.Tests
 
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
                 //Wait some frame so it is spawned also on the client
-                for (int i = 0; i < 8; ++i)
-                    testWorld.Tick();
+                testWorld.TickMultiple(8);
 
                 var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
                 // Retrieve the client entity
@@ -646,16 +642,14 @@ namespace Unity.NetCode.Tests
 
                 //Send the rpc to the server
                 SendRpc(testWorld.ClientWorlds[0], clientEntity);
-                for (int i = 0; i < 8; ++i)
-                    testWorld.Tick();
+                testWorld.TickMultiple(8);
                 var rpcReceived = RecvRpc(testWorld.ServerWorld);
                 Assert.IsTrue(rpcReceived.entity != Entity.Null);
                 Assert.IsTrue(rpcReceived.entity == serverEntity);
 
                 // Server send the rpc to the client
                 SendRpc(testWorld.ServerWorld, serverEntity);
-                for (int i = 0; i < 8; ++i)
-                    testWorld.Tick();
+                testWorld.TickMultiple(8);
                 rpcReceived = RecvRpc(testWorld.ClientWorlds[0]);
                 Assert.IsTrue(rpcReceived.entity != Entity.Null);
                 Assert.IsTrue(rpcReceived.entity == clientEntity);
@@ -664,8 +658,7 @@ namespace Unity.NetCode.Tests
                 //Send the rpc to the server
                 var clientOnlyEntity = testWorld.ClientWorlds[0].EntityManager.CreateEntity();
                 SendRpc(testWorld.ClientWorlds[0], clientOnlyEntity);
-                for (int i = 0; i < 8; ++i)
-                    testWorld.Tick();
+                testWorld.TickMultiple(8);
                 rpcReceived = RecvRpc(testWorld.ServerWorld);
                 Assert.IsTrue(rpcReceived.entity == Entity.Null);
 
@@ -680,8 +673,7 @@ namespace Unity.NetCode.Tests
                 SendRpc(testWorld.ClientWorlds[0], clientEntity);
                 //Entity is destroyed on the server (so no GhostComponent). If server try to send an rpc, the entity will be translated to null
                 SendRpc(testWorld.ServerWorld, serverEntity);
-                for (int i = 0; i < 4; ++i)
-                    testWorld.Tick();
+                testWorld.TickMultiple(4);
                 //Server should not be able to resolve the reference
                 rpcReceived = RecvRpc(testWorld.ServerWorld);
                 Assert.IsTrue(rpcReceived.entity == Entity.Null);
@@ -695,8 +687,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsFalse(testWorld.ServerWorld.EntityManager.GetComponentData<SpawnedGhostEntityMap>(sendGhostMapSingleton).Value
                     .TryGetValue(new SpawnedGhost { ghostId = ghost.ghostId, spawnTick = ghost.spawnTick }, out var _));
                 SendRpc(testWorld.ClientWorlds[0], clientEntity);
-                for (int i = 0; i < 4; ++i)
-                    testWorld.Tick();
+                testWorld.TickMultiple(4);
                 //The received entity must be null
                 rpcReceived = RecvRpc(testWorld.ServerWorld);
                 Assert.IsTrue(rpcReceived.entity == Entity.Null);
@@ -705,7 +696,6 @@ namespace Unity.NetCode.Tests
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS && !NETCODE_NDEBUG
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_WarnIfSendingApprovalRpcWithoutApprovalRequired([Values]bool suppressWarning)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -722,7 +712,7 @@ namespace Unity.NetCode.Tests
                 client.EntityManager.AddComponent<SendRpcCommandRequest>(rpcEntity);
 
                 if(!suppressWarning)
-                    LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Sending approval RPC '(.*)' to the server but connection approval is disabled"));
+                    LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest-0\] Sending approval RPC '(.*)' to the server but connection approval is disabled"));
                 testWorld.Tick();
                 LogAssert.NoUnexpectedReceived();
             }
@@ -758,7 +748,7 @@ namespace Unity.NetCode.Tests
                 client.EntityManager.AddComponent<SendRpcCommandRequest>(rpcEntity);
 
                 testWorld.Tick();
-                LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as not connected"));
+                LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest-0\] Cannot send RPC '(.*)' to the server as not connected"));
                 // Start connection setup for next phase of tests
                 var ep = NetworkEndpoint.LoopbackIpv4.WithPort(7979);
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
@@ -779,7 +769,7 @@ namespace Unity.NetCode.Tests
                     client.EntityManager.AddComponentData(rpcEntity, rpcData);
                     client.EntityManager.AddComponent<SendRpcCommandRequest>(rpcEntity);
 
-                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as it is not an Approval RPC, and its NetworkConnection(.*) - on Entity(.*) - is in state `Handshake`"));
+                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest-0\] Cannot send RPC '(.*)' to the server as it is not an Approval RPC, and its NetworkConnection(.*) - on Entity(.*) - is in state `Handshake`"));
                     testWorld.Tick();
 
                     // Now with a target connection instead of broadcast
@@ -789,7 +779,7 @@ namespace Unity.NetCode.Tests
                     client.EntityManager.AddComponentData(rpcEntity, rpcData);
                     client.EntityManager.AddComponentData(rpcEntity, new SendRpcCommandRequest(){TargetConnection = clientConnectionToServer});
 
-                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as it is not an Approval RPC, and its NetworkConnection(.*) - on Entity(.*) - is in state `Handshake`"));
+                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest-0\] Cannot send RPC '(.*)' to the server as it is not an Approval RPC, and its NetworkConnection(.*) - on Entity(.*) - is in state `Handshake`"));
                     testWorld.Tick();
 
                     // Disconnect to invalidate the connection entity
@@ -808,7 +798,7 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick();
 
                     // Connection attempt is ongoing but NetworkId not received yet
-                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as its NetworkConnection(.*) - on Entity(.*) - is in state `Connecting`"));
+                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest-0\] Cannot send RPC '(.*)' to the server as its NetworkConnection(.*) - on Entity(.*) - is in state `Connecting`"));
                     // Verify the connection did finish
                     Assert.AreNotEqual(Entity.Null, testWorld.TryGetSingletonEntity<NetworkId>(client));
 
@@ -827,7 +817,7 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < 5; ++i)
                         testWorld.Tick();
 
-                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as its NetworkConnection(.*) - on Entity(.*) - is in state `Connecting`"));
+                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest-0\] Cannot send RPC '(.*)' to the server as its NetworkConnection(.*) - on Entity(.*) - is in state `Connecting`"));
                     Assert.AreNotEqual(Entity.Null, testWorld.TryGetSingletonEntity<NetworkId>(client));
                 }
 
@@ -836,7 +826,7 @@ namespace Unity.NetCode.Tests
                 client.EntityManager.AddComponentData(rpcEntity, rpcData);
                 client.EntityManager.AddComponentData(rpcEntity, new SendRpcCommandRequest(){TargetConnection = connectionEntity});
 
-                LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as its connection entity \(Entity(.*)\) does not have a `NetworkStreamConnection` or `OutgoingRpcDataStreamBuffer` component"));
+                LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest-0\] Cannot send RPC '(.*)' to the server as its connection entity \(Entity(.*)\) does not have a `NetworkStreamConnection` or `OutgoingRpcDataStreamBuffer` component"));
                 testWorld.Tick();
             }
         }
@@ -873,7 +863,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void Rpc_SendingRPCLargerThanMaxMessageSizeGivesTheCorrectError()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -901,7 +890,7 @@ namespace Unity.NetCode.Tests
                 var SendCmd = new VeryLargeRPC
                 { value = new FixedString512Bytes(largeString),
                 value1 = new FixedString512Bytes(largeString)};
-                VeryLargeRcpSendSystem.SendCount = SendCount;
+                testWorld.ClientWorlds[0].GetExistingSystemManaged<VeryLargeRcpSendSystem>().SendCount = SendCount;
                 VeryLargeRcpSendSystem.Cmd = SendCmd;
 
                 VeryLargeRpcReceiveSystem.ReceivedCount = 0;
@@ -955,5 +944,59 @@ namespace Unity.NetCode.Tests
             }
         }
 #endif
+
+        // Note that this will be run both with binary worlds and single world host from CI with NetCodeTestWorld override
+        [Test]
+        public void Rpc_BroadcastTargets_NonLocal_SkipsLocalConnection()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, 1);
+                testWorld.Connect();
+                testWorld.GoInGame();
+
+                // Send two RPCs from server: one with All, one with NonLocal
+                var serverEm = testWorld.ServerWorld.EntityManager;
+
+                var rpcAll = serverEm.CreateEntity();
+                serverEm.AddComponent<SerializedSmallRpcCommand>(rpcAll);
+                serverEm.AddComponentData(rpcAll, new SendRpcCommandRequest
+                {
+                    TargetConnection = Entity.Null,
+                    BroadcastTargets = RpcBroadcastTargets.All
+                });
+
+                var rpcNonLocal = serverEm.CreateEntity();
+                serverEm.AddComponent<SerializedSmallRpcCommand>(rpcNonLocal);
+                serverEm.AddComponentData(rpcNonLocal, new SendRpcCommandRequest
+                {
+                    TargetConnection = Entity.Null,
+                    BroadcastTargets = RpcBroadcastTargets.NonLocal
+                });
+
+                testWorld.TickMultiple(4);
+
+                // Count received RPCs in worlds
+                var clientQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(
+                    ComponentType.ReadOnly<SerializedSmallRpcCommand>(),
+                    ComponentType.ReadOnly<ReceiveRpcCommandRequest>());
+                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(
+                    ComponentType.ReadOnly<SerializedSmallRpcCommand>(),
+                    ComponentType.ReadOnly<ReceiveRpcCommandRequest>());
+
+                int clientCount = clientQuery.CalculateEntityCount();
+                int serverCount = serverQuery.CalculateEntityCount();
+
+                Assert.AreEqual(2, clientCount, "Remote client should always receive both 'All' and 'NonLocal' broadcasts");
+
+                if (testWorld.ServerWorld.IsHost())
+                    // The local client should receive only the 'All' broadcast
+                    Assert.AreEqual(1, serverCount, "Host local client should receive only 'All' broadcast");
+                else
+                    // In dedicated server mode the server should not receive any broadcasts
+                    Assert.AreEqual(0, serverCount, "Server-only world should not receive any RPCs");
+            }
+        }
     }
 }

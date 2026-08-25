@@ -58,7 +58,6 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        [DisableSingleWorldHostTest]
         public void ServerGhostCountOnlyIncludesRelevantSet()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -86,7 +85,7 @@ namespace Unity.NetCode.Tests
                 // Setup relevancy
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(serverConnectionEnt).Value;
                 using var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostInstance>());
                 var ghosts = query.ToComponentDataArray<GhostInstance>(Allocator.Temp);
@@ -113,7 +112,6 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        [DisableSingleWorldHostTest]
         public void ServerGhostCountDoesNotIncludeIrrelevantSet()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -141,7 +139,7 @@ namespace Unity.NetCode.Tests
                 // Setup relevancy
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(serverConnectionEnt).Value;
                 using var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostInstance>());
                 var ghosts = query.ToComponentDataArray<GhostInstance>(Allocator.Temp);

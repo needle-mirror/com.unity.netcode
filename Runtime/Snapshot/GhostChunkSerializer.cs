@@ -1532,7 +1532,7 @@ namespace Unity.NetCode
                     anyChangeMask |= anyChangeMaskThisEntity;
 
                     ghostState.Flags |= ConnectionStateData.GhostStateFlags.IsRelevant;
-                    if(anyChangeMaskThisEntity != 0)
+                    if((anyChangeMaskThisEntity | anyEnableableMaskChangedThisEntity) != 0)
                         ghostState.Flags |= ConnectionStateData.GhostStateFlags.SentWithChanges;
                 }
                 PacketDumpFlush();
@@ -1693,8 +1693,7 @@ namespace Unity.NetCode
                     groupSnapshot.AlreadyUsedChunk = 1;
                     wasWriteIndexBumped[i] = false;
                 }
-
-
+                
                 // setup dynamic data offset to not overwrite previous write
                 groupSnapshot.SnapshotDynamicDataOffset = childChunkState.GetDynamicDataOffset();
                 groupSnapshot.SnapshotDynamicDataSize += groupSnapshot.SnapshotDynamicDataOffset;
@@ -1789,13 +1788,25 @@ namespace Unity.NetCode
             bool chunkMatchesEitherRelevantRule = chunkMatchesInternalRelevantRule || userGlobalRelevantMask.Matches(chunk.Archetype);
             for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
             {
-                // Use query and/or importance scaling relevancy flag ONLY IF the ghost is not manually marked with a specific rule.
-                // Why? Relevancy set overrides global rules, so keep the rule if there's one.
                 bool isRelevant = chunkMatchesEitherRelevantRule | prioChunk.isRelevant;
-                if (!setIsRelevant | !isRelevant)
+                if (setIsRelevant)
                 {
-                    var key = new RelevantGhostForConnection(NetworkId, ghost[ent].ghostId);
-                    isRelevant = relevantGhostForConnection.ContainsKey(key) == setIsRelevant;
+                    // When using SetIsRelevant, the query and/or prioChunk fast-path can be used INSTEAD OF the hashmap,
+                    // so we only check the hashmap if we actually need to.
+                    if (!isRelevant)
+                    {
+                        
+                        var key = new RelevantGhostForConnection(NetworkId, ghost[ent].ghostId);
+                        isRelevant = relevantGhostForConnection.ContainsKey(key);
+                    }
+                }
+                else // When using SetIsIrrelevant, we still want the query and/or prioChunk fast-path to be a pre-filter.
+                {
+                    if (isRelevant && !chunkMatchesInternalRelevantRule) // Don't allow a ghost matching an internal rule to be marked as irrelevant by the user.
+                    {
+                        var key = new RelevantGhostForConnection(NetworkId, ghost[ent].ghostId);
+                        isRelevant = !relevantGhostForConnection.ContainsKey(key);
+                    }
                 }
 
                 ref var ghostState = ref ghostStateData.GetGhostState(ghostSystemState[ent]);

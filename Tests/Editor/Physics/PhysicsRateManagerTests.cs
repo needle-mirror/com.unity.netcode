@@ -123,7 +123,7 @@ namespace Unity.NetCode.Physics.Tests
 
         private void SetupTickRate(NetCodeTestWorld testWorld, int simulation, int physics)
         {
-            var tickRateEntity = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+            var tickRateEntity = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
             var tickRate = new ClientServerTickRate();
             tickRate.SimulationTickRate = simulation;
             tickRate.PredictedFixedStepSimulationTickRatio = physics/simulation;

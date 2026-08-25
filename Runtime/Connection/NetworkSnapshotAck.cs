@@ -206,16 +206,15 @@ namespace Unity.NetCode
         /// <param name="driver"></param>
         /// <param name="driverInstance"></param>
         /// <param name="pipelineStage"></param>
-        /// <param name="reliableSequencedPipelineStageId"></param>
         /// <returns></returns>
         internal static unsafe int GetRpcRttFromReliablePipeline(NetworkStreamConnection connection,
             ref NetworkDriver driver, ref NetworkDriverStore.NetworkDriverInstance driverInstance,
-            in NetworkPipeline pipelineStage, NetworkPipelineStageId reliableSequencedPipelineStageId)
+            in NetworkPipeline pipelineStage)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             UnityEngine.Debug.Assert(pipelineStage.Id == driverInstance.reliablePipeline.Id);
 #endif
-            driver.GetPipelineBuffers(driverInstance.reliablePipeline, reliableSequencedPipelineStageId, connection.Value, out _, out _, out var sharedBuffer);
+            driver.GetPipelineBuffers(driverInstance.reliablePipeline, NetworkPipelineStageId.Get<ReliableSequencedPipelineStage>(), connection.Value, out _, out _, out var sharedBuffer);
             var sharedCtx = (ReliableUtility.SharedContext*)sharedBuffer.GetUnsafePtr();
             // Note: The Transport `RTTInfo` value has already accounted for client CPU processing time.
             var rttInfo = sharedCtx->RttInfo;
@@ -258,23 +257,6 @@ namespace Unity.NetCode
                 var latestDeviationRTT = math.abs(lastReceivedRTT - EstimatedRTT);
                 DeviationRTT = DeviationRTT * 0.75f + latestDeviationRTT * 0.25f;
             }
-        }
-
-        /// <inheritdoc cref="CalculateSequenceIdDelta(byte,byte,bool)"/>
-        internal readonly int CalculateSequenceIdDelta(byte current, bool isSnapshotConfirmedNewer) => CalculateSequenceIdDelta(current, CurrentSnapshotSequenceId, isSnapshotConfirmedNewer);
-
-        /// <summary>
-        /// Returns the delta (in ticks) between <see cref="current"/> and <see cref="last"/> SequenceIds, but assumes
-        /// that <see cref="NetworkTime.ServerTick"/> logic (to discard old snapshots) is correct.
-        /// Thus:
-        /// - If the snapshot is confirmed newer, we can check a delta of '0 to byte.MaxValue'.
-        /// - If the snapshot is confirmed old, we can check a delta of '0 to -byte.MaxValue'.
-        /// </summary>
-        internal static int CalculateSequenceIdDelta(byte current, byte last, bool isSnapshotConfirmedNewer)
-        {
-            if (isSnapshotConfirmedNewer)
-                return (byte)(current - last);
-            return -(byte)(last - current);
         }
 
         /// <summary>

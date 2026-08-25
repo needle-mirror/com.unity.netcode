@@ -32,7 +32,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         [StructLayout(LayoutKind.Sequential)]
         public struct MetaData
         {
-           /// <summary>Denotes the latest tick that this chunk was sent to this client. Used to bubble up a chunk's relative importance.</summary>
+            /// <summary>Denotes the latest tick that this chunk was sent to this client. Used to bubble up a chunk's relative importance.</summary>
             public NetworkTick lastUpdate;
             /// <summary>
             /// Denotes the entity to start serializing at. Only used for partial chunk sends (i.e. we could only
@@ -167,7 +167,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
             // Mark this new thing we are trying to send as not acked
             ClearAckFlag(index);
         }
-
         public int GetDynamicDataOffset()
         {
             return ((MetaData*)snapshotData)->dynamicDataWriteOffset;
@@ -176,7 +175,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             ((MetaData*)snapshotData)->dynamicDataWriteOffset = value;
         }
-
         public uint GetOrderChangeVersion()
         {
             return ((MetaData*)snapshotData)->orderChangeVersion;

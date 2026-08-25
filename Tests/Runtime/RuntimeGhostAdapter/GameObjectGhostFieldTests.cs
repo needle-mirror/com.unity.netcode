@@ -1,5 +1,3 @@
-#if UNITY_EDITOR
-
 using System;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -19,12 +17,13 @@ namespace Unity.NetCode.Tests
     internal class GameObjectGhostFieldTests
     {
         // A few tests here assume a worker count > 1. Setting this up here in case your local dev was setup with jobs disabled.
+        // Clamp to JobWorkerMaximumCount so single-threaded platforms (e.g. WebGL, where the maximum is 0) don't throw.
         int m_SavedWorkerCount;
         [SetUp]
         public void Setup()
         {
             m_SavedWorkerCount = JobsUtility.JobWorkerCount;
-            JobsUtility.JobWorkerCount = 2;
+            JobsUtility.JobWorkerCount = Math.Min(2, JobsUtility.JobWorkerMaximumCount);
         }
 
         [TearDown]
@@ -42,7 +41,7 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
 
             await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
 
             const int toTest = 321;
 
@@ -97,7 +96,7 @@ namespace Unity.NetCode.Tests
             await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
             await testWorld.TickMultipleAsync(1);
 
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
             await testWorld.TickMultipleAsync(1); // let some time for the client to ack the new ghost type
             var serverObj = GameObject.Instantiate(prefab);
 
@@ -128,7 +127,7 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
 
             await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
             prefab.gameObject.AddComponent<VariousDataTypesForStateSync>();
             Netcode.RegisterPrefab(prefab.gameObject);
             await testWorld.TickMultipleAsync(1);
@@ -168,7 +167,7 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
 
-            var prefab = SubSceneHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "InheritanceTest", typeof(GhostBehaviourInheritance)); // interpolated ghost
+            var prefab = GhostObjectPrefabHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "InheritanceTest", typeof(GhostBehaviourInheritance)); // interpolated ghost
             await testWorld.TickMultipleAsync(1);
 
             var serverObj = GameObject.Instantiate(prefab);
@@ -207,7 +206,7 @@ namespace Unity.NetCode.Tests
 
             await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
 
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
             await testWorld.TickAsync();
 
             int testCount = 0;
@@ -280,7 +279,7 @@ namespace Unity.NetCode.Tests
                 bridgedValue.value = (int)PerMethodValue.Before;
                 serverObj.SomeBridgedVar.Value = bridgedValue;
             }
-            async Task TestForAndTick(PerMethodValue value, NetcodeAwaitable awaitable)
+            async Task TestForAndTick(PerMethodValue value, Awaitable awaitable)
             {
                 ResetStateToBefore();
                 await testWorld.TickAsync(waitInstruction: awaitable);
@@ -372,7 +371,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
 
             var serverHelper = GameObject.Instantiate(prefab);
             serverHelper.SomeGhostField.Value = 321;
@@ -389,7 +388,7 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(321, clientHelper.SomeGhostField.Value, "field should have been rolled back");
             Assert.AreEqual(321, clientHelper.SomeBridgedVar.Value.value, "field should have been rolled back");
 
-            var interpolatedPrefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("interpolated ghost", autoRegister: false);
+            var interpolatedPrefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("interpolated ghost", autoRegister: false);
             interpolatedPrefab.Ghost.DefaultGhostMode = GhostMode.Interpolated;
             Netcode.RegisterPrefab(interpolatedPrefab.gameObject);
             var serverInterp = GameObject.Instantiate(interpolatedPrefab);
@@ -418,7 +417,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
             prefab.gameObject.AddComponent<SharedBridgeGhostBehaviourTest>();
             Netcode.RegisterPrefab(prefab.gameObject);
             var serverMonoBehaviour = GameObject.Instantiate(prefab);
@@ -445,7 +444,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
 
             var serverObj1 = GameObject.Instantiate(prefab);
             var serverObj2 = GameObject.Instantiate(prefab);
@@ -478,7 +477,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
 
             var serverObj = GameObject.Instantiate(prefab);
 
@@ -549,7 +548,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
             prefab.gameObject.AddComponent<PredictionCallbackHelper>();
 
             var errorLog = new Regex("Having two GhostBehaviours with a shared sets of GhostField.*undefined behaviour");
@@ -566,7 +565,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
             prefab.gameObject.AddComponent<SharedBridgeGhostBehaviourTest>();
             Netcode.RegisterPrefab(prefab.gameObject);
             var serverObj = GameObject.Instantiate(prefab);
@@ -582,13 +581,21 @@ namespace Unity.NetCode.Tests
         {
             public float someValue;
         }
+        public struct SomeRandomComponent1 : IComponentData
+        {
+            public float someValue;
+        }
+        public struct SomeRandomComponent2 : IComponentData
+        {
+            public float someValue;
+        }
         [Test(Description = "Test various cases where the entity moves from a chunk to another, makes sure the internal pointer caching still gets refreshed correctly")]
-        public async Task TestStructuralChanges_DontBreakGhostFields([Values] bool withExtraGhost)
+        public async Task TestStructuralChanges_DontBreakGhostFields([Values] bool withExtraGhost, [Values(1, 2, 3)] int structuralChangesCount)
         {
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
             var serverObj = GameObject.Instantiate(prefab);
             if (withExtraGhost)
             {
@@ -602,19 +609,28 @@ namespace Unity.NetCode.Tests
             var clientObj = PredictionCallbackHelper.ClientInstances[0];
             Assert.AreEqual(123, clientObj.SomeGhostField.Value, "sanity check failed");
 
+            var em = testWorld.ServerWorld.EntityManager;
+            var entity = serverObj.Ghost.Entity;
+
             // structural change
-            testWorld.ServerWorld.EntityManager.AddComponentData(serverObj.Ghost.Entity, new SomeRandomComponent(){someValue = 123.321f});
+            em.AddComponentData(entity, new SomeRandomComponent(){someValue = 123.321f});
+            if (structuralChangesCount > 1) em.AddComponent<SomeRandomComponent1>(entity); // Having a second structural change can trigger chunk reuse (since they are pooled)
+            if (structuralChangesCount > 2) em.AddComponent<SomeRandomComponent2>(entity);
 
             // can still read after structural change
             Assert.AreEqual(123, serverObj.SomeGhostField.Value);
 
-            testWorld.ServerWorld.EntityManager.RemoveComponent<SomeRandomComponent>(serverObj.Ghost.Entity);
+            em.RemoveComponent<SomeRandomComponent>(entity);
+            if (structuralChangesCount > 1) em.RemoveComponent<SomeRandomComponent1>(entity);
+            if (structuralChangesCount > 2) em.RemoveComponent<SomeRandomComponent2>(entity);
             // can still write after structural change
             serverObj.SomeGhostField.Value = 456;
             Assert.AreEqual(456, serverObj.SomeGhostField.Value);
 
             // can still read, then write after structural change
-            testWorld.ServerWorld.EntityManager.AddComponentData(serverObj.Ghost.Entity, new SomeRandomComponent(){someValue = 123.321f});
+            em.AddComponentData(entity, new SomeRandomComponent(){someValue = 123.321f});
+            if (structuralChangesCount > 1) em.AddComponent<SomeRandomComponent1>(entity);
+            if (structuralChangesCount > 2) em.AddComponent<SomeRandomComponent2>(entity);
             Assert.AreEqual(456, serverObj.SomeGhostField.Value);
             serverObj.SomeGhostField.Value = 789;
             Assert.AreEqual(789, serverObj.SomeGhostField.Value);
@@ -625,6 +641,10 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(789, clientObj.SomeGhostField.Value);
         }
 
+        // Requires a background job still running (on a worker thread) while the main thread reads the field.
+        // WebGL is single-threaded (JobWorkerMaximumCount == 0), so jobs complete synchronously and this
+        // concurrency scenario can't occur.
+        [UnityPlatform(exclude = new[] { RuntimePlatform.WebGLPlayer })]
         [Test]
         public async Task TestConcurrentAccess_DontBreakGhostFields()
         {
@@ -633,7 +653,7 @@ namespace Unity.NetCode.Tests
                 typeof(TestConcurrentGhostFieldSystem), typeof(TestReadWriteAfterSystem), typeof(SequentialSystemsGroup)
             });
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
             var serverObj = GameObject.Instantiate(prefab);
 
             // repeating multiple times doesn't give 100% certainty there's no race condition, but at least it's better than no checks
@@ -661,7 +681,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
             var serverObj = GameObject.Instantiate(prefab);
             serverObj.SomeGhostField.Value = 123;
             await testWorld.TickMultipleAsync(4);
@@ -709,13 +729,17 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(456, field2.Value, "data should still be accessible long term");
         }
 
+        // Relies on a job still executing on a worker thread while the main thread inspects the debug name.
+        // WebGL is single-threaded (JobWorkerMaximumCount == 0), so the job completes synchronously and the
+        // "job still not completed" state under test never happens.
+        [UnityPlatform(exclude = new[] { RuntimePlatform.WebGLPlayer })]
         [Test(Description = "There's methods useful for IDE debugging we should test")]
         public async Task TestDebugMethods()
         {
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest(userSystems: new[] { typeof(SystemWithDependency), typeof(SystemWithDependencyNext) });
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData");
             var serverObj = GameObject.Instantiate(prefab);
             serverObj.SomeGhostField.Value = 123;
 
@@ -737,14 +761,22 @@ namespace Unity.NetCode.Tests
     internal partial class SystemWithDependency : SystemBase
     {
         public PredictionCallbackHelper helper;
+        public static volatile bool finish;
         public struct JobWithDependency : IJobChunk
         {
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
+                int counter = 10_000;
+                while (!finish && counter-- > 0)
+                    Thread.Sleep(1);
                 Debug.Log("execute");
             }
         }
-        protected override void OnCreate() { }
+
+        protected override void OnCreate()
+        {
+            finish = false;
+        }
 
         protected override void OnUpdate()
         {
@@ -770,9 +802,16 @@ namespace Unity.NetCode.Tests
         {
             if (helper == null) return;
 
-            // make sure while debugging that users won't complete jobs by just hovering their mouse over a GhostField.
-            Assert.IsTrue(helper.SomeGhostField.GetDebugName().Contains("Debugger Error: There's a job still not completed writing to this value."));
-            done = true;
+            try
+            {
+                // make sure while debugging that users won't complete jobs by just hovering their mouse over a GhostField.
+                Assert.IsTrue(helper.SomeGhostField.GetDebugName().Contains("Debugger Error: There's a job still not completed writing to this value."));
+                done = true;
+            }
+            finally
+            {
+                SystemWithDependency.finish = true;
+            }
         }
     }
 
@@ -854,4 +893,3 @@ namespace Unity.NetCode.Tests
         }
     }
 }
-#endif

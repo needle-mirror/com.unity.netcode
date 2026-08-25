@@ -8,6 +8,7 @@ using Unity.Mathematics;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.Networking.Transport;
 using Unity.Profiling;
 
@@ -424,11 +425,7 @@ namespace Unity.NetCode
         {
             get
             {
-#if UNITY_2022_2_14F1_OR_NEWER
                 int maxThreadCount = JobsUtility.ThreadIndexCount;
-#else
-                int maxThreadCount = JobsUtility.MaxJobThreadCount;
-#endif
                 return maxThreadCount;
             }
         }
@@ -593,6 +590,7 @@ namespace Unity.NetCode
             var statEnt = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(typeList));
             FixedString64Bytes singletonName = "GhostStatsCollectionSingleton";
             state.EntityManager.SetName(statEnt, singletonName);
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, statEnt);
 
             SystemAPI.SetSingleton(new GhostStatsCollectionCommand{Value = m_CommandStatsData});
 
@@ -601,11 +599,7 @@ namespace Unity.NetCode
             m_PredictionErrorStatsData = new NativeList<float>(initialStatsSize, Allocator.Persistent);
             SystemAPI.SetSingleton(new GhostStatsCollectionPredictionError{Data = m_PredictionErrorStatsData});
 
-#if UNITY_2022_2_14F1_OR_NEWER
             int maxThreadCount = JobsUtility.ThreadIndexCount;
-#else
-            int maxThreadCount = JobsUtility.MaxJobThreadCount;
-#endif
             m_MinMaxTickStatsData = new NativeArray<NetworkTick>(maxThreadCount * JobsUtility.CacheLineSize/4, Allocator.Persistent);
             SystemAPI.SetSingleton(new GhostStatsCollectionMinMaxTick{Value = m_MinMaxTickStatsData});
 
@@ -750,11 +744,7 @@ namespace Unity.NetCode
             m_MinMaxTickStatsData[1] = NetworkTick.Invalid;
 
             // Gather the min/max age stats
-#if UNITY_2022_2_14F1_OR_NEWER
             int maxThreadCount = JobsUtility.ThreadIndexCount;
-#else
-            int maxThreadCount = JobsUtility.MaxJobThreadCount;
-#endif
             var intsPerCacheLine = JobsUtility.CacheLineSize/4;
             for (int i = 1; i < maxThreadCount; ++i)
             {

@@ -37,16 +37,18 @@ Use the following scripting defines to determine mode-specific baking settings (
 
 ## `NetCodeConfig` ScriptableObject
 
-Netcode for Entities has a [ScriptableObject](https://docs.unity3d.com/Manual/class-ScriptableObject.html) called `NetCodeConfig` that allows you to change `ClientServerTickRate`, `ClientTickRate`, `GhostSendSystemData`, and `NetworkConfigParameter` (from Unity Transport) parameters without writing any C#. It also has a dedicated 'Netcode for Entities' Project Settings page under **Edit** > **Project Settings** > **Multiplayer**.  Refer to the [`NetCodeConfig` API documentation](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetCodeConfig.html) for more information on each property.
+Netcode for Entities has a [ScriptableObject](https://docs.unity3d.com/Manual/class-ScriptableObject.html) called `NetCodeConfig` that allows you to change `ClientServerTickRate`, `ClientTickRate`, `GhostSendSystemData`, and `NetworkConfigParameter` (from Unity Transport) parameters without writing any C#. It also has a dedicated 'Netcode for Entities' Project Settings page under **Edit** > **Project Settings** > **Multiplayer**.  Refer to the [`NetCodeConfig` API documentation](xref:Unity.NetCode.NetCodeConfig) for more information on each property.
 
-You can also refer to the API documentation for [`ClientServerTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html), [`ClientTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientTickRate.html), [GhostSendSystemData](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSendSystemData.html), and [`NetworkConfigParameter`](https://docs.unity3d.com/Packages/com.unity.transport@latest/index.html?subfolder=/api/Unity.Networking.Transport.NetworkConfigParameter.html).
+You can also refer to the API documentation for [`ClientServerTickRate`](xref:Unity.NetCode.ClientServerTickRate), [`ClientTickRate`](xref:Unity.NetCode.ClientTickRate), [GhostSendSystemData](xref:Unity.NetCode.GhostSendSystemData), and [`NetworkConfigParameter`](xref:Unity.Networking.Transport.NetworkConfigParameter).
+
+At least one `NetCodeConfig` is required in any Netcode for Entities project, and a default `NetCodeConfig` is created for you the first time you open the project, but you can have multiple if you want. For example, this can be useful to have different tick rate configurations depending on which server you connect to or which game mode your players are currently using. A competitive mode could use 60 ticks per second while casual mode could use 30.
+
 
 ### Using  `NetCodeConfig`
 
 1. Create a `NetCodeConfig` ScriptableObject via either Unity's **Create** menu, the **Multiplayer** menu, or the **Project Settings** helper button. Default values are the recommended defaults.
 2. Open the **Multiplayer Project Settings** window, and set your ScriptableObject as the global one.
-    * **Warning**: This action may cause runtime errors in your project, as this config will clobber any user-code which adds, removes, or modifies these singleton components directly.
-3. Modify any settings you'd like to. Most fields support live-tweaking, and those that don't are disabled during Play mode.
+3. Modify any settings you'd like to. Most fields support live-tweaking (clicking the apply button will override the corresponding component), and those that don't are disabled during Play mode.
 
 ## Additional resources
 

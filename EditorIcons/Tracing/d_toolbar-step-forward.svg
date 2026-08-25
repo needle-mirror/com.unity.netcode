@@ -1,0 +1,6 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Vertical bar: mirrored -->
+    <path d="M12.425 4.4H9.575V10.0L11 12.0L12.425 10.0V4.4Z" fill="#FF2400"/>
+    <!-- Right-pointing triangle: mirrored -->
+    <path d="M4.587 4.64941C4.2597 4.38774 3.7747 4.62102 3.774 5.04004V10.96C3.7747 11.379 4.2597 11.6123 4.587 11.3506L8.286 8.39062C8.53619 8.19046 8.53619 7.80954 8.286 7.60938L4.587 4.64941Z" fill="#C4C4C4"/>
+</svg>

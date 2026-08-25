@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using Unity.Assertions;
 using Unity.Burst.CompilerServices;
 using Unity.Burst.Intrinsics;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.Networking.Transport.Error;
 
 namespace Unity.NetCode
@@ -103,7 +104,14 @@ namespace Unity.NetCode
             /// </summary>
             public RpcDeserializerState DeserializerState
             {
-                get { unsafe { return UnsafeUtility.AsRef<RpcDeserializerState>((void*)State); } }
+                get
+                {
+                    unsafe
+                    {
+                        Assert.IsFalse(State == IntPtr.Zero, "The state of the RPC execution parameters was not set. This is a bug in the RPC execution code, please report it to Unity.");
+                        return UnsafeUtility.AsRef<RpcDeserializerState>((void*)State);
+                    }
+                }
             }
 
             // TODO-release better name
@@ -189,7 +197,7 @@ namespace Unity.NetCode
             }
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
-            parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new ReceiveRpcCommandRequest {SourceConnection = parameters.Connection});
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new ReceiveRpcCommandRequest { SourceConnection = parameters.Connection });
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, rpcData);
 
 #if !DOTS_DISABLE_DEBUG_NAMES
@@ -197,6 +205,34 @@ namespace Unity.NetCode
             truncatedName.CopyFromTruncated((FixedString512Bytes)$"NetcodeRPC_{ComponentType.ReadWrite<TActionRequest>().ToFixedString()}");
             parameters.CommandBuffer.SetName(parameters.JobIndex, entity, truncatedName);
 #endif
+            return entity;
+        }
+
+        /// <summary>
+        /// Same as ExecuteCreateRequestComponent but also allows specification of an AutoInvokeId.  This allows the RPC to be created and automatically invoked
+        /// by its handler function.  There should be no need to use this directly.
+        /// </summary>
+        /// <param name="parameters">Container for <see cref="EntityCommandBuffer"/>, JobIndex, as well as connection entity.</param>
+        /// <param name="autoInvokeId">The Id of the Remote being invoked.</param>
+        /// <typeparam name="TActionSerializer">Struct of type <see cref="IRpcCommandSerializer{TActionRequest}"/>.</typeparam>
+        /// <typeparam name="TActionRequest">Unmanaged type of <see cref="IComponentData"/>.</typeparam>
+        /// <returns>Created entity for RPC request. Name of the Entity is set as 'NetCodeRPC'.</returns>
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif // NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+            static Entity ExecuteCreateRequestComponentWithAutoInvoke<TActionSerializer, TActionRequest>(ref Parameters parameters, RemoteInvokeID autoInvokeId)
+                where TActionRequest : unmanaged, IRemote
+                where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
+        {
+            var entity = ExecuteCreateRequestComponent<TActionSerializer, TActionRequest>(ref parameters);
+
+            if (autoInvokeId.IsValid())
+            {
+                parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new RemoteAutoInvoke { invokeType = autoInvokeId });
+            }
+
             return entity;
         }
     }
@@ -251,12 +287,14 @@ namespace Unity.NetCode
         private ComponentTypeHandle<NetworkStreamConnection> m_NetworkStreamConnectionHandle;
         private BufferTypeHandle<IncomingRpcDataStreamBuffer> m_IncomingRpcDataStreamBufferComponentHandle;
         private BufferTypeHandle<OutgoingRpcDataStreamBuffer> m_OutgoingRpcDataStreamBufferComponentHandle;
+        private BufferTypeHandle<OutgoingOutOfBandRpcDataStreamBuffer> m_OutgoingOutOfBandRpcDataStreamBufferComponentHandle;
 
         /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<OutgoingRpcDataStreamBuffer>() == 1);
+            UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<OutgoingOutOfBandRpcDataStreamBuffer>() == 1);
             UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<IncomingRpcDataStreamBuffer>() == 1);
 #endif
 
@@ -265,6 +303,7 @@ namespace Unity.NetCode
             m_DynamicAssemblyList = new NativeReference<byte>(Allocator.Persistent);
             var rpcSingleton = state.EntityManager.CreateEntity(ComponentType.ReadWrite<RpcCollection>());
             state.EntityManager.SetName(rpcSingleton, "RpcCollection-Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, rpcSingleton);
             state.EntityManager.SetComponentData(rpcSingleton, new RpcCollection
             {
                 m_DynamicAssemblyList = m_DynamicAssemblyList,
@@ -276,6 +315,7 @@ namespace Unity.NetCode
             m_RpcBufferGroup = state.GetEntityQuery(
                 ComponentType.ReadWrite<IncomingRpcDataStreamBuffer>(),
                 ComponentType.ReadWrite<OutgoingRpcDataStreamBuffer>(),
+                ComponentType.ReadWrite<OutgoingOutOfBandRpcDataStreamBuffer>(),
                 ComponentType.ReadWrite<NetworkStreamConnection>() // single world host has a connection with no NetworkStreamConnection. TODO-release handle disconnected clients
                 );
             state.RequireForUpdate(m_RpcBufferGroup);
@@ -284,6 +324,7 @@ namespace Unity.NetCode
             m_NetworkStreamConnectionHandle = state.GetComponentTypeHandle<NetworkStreamConnection>();
             m_IncomingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<IncomingRpcDataStreamBuffer>();
             m_OutgoingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingRpcDataStreamBuffer>();
+            m_OutgoingOutOfBandRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingOutOfBandRpcDataStreamBuffer>();
 
             var rpcCollection = SystemAPI.GetSingleton<RpcCollection>();
             rpcCollection.RegisterRpc<RequestProtocolVersionHandshake>();
@@ -311,6 +352,7 @@ namespace Unity.NetCode
             public ComponentTypeHandle<NetworkStreamConnection> connectionType;
             public BufferTypeHandle<IncomingRpcDataStreamBuffer> inBufferType;
             public BufferTypeHandle<OutgoingRpcDataStreamBuffer> outBufferType;
+            public BufferTypeHandle<OutgoingOutOfBandRpcDataStreamBuffer> outOutOfBandBufferType;
             public Entity connectionUniqueIdEntity;
             public uint connectionUniqueId;
             [ReadOnly] public NativeList<RpcCollection.RpcData> execute;
@@ -334,6 +376,7 @@ namespace Unity.NetCode
                 var entities = chunk.GetNativeArray(entityType);
                 var rpcInBuffer = chunk.GetBufferAccessor(ref inBufferType);
                 var rpcOutBuffer = chunk.GetBufferAccessor(ref outBufferType);
+                var outOfBandRpcOutBuffer = chunk.GetBufferAccessor(ref outOutOfBandBufferType);
                 var connections = chunk.GetNativeArray(ref connectionType);
                 var deserializeState = new RpcDeserializerState
                 {
@@ -405,7 +448,7 @@ namespace Unity.NetCode
                                 netDebug.LogError($"[{worldName}] RpcSystem received non-approval RPC {execute[rpcIndex].ToFixedString()} while in the {conn.CurrentState.ToFixedString()} connection state, from {conn.Value.ToFixedString()}. Make sure you only send non-approval RPCs once the connection is approved. Disconnecting.");
 #endif
                                 commandBuffer.AddComponent(unfilteredChunkIndex, connectionEntity,
-                                    new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.InvalidRpc});
+                                    new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                                 break;
                             }
                         }
@@ -415,7 +458,7 @@ namespace Unity.NetCode
                         {
                             netDebug.LogError($"[{worldName}] RpcSystem received invalid rpc (index {rpcIndex} out of range) from {conn.Value.ToFixedString()}!");
                             commandBuffer.AddComponent(unfilteredChunkIndex, connectionEntity,
-                                new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.InvalidRpc});
+                                new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                             break;
                         }
 
@@ -428,7 +471,7 @@ namespace Unity.NetCode
                         {
                             var rpcBytesRead = (rpcBitsRead + 7) >> 3;
                             netDebug.LogError($"[{worldName}] RpcSystem failed to deserialize RPC '{execute[rpcIndex].ToFixedString()}', as bits read ({rpcBitsRead} [{rpcBytesRead}B] did not match expected ({rpcSizeBits} [{rpcSizeBytes}B])! Be aware that the incorrectly deserialized RPC may have still executed, but this connection will soon be closed.");
-                            commandBuffer.AddComponent(unfilteredChunkIndex, entities[i], new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.InvalidRpc});
+                            commandBuffer.AddComponent(unfilteredChunkIndex, entities[i], new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                             break;
                         }
 
@@ -445,92 +488,117 @@ namespace Unity.NetCode
                     var sendBuffer = rpcOutBuffer[i];
                     while (sendBuffer.Length > 0)
                     {
-                        // The writer will return a buffer with a size defined by the Transport.
-                        // I.e. It's not netcode who decides the max RPC size.
-                        int result;
-                        if ((result = driver.BeginSend(concurrentDriver.reliablePipeline, conn.Value, out var rpcPacketWriter)) < 0)
+                        if (!WriteSendBuffer(unfilteredChunkIndex, driver, concurrentDriver, msgHeaderLen, connectionEntity, conn, sendBuffer, concurrentDriver.reliablePipeline))
                         {
-                            if(result == (int)StatusCode.NetworkSendQueueFull)
-                                netDebug.DebugLog($"[{worldName}] RpcSystem BeginSend encountered StatusCode.NetworkSendQueueFull (-5), which is an expected StatusCode when sending many reliable RPCs within a short duration (the NetworkConfigParameter.sendQueue is full). Will re-attempt on future ticks, until all have succeeded.\nhttps://docs.unity3d.com/Packages/com.unity.transport@2.2/manual/faq.html#what-does-error-networksendqueuefull-mean");
-                            else netDebug.LogWarning($"[{worldName}] RPCSystem failed to BeginSend message with StatusCode: {result}. Retrying next tick!");
                             break;
                         }
-
-                        rpcPacketWriter.WriteByte((byte) NetworkStreamProtocol.Rpc);
-                        rpcPacketWriter.WriteUInt(localTime);
-                        var headerLengthBytes = rpcPacketWriter.Length;
-
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                        UnityEngine.Debug.Assert(headerLengthBytes == RpcCollection.k_RpcCommonHeaderLengthBytes);
-#endif
-
-                        // If we have too many RPCs queued in our sendBuffer, send as many as we can:
-                        if (sendBuffer.Length + headerLengthBytes > rpcPacketWriter.Capacity)
+                    }
+                    var outOfBandendBuffer = outOfBandRpcOutBuffer[i];
+                    while (outOfBandendBuffer.Length > 0)
+                    {
+                        if (concurrentDriver.outOfBandPipeline == NetworkPipeline.Null)
                         {
-                            var sendArray = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(sendBuffer.GetUnsafePtr(), sendBuffer.Length, Allocator.Invalid);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            var safety = NativeArrayUnsafeUtility.GetAtomicSafetyHandle(sendBuffer.AsNativeArray());
-                            NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sendArray, safety);
-#endif
-                            var reader = new DataStreamReader(sendArray);
-                            if (!ReadRpcIndexOrHash(unfilteredChunkIndex, ref reader, conn, connectionEntity, out var rpcIndex, out var rpcHash))
-                                throw new InvalidOperationException($"[{worldName}][RpcSystem] Attempting to send RPC with hash '{rpcHash}' that is unknown to our own collection!");
-
-                            var payloadLengthBits = reader.ReadUShort();
-                            var payloadLengthBytes = ((payloadLengthBits + 7) >> 3);
-                            var rpcLengthBytes = payloadLengthBytes + msgHeaderLen;
-                            var totalLengthBytes = rpcLengthBytes + headerLengthBytes;
-                            if (totalLengthBytes > rpcPacketWriter.Capacity)
-                            {
-                                sendBuffer.Clear();
-                                driver.AbortSend(rpcPacketWriter);
-                                // Could not fit a single message in the packet, this is a serious error
-                                var rpcName = rpcIndex < execute.Length ? execute[rpcIndex].ToFixedString() : $"Rpc[{rpcHash}, ??, index: {rpcIndex}]";
-                                throw new InvalidOperationException($"[{worldName}][RpcSystem] RPC '{rpcName}' was too big to be sent! It was {totalLengthBytes} bytes [netcode header: {headerLengthBytes}B, rpc message header: {msgHeaderLen}B, payload: {payloadLengthBits} bits], but UTP only offered a packet buffer of {rpcPacketWriter.Capacity}B! Reduce the size of this RPC payload!");
-                            }
-
-                            rpcPacketWriter.WriteBytesUnsafe((byte*) sendBuffer.GetUnsafePtr(), rpcLengthBytes);
-
-                            // Now try to fit as many more messages in this packet as we can:
-                            while (true)
-                            {
-                                var curTmpDataLength = rpcPacketWriter.Length - headerLengthBytes;
-                                var subArray = sendArray.GetSubArray(curTmpDataLength, sendArray.Length - curTmpDataLength);
-                                reader = new DataStreamReader(subArray);
-                                ReadRpcIndexOrHash(unfilteredChunkIndex, ref reader, conn, connectionEntity, out _, out _);
-                                var innerPayloadLengthBits = reader.ReadUShort();
-                                var innerPayloadLengthBytes = ((innerPayloadLengthBits+7) >> 3);
-                                var innerRpcLengthBytes = innerPayloadLengthBytes + msgHeaderLen;
-                                if (rpcPacketWriter.Length + innerRpcLengthBytes > rpcPacketWriter.Capacity)
-                                    break;
-                                rpcPacketWriter.WriteBytesUnsafe((byte*) subArray.GetUnsafeReadOnlyPtr(), innerRpcLengthBytes);
-                            }
-                        }
-                        else
-                            rpcPacketWriter.WriteBytesUnsafe((byte*) sendBuffer.GetUnsafePtr(), sendBuffer.Length);
-
-                        // If sending failed we stop and wait until next frame
-                        if ((result = driver.EndSend(rpcPacketWriter)) <= 0)
-                        {
-                            if (result == (int) StatusCode.NetworkSendQueueFull)
-                                netDebug.DebugLog($"[{worldName}] RpcSystem EndSend encountered StatusCode.NetworkSendQueueFull (-5), which is an expected StatusCode when sending many reliable RPCs within a short duration (hitting the outbound ReliableUtility.Parameters.WindowSize capacity). Will re-attempt on future ticks, until all have succeeded.\nhttps://docs.unity3d.com/Packages/com.unity.transport@2.2/manual/faq.html#what-does-error-networksendqueuefull-mean");
-                            else netDebug.LogWarning($"[{worldName}] An error occured during RpcSystem EndSend with StatusCode: {result}, UTP Buffer Capacity: {rpcPacketWriter.Capacity}. Retrying next tick!");
+                            netDebug.LogWarning($"[{worldName}] RPCSystem failed to send OutOfBandRpc message: The driver has no outOfBandPipeline.");
                             break;
                         }
-
-                        var tmpDataLength = rpcPacketWriter.Length - headerLengthBytes;
-                        if (tmpDataLength < sendBuffer.Length)
+                        if (!WriteSendBuffer(unfilteredChunkIndex, driver, concurrentDriver, msgHeaderLen, connectionEntity, conn, outOfBandendBuffer, concurrentDriver.outOfBandPipeline))
                         {
-                            // Compact the buffer, removing the rpcs we did send
-                            for (int cpy = tmpDataLength; cpy < sendBuffer.Length; ++cpy)
-                                sendBuffer[cpy - tmpDataLength] = sendBuffer[cpy];
-                            sendBuffer.ResizeUninitialized(sendBuffer.Length - tmpDataLength);
+                            break;
                         }
-                        else
-                            sendBuffer.Clear();
                     }
                 }
             }
+
+            public unsafe bool WriteSendBuffer<T>(int unfilteredChunkIndex, NetworkDriver.Concurrent driver, NetworkDriverStore.Concurrent concurrentDriver, int msgHeaderLen, Entity connectionEntity, NetworkStreamConnection conn, DynamicBuffer<T> sendBuffer, NetworkPipeline pipeline) where T : unmanaged, IBufferElementData
+            {
+                // The writer will return a buffer with a size defined by the Transport.
+                // I.e. It's not netcode who decides the max RPC size.
+                int result;
+                if ((result = driver.BeginSend(pipeline, conn.Value, out var rpcPacketWriter)) < 0)
+                {
+                    if (result == (int)StatusCode.NetworkSendQueueFull)
+                        netDebug.DebugLog($"[{worldName}] RpcSystem BeginSend encountered StatusCode.NetworkSendQueueFull (-5), which is an expected StatusCode when sending many reliable RPCs within a short duration (the NetworkConfigParameter.sendQueue is full). Will re-attempt on future ticks, until all have succeeded.\nhttps://docs.unity3d.com/Packages/com.unity.transport@2.2/manual/faq.html#what-does-error-networksendqueuefull-mean");
+                    else netDebug.LogWarning($"[{worldName}] RPCSystem failed to BeginSend message with StatusCode: {result}. Retrying next tick!");
+                    return false;
+                }
+
+                rpcPacketWriter.WriteByte((byte)NetworkStreamProtocol.Rpc);
+                rpcPacketWriter.WriteUInt(localTime);
+                var headerLengthBytes = rpcPacketWriter.Length;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                UnityEngine.Debug.Assert(headerLengthBytes == RpcCollection.k_RpcCommonHeaderLengthBytes);
+#endif
+
+                // If we have too many RPCs queued in our sendBuffer, send as many as we can:
+                if (sendBuffer.Length + headerLengthBytes > rpcPacketWriter.Capacity)
+                {
+                    var sendArray = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(sendBuffer.GetUnsafePtr(), sendBuffer.Length, Allocator.Invalid);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                    var safety = NativeArrayUnsafeUtility.GetAtomicSafetyHandle(sendBuffer.AsNativeArray());
+                    NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sendArray, safety);
+#endif
+                    var reader = new DataStreamReader(sendArray);
+                    if (!ReadRpcIndexOrHash(unfilteredChunkIndex, ref reader, conn, connectionEntity, out var rpcIndex, out var rpcHash))
+                        throw new InvalidOperationException($"[{worldName}][RpcSystem] Attempting to send RPC with hash '{rpcHash}' that is unknown to our own collection!");
+
+
+                    var payloadLengthBits = reader.ReadUShort();
+                    var payloadLengthBytes = ((payloadLengthBits + 7) >> 3);
+                    var rpcLengthBytes = payloadLengthBytes + msgHeaderLen;
+                    var totalLengthBytes = rpcLengthBytes + headerLengthBytes;
+                    if (totalLengthBytes > rpcPacketWriter.Capacity)
+                    {
+                        sendBuffer.Clear();
+                        driver.AbortSend(rpcPacketWriter);
+                        // Could not fit a single message in the packet, this is a serious error
+                        var rpcName = rpcIndex < execute.Length ? execute[rpcIndex].ToFixedString() : $"Rpc[{rpcHash}, ??, index: {rpcIndex}]";
+                        throw new InvalidOperationException($"[{worldName}][RpcSystem] RPC '{rpcName}' was too big to be sent! It was {totalLengthBytes} bytes [netcode header: {headerLengthBytes}B, rpc message header: {msgHeaderLen}B, payload: {payloadLengthBits} bits], but UTP only offered a packet buffer of {rpcPacketWriter.Capacity}B! Reduce the size of this RPC payload!");
+                    }
+
+                    rpcPacketWriter.WriteBytesUnsafe((byte*)sendBuffer.GetUnsafePtr(), rpcLengthBytes);
+
+                    // Now try to fit as many more messages in this packet as we can:
+                    while (true)
+                    {
+                        var curTmpDataLength = rpcPacketWriter.Length - headerLengthBytes;
+                        var subArray = sendArray.GetSubArray(curTmpDataLength, sendArray.Length - curTmpDataLength);
+                        reader = new DataStreamReader(subArray);
+                        ReadRpcIndexOrHash(unfilteredChunkIndex, ref reader, conn, connectionEntity, out _, out _);
+                        var innerPayloadLengthBits = reader.ReadUShort();
+                        var innerPayloadLengthBytes = ((innerPayloadLengthBits + 7) >> 3);
+                        var innerRpcLengthBytes = innerPayloadLengthBytes + msgHeaderLen;
+                        if (rpcPacketWriter.Length + innerRpcLengthBytes > rpcPacketWriter.Capacity)
+                            break;
+                        rpcPacketWriter.WriteBytesUnsafe((byte*)subArray.GetUnsafeReadOnlyPtr(), innerRpcLengthBytes);
+                    }
+                }
+                else
+                    rpcPacketWriter.WriteBytesUnsafe((byte*)sendBuffer.GetUnsafePtr(), sendBuffer.Length);
+
+                // If sending failed we stop and wait until next frame
+                if ((result = driver.EndSend(rpcPacketWriter)) <= 0)
+                {
+                    if (result == (int)StatusCode.NetworkSendQueueFull)
+                        netDebug.DebugLog($"[{worldName}] RpcSystem EndSend encountered StatusCode.NetworkSendQueueFull (-5), which is an expected StatusCode when sending many reliable RPCs within a short duration (hitting the outbound ReliableUtility.Parameters.WindowSize capacity). Will re-attempt on future ticks, until all have succeeded.\nhttps://docs.unity3d.com/Packages/com.unity.transport@2.2/manual/faq.html#what-does-error-networksendqueuefull-mean");
+                    else netDebug.LogWarning($"[{worldName}] An error occured during RpcSystem EndSend with StatusCode: {result}, UTP Buffer Capacity: {rpcPacketWriter.Capacity}. Retrying next tick!");
+                    return false;
+                }
+
+                var tmpDataLength = rpcPacketWriter.Length - headerLengthBytes;
+                if (tmpDataLength < sendBuffer.Length)
+                {
+                    // Compact the buffer, removing the rpcs we did send
+                    for (int cpy = tmpDataLength; cpy < sendBuffer.Length; ++cpy)
+                        sendBuffer[cpy - tmpDataLength] = sendBuffer[cpy];
+                    sendBuffer.ResizeUninitialized(sendBuffer.Length - tmpDataLength);
+                }
+                else
+                    sendBuffer.Clear();
+
+                return true;
+            }
+
 
             bool ReadRpcIndexOrHash(int unfilteredChunkIndex, ref DataStreamReader reader, NetworkStreamConnection conn, Entity connectionEntity, out int rpcIndex, out ulong rpcHash)
             {
@@ -541,7 +609,7 @@ namespace Unity.NetCode
                 {
                     netDebug.LogError($"DynamicAssemblyList value mismatch, ours={dynamicAssemblyList} theirs={incomingDynamicAssemblyList}. Make sure the RpcCollection.DynamicAssemblyList value is the same everywhere.");
                     commandBuffer.AddComponent(unfilteredChunkIndex, connectionEntity,
-                        new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.InvalidRpc});
+                        new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                     return false;
                 }
                 if (incomingDynamicAssemblyList == 1)
@@ -553,7 +621,7 @@ namespace Unity.NetCode
                         netDebug.LogError(
                             $"[{worldName}] RpcSystem processing rpc with invalid hash ({rpcHash}) from {conn.Value.ToFixedString()}");
                         commandBuffer.AddComponent(unfilteredChunkIndex, connectionEntity,
-                            new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.InvalidRpc});
+                            new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                         return false;
                     }
                 }
@@ -586,6 +654,7 @@ namespace Unity.NetCode
             m_NetworkStreamConnectionHandle.Update(ref state);
             m_IncomingRpcDataStreamBufferComponentHandle.Update(ref state);
             m_OutgoingRpcDataStreamBufferComponentHandle.Update(ref state);
+            m_OutgoingOutOfBandRpcDataStreamBufferComponentHandle.Update(ref state);
             var execJob = new RpcExecJob
             {
                 commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter(),
@@ -593,6 +662,7 @@ namespace Unity.NetCode
                 connectionType = m_NetworkStreamConnectionHandle,
                 inBufferType = m_IncomingRpcDataStreamBufferComponentHandle,
                 outBufferType = m_OutgoingRpcDataStreamBufferComponentHandle,
+                outOutOfBandBufferType = m_OutgoingOutOfBandRpcDataStreamBufferComponentHandle,
                 connectionUniqueIdEntity = connectionUniqueIdEntity,
                 connectionUniqueId = connectionUniqueId.Value,
                 execute = m_RpcData,
@@ -659,7 +729,7 @@ namespace Unity.NetCode
                 {
                     commandBuffer.AddComponent(rpcError.connection,
                         new NetworkStreamRequestDisconnect
-                            { Reason = NetworkStreamDisconnectReason.InvalidRpc });
+                        { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                     connection = connections[rpcError.connection].Value.ToFixedString();
                 }
 

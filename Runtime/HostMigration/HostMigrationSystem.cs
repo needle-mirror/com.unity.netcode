@@ -6,6 +6,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.NetCode.LowLevel.StateSave;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Scenes;
@@ -311,7 +312,7 @@ namespace Unity.NetCode.HostMigration
             m_HostMigrationCache.ServerOnlyComponentsFlag = new NativeList<int>(64, Allocator.Persistent);
             m_HostMigrationCache.ServerOnlyComponentsPerGhostType = new NativeHashMap<int, NativeList<ComponentType>>(64, Allocator.Persistent);
 
-            m_DefaultComponents = new NativeArray<ComponentType>(16, Allocator.Persistent);
+            m_DefaultComponents = new NativeArray<ComponentType>(17, Allocator.Persistent);
             m_DefaultComponents[0] = ComponentType.ReadOnly<NetworkStreamConnection>();
             m_DefaultComponents[1] = ComponentType.ReadOnly<CommandTarget>();
             m_DefaultComponents[2] = ComponentType.ReadOnly<NetworkId>();
@@ -328,6 +329,7 @@ namespace Unity.NetCode.HostMigration
             m_DefaultComponents[13] = ComponentType.ReadOnly<NetworkStreamIsReconnected>();
             m_DefaultComponents[14] = ComponentType.ReadOnly<IsMigrated>();
             m_DefaultComponents[15] = ComponentType.ReadOnly<EnablePacketLogging>();
+            m_DefaultComponents[16] = ComponentType.ReadOnly<OutgoingOutOfBandRpcDataStreamBuffer>();
 
             m_GhostComponentTypes = new NativeHashSet<ComponentType>(16, Allocator.Persistent);
             m_RequiredGhostComponentTypes = new NativeHashSet<ComponentType>(1, Allocator.Persistent);
@@ -365,13 +367,15 @@ namespace Unity.NetCode.HostMigration
             {
                 var entityConfig = state.EntityManager.CreateEntity(ComponentType.ReadWrite<HostMigrationConfig>());
                 state.EntityManager.SetName(entityConfig,"HostMigrationConfig");
+                EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, entityConfig);
 
                 state.EntityManager.SetComponentData(entityConfig, HostMigrationConfig.Default);
             }
 
             var statsEntity = state.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationStats>());
             state.EntityManager.SetName(statsEntity, "HostMigrationStats");
-            state.EntityManager.CreateSingleton<HostMigrationStorage>();
+            var storageEntity = state.EntityManager.CreateSingleton<HostMigrationStorage>();
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, storageEntity);
             var hostMigrationData = SystemAPI.GetSingletonRW<HostMigrationStorage>();
             hostMigrationData.ValueRW.HostDataBlob = new NativeList<byte>(Allocator.Persistent);
             hostMigrationData.ValueRW.GhostDataBlob = new NativeList<byte>(Allocator.Persistent);

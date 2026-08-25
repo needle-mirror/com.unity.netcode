@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Unity.NetCode.Roslyn;
@@ -101,10 +100,10 @@ namespace Unity.NetCode.Generators
                     continue;
 
                 codeGenContext.ResetState();
-                NameUtils.UpdateNameAndNamespace(typeInfo, ref codeGenContext, candidateSymbol);
+                NameUtils.UpdateNameAndNamespace(ref typeInfo, ref codeGenContext, candidateSymbol);
 
                 // If the serializer type already exist we can just skip generation
-                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetGhostSerializerName(codeGenContext)).FirstOrDefault() != null)
+                if (new List<ISymbol>(codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetGhostSerializerName(codeGenContext))).Count > 0)
                 {
                     codeGenContext.diagnostic.LogDebug($"Skipping code-gen for {candidateSymbol.Name} because a component serializer for it already exists");
                     continue;
@@ -174,9 +173,9 @@ namespace Unity.NetCode.Generators
                 }
 
                 codeGenContext.ResetState();
-                NameUtils.UpdateNameAndNamespace(variantTypeInfo, ref codeGenContext, variantSymbol);
+                NameUtils.UpdateNameAndNamespace(ref variantTypeInfo, ref codeGenContext, variantSymbol);
                 // If the serializer type already exist we can just skip generation
-                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetGhostSerializerName(codeGenContext)).FirstOrDefault() != null)
+                if (new List<ISymbol>(codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetGhostSerializerName(codeGenContext))).Count > 0)
                 {
                     codeGenContext.diagnostic.LogDebug($"Skipping code-gen for {codeGenContext.generatorName} because a variant component serializer for it already exists");
                     continue;
@@ -194,21 +193,28 @@ namespace Unity.NetCode.Generators
         /// Fast early exit check to determine if we need to serialize a type.
         /// </summary>
         /// <returns></returns>
-        static private bool HasGhostFields(TypeDeclarationSyntax structNode)
+        static bool HasGhostFields(TypeDeclarationSyntax structNode)
         {
             using (new Profiler.Auto("HasGhostFields"))
             {
-                foreach (var t in structNode.Members
-                    .SelectMany(attr => attr.AttributeLists, (attr, list) => list.Attributes)
-                    .SelectMany(attributes => attributes))
+                foreach (var member in structNode.Members)
                 {
-                    //Remove qualifiers if present
-                    var name = t.Name is QualifiedNameSyntax syntax
-                        ? syntax.Right.Identifier.ValueText
-                        : t.Name.ToString();
-                    if (name == "GhostField" || name == "GhostFieldAttribute")
-                        return true;
+                    foreach (var attributeList in member.AttributeLists)
+                    {
+                        foreach (var t in attributeList.Attributes)
+                        {
+                            //Remove qualifiers if present
+                            var name = t.Name is QualifiedNameSyntax syntax
+                                ? syntax.Right.Identifier.ValueText
+                                : t.Name.ToString();
+                            if (name is "GhostField" or "GhostFieldAttribute")
+                            {
+                                return true;
+                            }
+                        }
+                    }
                 }
+
                 return false;
             }
         }
@@ -221,15 +227,19 @@ namespace Unity.NetCode.Generators
         {
             using (new Profiler.Auto("HasGhostEnabledBitAttribute"))
             {
-                foreach (var t in structNode.AttributeLists
-                             .SelectMany(list => list.Attributes))
+                foreach (var list in structNode.AttributeLists)
                 {
-                    //Remove qualifiers if present
-                    var name = t.Name is QualifiedNameSyntax syntax
-                        ? syntax.Right.Identifier.ValueText
-                        : t.Name.ToString();
-                    if (name == "GhostEnabledBit" || name == "GhostEnabledBitAttribute")
-                        return true;
+                    foreach (var t in list.Attributes)
+                    {
+                        //Remove qualifiers if present
+                        var name = t.Name is QualifiedNameSyntax syntax
+                            ? syntax.Right.Identifier.ValueText
+                            : t.Name.ToString();
+                        if (name is "GhostEnabledBit" or "GhostEnabledBitAttribute")
+                        {
+                            return true;
+                        }
+                    }
                 }
                 return false;
             }
@@ -239,15 +249,19 @@ namespace Unity.NetCode.Generators
         {
             using (new Profiler.Auto("HasGhostComponentAttribute"))
             {
-                foreach (var t in structNode.AttributeLists
-                    .SelectMany(list => list.Attributes))
+                foreach (var list in structNode.AttributeLists)
                 {
-                    //Remove qualifiers if present
-                    var name = t.Name is QualifiedNameSyntax syntax
-                        ? syntax.Right.Identifier.ValueText
-                        : t.Name.ToString();
-                    if (name == "GhostComponent" || name == "GhostComponentAttribute")
-                        return true;
+                    foreach (var t in list.Attributes)
+                    {
+                        //Remove qualifiers if present
+                        var name = t.Name is QualifiedNameSyntax syntax
+                            ? syntax.Right.Identifier.ValueText
+                            : t.Name.ToString();
+                        if (name is "GhostComponent" or "GhostComponentAttribute")
+                        {
+                            return true;
+                        }
+                    }
                 }
                 return false;
             }

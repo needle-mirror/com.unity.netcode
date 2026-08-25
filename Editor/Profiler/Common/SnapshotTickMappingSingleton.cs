@@ -19,10 +19,6 @@ namespace Unity.NetCode.Editor
         internal FrameToSnapshotTickMapping frameToSnapshotTickMapping;
         [SerializeField]
         bool initialized;
-        [SerializeField]
-        int firstMappedFrameIndex;
-        [SerializeField]
-        int lastMappedFrameIndex;
 
         internal void Initialize()
         {
@@ -81,9 +77,6 @@ namespace Unity.NetCode.Editor
             if (!frameToSnapshotTickMapping.NeedsUpdate(lastFrameIndex))
                 return;
 
-            firstMappedFrameIndex = -1;
-            lastMappedFrameIndex = 0;
-
             // Iterate over all captured profiler frames
             for (var i = firstFrameIndex; i <= lastFrameIndex; i++)
             {
@@ -94,10 +87,6 @@ namespace Unity.NetCode.Editor
                         continue;
                     }
 
-                    lastMappedFrameIndex = i;
-                    if (firstMappedFrameIndex == -1)
-                        firstMappedFrameIndex = i;
-
                     var clientArray = frameDataView.GetFrameMetaData<NetworkTick>(ProfilerMetricsConstants.ClientGuid, ProfilerMetricsConstants.SnapshotTickTag);
                     var serverArray = frameDataView.GetFrameMetaData<NetworkTick>(ProfilerMetricsConstants.ServerGuid, ProfilerMetricsConstants.SnapshotTickTag);
 
@@ -107,25 +96,21 @@ namespace Unity.NetCode.Editor
                     {
                         var snapshotTickClient = clientArray[0];
                         if (snapshotTickClient.IsValid)
-                        {
                             frameTickInfo.ClientTick = snapshotTickClient;
-                            frameToSnapshotTickMapping.clientTickToFrame.TryAdd(snapshotTickClient, i);
-                        }
                     }
 
                     if (serverArray.Length != 0)
                     {
                         var snapshotTickServer = serverArray[0];
                         if (snapshotTickServer.IsValid)
-                        {
                             frameTickInfo.ServerTick = snapshotTickServer;
-                            frameToSnapshotTickMapping.serverTickToFrame.TryAdd(snapshotTickServer, i);
-                        }
                     }
 
-                    frameToSnapshotTickMapping.frameToTickInfo.Add(i, frameTickInfo);
+                    frameToSnapshotTickMapping.frameToTickInfo[i] = frameTickInfo;
                 }
             }
+
+            frameToSnapshotTickMapping.MarkUpdated(lastFrameIndex);
         }
 
         /// <summary>
@@ -137,13 +122,30 @@ namespace Unity.NetCode.Editor
         {
             MapFramesToSnapshotTicks();
 
-            if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(serverFrameIndex, out var frameTickInfo))
+            if (!frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(serverFrameIndex, out var frameTickInfo))
+                return -1;
+
+            var targetTick = frameTickInfo.ServerTick;
+            if (!targetTick.IsValid)
+                return -1;
+
+            // Check the same frame first (common case: both worlds tick in the same frame)
+            if (frameTickInfo.ClientTick == targetTick)
+                return serverFrameIndex;
+
+            // Search outward from the server frame for the nearest client frame with this tick
+            var maxDistance = ProfilerDriver.lastFrameIndex - ProfilerDriver.firstFrameIndex;
+            for (var offset = 1; offset <= maxDistance; offset++)
             {
-                if (frameToSnapshotTickMapping.clientTickToFrame.TryGetValue(frameTickInfo.ServerTick, out var frameIndex))
-                {
-                    return frameIndex;
-                }
+                if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(serverFrameIndex - offset, out var infoBefore)
+                    && infoBefore.ClientTick == targetTick)
+                    return serverFrameIndex - offset;
+
+                if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(serverFrameIndex + offset, out var infoAfter)
+                    && infoAfter.ClientTick == targetTick)
+                    return serverFrameIndex + offset;
             }
+
             return -1;
         }
 
@@ -156,13 +158,30 @@ namespace Unity.NetCode.Editor
         {
             MapFramesToSnapshotTicks();
 
-            if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(clientFrameIndex, out var frameTickInfo))
+            if (!frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(clientFrameIndex, out var frameTickInfo))
+                return -1;
+
+            var targetTick = frameTickInfo.ClientTick;
+            if (!targetTick.IsValid)
+                return -1;
+
+            // Check the same frame first (common case: both worlds tick in the same frame)
+            if (frameTickInfo.ServerTick == targetTick)
+                return clientFrameIndex;
+
+            // Search outward from the client frame for the nearest server frame with this tick
+            var maxDistance = ProfilerDriver.lastFrameIndex - ProfilerDriver.firstFrameIndex;
+            for (var offset = 1; offset <= maxDistance; offset++)
             {
-                if (frameToSnapshotTickMapping.serverTickToFrame.TryGetValue(frameTickInfo.ClientTick, out var frameIndex))
-                {
-                    return frameIndex;
-                }
+                if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(clientFrameIndex - offset, out var infoBefore)
+                    && infoBefore.ServerTick == targetTick)
+                    return clientFrameIndex - offset;
+
+                if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(clientFrameIndex + offset, out var infoAfter)
+                    && infoAfter.ServerTick == targetTick)
+                    return clientFrameIndex + offset;
             }
+
             return -1;
         }
 
@@ -180,54 +199,23 @@ namespace Unity.NetCode.Editor
             // Limit the search range to the max number of captured frames.
             var maxSearchDistance = ProfilerDriver.lastFrameIndex - ProfilerDriver.firstFrameIndex;
 
-            // Special handling for first and last frames
-            if (currentFrameIndex == ProfilerDriver.firstFrameIndex && direction > 0)
-            {
-                // Find first tick after the first frame
-                currentFrameIndex = firstMappedFrameIndex;
-            }
+            // If the current frame is unmapped, treat the current tick as invalid so the search
+            // naturally finds the nearest valid tick in the given direction.
+            var currentTick = NetworkTick.Invalid;
+            if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(currentFrameIndex, out var frameTickInfo))
+                currentTick = networkRole == NetworkRole.Server ? frameTickInfo.ServerTick : frameTickInfo.ClientTick;
 
-            if (currentFrameIndex == ProfilerDriver.lastFrameIndex && direction < 0)
+            // Search linearly from the current frame in the given direction.
+            // Return the first frame with a different valid tick for the given role.
+            for (var offset = 1; offset <= maxSearchDistance; offset++)
             {
-                // Process the last frame in the mapped list
-                currentFrameIndex = lastMappedFrameIndex;
-            }
-
-            if (!frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(currentFrameIndex, out var frameTickInfo))
-                return -1;
-
-            var currentTick = networkRole == NetworkRole.Server ? frameTickInfo.ServerTick : frameTickInfo.ClientTick;
-            if (currentTick == NetworkTick.Invalid)
-            {
-                // In this case there is no tick mapped for this frame because no snapshot was sent/received.
-                // We need to find the next tick by searching the next/previous valid frame.
-                for (var frameIndexOffset = 1; frameIndexOffset <= maxSearchDistance; frameIndexOffset++)
+                var candidateFrame = currentFrameIndex + direction * offset;
+                if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(candidateFrame, out var candidateInfo))
                 {
-                    var adjacentFrameIndex = currentFrameIndex + direction * frameIndexOffset;
-                    if (frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(adjacentFrameIndex, out var tickInfo))
-                    {
-                        var tick = networkRole == NetworkRole.Server ? tickInfo.ServerTick : tickInfo.ClientTick;
-                        if (tick != NetworkTick.Invalid)
-                            return adjacentFrameIndex;
-                    }
+                    var candidateTick = networkRole == NetworkRole.Server ? candidateInfo.ServerTick : candidateInfo.ClientTick;
+                    if (candidateTick.IsValid && candidateTick != currentTick)
+                        return candidateFrame;
                 }
-            }
-
-            var tickToFrameDictionary = networkRole == NetworkRole.Server ? frameToSnapshotTickMapping.serverTickToFrame : frameToSnapshotTickMapping.clientTickToFrame;
-            for (var tickOffset = 1; tickOffset <= maxSearchDistance; tickOffset++)
-            {
-                if (currentTick == NetworkTick.Invalid)
-                    break;
-
-                if (direction == -1)
-                    currentTick.Decrement();
-                else
-                    currentTick.Increment();
-
-                if (currentTick == NetworkTick.Invalid)
-                    break;
-                if (tickToFrameDictionary.TryGetValue(currentTick, out var frameIndex))
-                    return frameIndex;
             }
 
             return -1;
@@ -235,13 +223,11 @@ namespace Unity.NetCode.Editor
 
         internal bool FrameBelongsToTick(int frameIndex, NetworkRole networkRole, NetworkTick tick)
         {
-            var dictionary = networkRole == NetworkRole.Client ? frameToSnapshotTickMapping.clientTickToFrame : frameToSnapshotTickMapping.serverTickToFrame;
-            if (dictionary.TryGetValue(tick, out var frameForTick))
-            {
-                return frameForTick == frameIndex;
-            }
+            if (!frameToSnapshotTickMapping.frameToTickInfo.TryGetValue(frameIndex, out var tickInfo))
+                return false;
 
-            return false;
+            var frameTick = networkRole == NetworkRole.Client ? tickInfo.ClientTick : tickInfo.ServerTick;
+            return frameTick == tick;
         }
 
         void ISerializationCallbackReceiver.OnBeforeSerialize()
@@ -280,50 +266,27 @@ namespace Unity.NetCode.Editor
             internal FrameTickInfo TickInfo;
         }
 
-        /// <summary>
-        /// Struct to hold a mapping between a tick and its corresponding frame index.
-        /// </summary>
-        [Serializable]
-        internal struct TickToFramePair
-        {
-            internal NetworkTick Tick;
-            internal int FrameIndex;
-        }
-
         [SerializeField]
         internal List<FrameTickPair> frameToTickInfoList;
-        [SerializeField]
-        internal List<TickToFramePair> clientTickToFrameList;
-        [SerializeField]
-        internal List<TickToFramePair> serverTickToFrameList;
 
         internal Dictionary<int, FrameTickInfo> frameToTickInfo;
-        internal Dictionary<NetworkTick, int> clientTickToFrame;
-        internal Dictionary<NetworkTick, int> serverTickToFrame;
 
         int m_LastMappedFrameIndex;
 
         internal void Initialize()
         {
             frameToTickInfo = new Dictionary<int, FrameTickInfo>();
-            clientTickToFrame = new Dictionary<NetworkTick, int>();
-            serverTickToFrame = new Dictionary<NetworkTick, int>();
             m_LastMappedFrameIndex = -1;
 
             frameToTickInfoList = new List<FrameTickPair>();
-            clientTickToFrameList = new List<TickToFramePair>();
-            serverTickToFrameList = new List<TickToFramePair>();
         }
 
         internal void Clear()
         {
             frameToTickInfo.Clear();
-            clientTickToFrame.Clear();
-            serverTickToFrame.Clear();
-
             frameToTickInfoList.Clear();
-            clientTickToFrameList.Clear();
-            serverTickToFrameList.Clear();
+
+            m_LastMappedFrameIndex = -1;
         }
 
         /// <summary>
@@ -342,6 +305,15 @@ namespace Unity.NetCode.Editor
         }
 
         /// <summary>
+        /// Records the last mapped frame index after a successful mapping pass.
+        /// </summary>
+        /// <param name="lastFrameIndex">The last frame index that was mapped.</param>
+        internal void MarkUpdated(int lastFrameIndex)
+        {
+            m_LastMappedFrameIndex = lastFrameIndex;
+        }
+
+        /// <summary>
         /// Prepares the mapping data for serialization by converting dictionaries to lists.
         /// </summary>
         internal void OnBeforeSerialize()
@@ -350,18 +322,6 @@ namespace Unity.NetCode.Editor
             foreach (var kvp in frameToTickInfo)
             {
                 frameToTickInfoList.Add(new FrameTickPair { FrameIndex = kvp.Key, TickInfo = kvp.Value });
-            }
-
-            clientTickToFrameList.Clear();
-            foreach (var kvp in clientTickToFrame)
-            {
-                clientTickToFrameList.Add(new TickToFramePair { Tick = kvp.Key, FrameIndex = kvp.Value });
-            }
-
-            serverTickToFrameList.Clear();
-            foreach (var kvp in serverTickToFrame)
-            {
-                serverTickToFrameList.Add(new TickToFramePair { Tick = kvp.Key, FrameIndex = kvp.Value });
             }
         }
 
@@ -374,18 +334,6 @@ namespace Unity.NetCode.Editor
             foreach (var pair in frameToTickInfoList)
             {
                 frameToTickInfo.Add(pair.FrameIndex, pair.TickInfo);
-            }
-
-            clientTickToFrame = new Dictionary<NetworkTick, int>();
-            foreach (var pair in clientTickToFrameList)
-            {
-                clientTickToFrame.Add(pair.Tick, pair.FrameIndex);
-            }
-
-            serverTickToFrame = new Dictionary<NetworkTick, int>();
-            foreach (var pair in serverTickToFrameList)
-            {
-                serverTickToFrame.Add(pair.Tick, pair.FrameIndex);
             }
         }
     }

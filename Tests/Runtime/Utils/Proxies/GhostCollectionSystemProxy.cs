@@ -19,7 +19,7 @@ namespace Unity.NetCode.Tests
             EntityManager.CompleteAllTrackedJobs();
 
             var systemHandle = World.GetExistingSystem<GhostCollectionSystem>();
-            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostCollectionSystem>();
+            ref var unmanagedSystem = ref World.Unmanaged.GetExistingSystemState<GhostCollectionSystem>();
             unmanagedSystem.Enabled = false;
 
             k_CompleteTrackedJobs.Begin();

@@ -1,56 +1,55 @@
 using System;
+using Unity.Assertions;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Collections;
 
-// IMPORTANT DESIGN note
-// A lot of this file will be refactored with future connection management work.
-
-// Most of the code here helps with keeping up to date Netcode.Connection APIs and offer GameObject users way to interact with connection information without having to write
-// ECS queries for it.
 namespace Unity.NetCode
 {
+    // Most of the code here helps with keeping up to date Netcode.Connection APIs and offer GameObject users way to interact with connection
+    // information without having to write ECS queries for it.
     /// <summary>
-    /// OnConnect delegate. See <see cref="Client.OnConnect"/>
+    /// Connection event delegate. <see cref="Netcode.OnConnectionEvent"/> and <see cref="NetcodeWorld.OnConnectionEvent"/>.
     /// </summary>
-    // TODO-doc review me once we're established on Connection API
 #if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
     public
 #endif
-    delegate void OnConnectDelegate(Connection connection, NetCodeConnectionEvent connectionEvent);
-    /// <summary>
-    /// OnDisconnect delegate. See <see cref="Client.OnDisconnect"/>
-    /// </summary>
-    // TODO-doc review me once we're established on Connection API
-#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
-    public
-#endif
-    delegate void OnDisconnectDelegate(Connection connection, NetCodeConnectionEvent connectionEvent);
+    delegate void OnConnectionEventDelegate(Connection connection, NetCodeConnectionEvent connectionEvent);
 
-    // TODO-release rework me
-    // TODO-release some ideas from reviews: https://github.cds.internal.unity3d.com/unity/dots/pull/9738#discussion_r482963
-    // This connection wrapper could be simply abstracting queries and caching as little state as possible, to make sure it's always up to date.
-    // Similar to what Client does
-    // See Client's OnConnect for some other TODOs and ideas
+
     /// <summary>
     /// Abstraction to interact with an underlying connection.
     /// If offline, some of its fields will be invalid.
     /// </summary>
+    // Design note: This connection wrapper abstracts queries and caches as little state as possible, to make sure it's always up to date.
 #if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
     public
 #endif
-    struct Connection
+    struct Connection : IEquatable<Connection>
     {
-        internal World m_World;
         /// <summary>
-        /// The entity associated with this connection. This is the entity that has the <see cref="NetworkStreamConnection"/> component.
+        /// The world this connection belongs to. A server world will have multiple connections, one for each connected client. All those connections would have
+        /// their world set to the server world, this is the world the connection lives in.
+        /// </summary>
+        public NetcodeWorld World;
+        /// <summary>
+        /// The entity associated with this connection. This is the entity that has the <see cref="NetworkId"/> component.
         /// </summary>
         public Entity ConnectionEntity { get; internal set; }
 
         /// <summary>
         /// The NetworkId associated with this connection. See <see cref="Unity.NetCode.NetworkId"/>
         /// </summary>
-        public NetworkId NetworkId;
+        public NetworkId NetworkId
+        {
+            get
+            {
+                var em = World.EntityManager;
+                if (!em.HasComponent<NetworkId>(ConnectionEntity))
+                    return NetworkId.Invalid;
+                return em.GetComponentData<NetworkId>(ConnectionEntity);
+            }
+        }
 
         /// <summary>
         /// Current estimated Round Trip Time for this connection.
@@ -59,24 +58,17 @@ namespace Unity.NetCode
         {
             get
             {
-                if (m_World != null && m_World.IsCreated && m_World.EntityManager.HasComponent<NetworkSnapshotAck>(ConnectionEntity))
+                if (World != null && World.IsCreated && World.EntityManager.HasComponent<NetworkSnapshotAck>(ConnectionEntity))
                 {
-                    var ackData = m_World.EntityManager.GetComponentData<NetworkSnapshotAck>(ConnectionEntity);
+                    var ackData = World.EntityManager.GetComponentData<NetworkSnapshotAck>(ConnectionEntity);
                     return ackData.EstimatedRTT;
                 }
                 return 0;
             }
         }
 
-        /// <summary>
-        /// Whether is this connection is associated with a server or client world.
-        /// </summary>
-        // todo-release this API is weird, should probably be something else
-        // TODO-doc
-        public bool IsServerRole => m_World.IsServer();
-
-        // TODO-release move this to core assembly
-        // TODO-release should be flag https://github.cds.internal.unity3d.com/unity/dots/pull/9738#discussion_r486215
+        // TODO-next@connection move this to core assembly
+        // TODO-next@connection should be flag. See discussion https://github.cds.internal.unity3d.com/unity/dots/pull/9738#discussion_r486215
         // public enum ReplicationBehaviour
         // {
         //     /// <summary>
@@ -89,31 +81,31 @@ namespace Unity.NetCode
         //     StateReplication
         // }
 
-        internal Connection(World world, Entity connectionEntity, NetworkId networkId)
+        internal Connection(NetcodeWorld world, Entity connectionEntity)
         {
-            m_World = world;
+            World = world;
             ConnectionEntity = connectionEntity;
-            NetworkId = networkId;
         }
 
         /// <summary>
         /// Dictates which replication behaviour to use for this connection. <see cref="NetworkStreamInGame"/>
         /// By default, replication is disabled for new connections. You need to enable it both client side on your connection and server side for the new connection from that client.
-        /// TODO-release review doc once we have new behaviour for this, we should have this enabled by default
+        /// TODO-next@breakingChange review doc once we have new behaviour for this, we should have this enabled by default
         /// </summary>
         /// <param name="enable"></param>
-        // See todo-release above for ReplicationBehaviour enum
+        // See TODO-next@connection above for ReplicationBehaviour enum
         // public void EnableStateReplication(ReplicationBehaviour behaviour)
         public void EnableGhostReplication(bool enable)
         {
+            Assert.IsTrue(IsValid(), "Connection not initialized yet");
             if (enable)
             {
-                m_World.EntityManager.AddComponentData(ConnectionEntity, default(NetworkStreamInGame));
+                World.EntityManager.AddComponentData(ConnectionEntity, default(NetworkStreamInGame));
                 // Netcode.Instance.m_PrefabsRegistry.RetriggerPrefabEventsHack(m_World); // needed to retrigger the prefab events when we go back in game
             }
             else
             {
-                m_World.EntityManager.RemoveComponent<NetworkStreamInGame>(ConnectionEntity);
+                World.EntityManager.RemoveComponent<NetworkStreamInGame>(ConnectionEntity);
             }
             // switch (behaviour)
             // {
@@ -129,55 +121,30 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Send a simple message over that connection
-        /// See <see cref="Unity.NetCode.RpcCommandHandler"/> for more details on how to receive this message
-        /// TODO-release review doc, this is most likely to be refactored completely. Review this
+        /// Whether this Connection struct is initialized and valid. See <see cref="GetConnectionState"/> for getting the state of a valid Connection
         /// </summary>
-        /// <param name="message"></param>
-        /// <typeparam name="T"></typeparam>
-        /// <returns>false if message failed to send</returns>
-        public bool SendMessage<T>(T message) where T : unmanaged, IRpcCommand
-        {
-            if (GetConnectionState() != ConnectionState.State.Connected)
-            {
-                return false;
-            }
-            var req = m_World.EntityManager.CreateEntity(ComponentType.ReadWrite<SendRpcCommandRequest>(), ComponentType.ReadWrite<T>());
-            m_World.EntityManager.SetComponentData(req, new SendRpcCommandRequest{TargetConnection = ConnectionEntity});
-            m_World.EntityManager.SetComponentData(req, message);
-            return true;
-        }
-
-        /// <summary>
-        /// Whether is this Connection struct is initialized and valid or not. See <see cref="GetConnectionState"/> for getting the state of a valid Connection
-        /// </summary>
-        /// TODO-release doc review me once we're established on Connection API
         /// <returns></returns>
         public bool IsValid()
         {
-            return m_World != null && m_World.IsCreated && ConnectionEntity != Entity.Null;
+            return World != null && World.IsCreated && ConnectionEntity != Entity.Null && World.EntityManager.Exists(ConnectionEntity);
         }
 
         /// <summary>
         /// Returns the <see cref="ConnectionState.State"/> of the current connection
         /// </summary>
-        /// <remarks>
-        /// DOTS remark: GhostAdapter will add a <see cref="ConnectionState"/> component on your connection entity by default
-        /// </remarks>
-        /// <returns>Unknown if the current connection is invalid</returns>
-        /// TODO-release doc review me once we're established on Connection API
+        /// <returns><see cref="ConnectionState.State.Unknown"/> if the current connection is invalid</returns>
         public ConnectionState.State GetConnectionState()
         {
             if (!IsValid()) return ConnectionState.State.Unknown;
 
-            if (m_World.IsHost() && this.NetworkId.Value == Netcode.Client.Connection.NetworkId.Value && Netcode.Server.Listening()) return ConnectionState.State.Connected;
-            if (m_World.EntityManager.HasComponent<NetworkStreamConnection>(ConnectionEntity)) // OnDisconnect, this component is removed
+            if (World.IsHost() && this.NetworkId.Value == World.LocalConnection.NetworkId.Value && World.Listening()) return ConnectionState.State.Connected;
+            if (World.EntityManager.HasComponent<NetworkStreamConnection>(ConnectionEntity)) // OnDisconnect, this component is removed
             {
-                return m_World.EntityManager.GetComponentData<NetworkStreamConnection>(ConnectionEntity).CurrentState;
+                return World.EntityManager.GetComponentData<NetworkStreamConnection>(ConnectionEntity).CurrentState;
             }
-            if (m_World.EntityManager.HasComponent<ConnectionState>(ConnectionEntity))
+            if (World.EntityManager.HasComponent<ConnectionState>(ConnectionEntity))
             {
-                return m_World.EntityManager.GetComponentData<ConnectionState>(ConnectionEntity).CurrentState;
+                return World.EntityManager.GetComponentData<ConnectionState>(ConnectionEntity).CurrentState;
             }
 
             return ConnectionState.State.Disconnected; // not returning unknown, as users shouldn't care about whether the driver is initialized or not. If there's no connection, we're disconnected
@@ -186,25 +153,73 @@ namespace Unity.NetCode
         /// <summary>
         /// Async method to disconnect this connection. See <see cref="NetworkStreamRequestDisconnect"/>
         /// </summary>
-        /// TODO-next@connection disconnect reason parameter
-        public void RequestDisconnect()
+        public void RequestDisconnect(NetworkStreamDisconnectReason reason = default)
         {
             if (!IsValid()) return;
-            m_World.EntityManager.AddComponent<NetworkStreamRequestDisconnect>(ConnectionEntity);
+            World.EntityManager.AddComponentData(ConnectionEntity, new NetworkStreamRequestDisconnect(){Reason = reason});
+        }
+
+        internal NetCodeConnectionEvent GenerateConnectedEvent()
+        {
+            return new NetCodeConnectionEvent()
+            {
+                ConnectionEntity = this.ConnectionEntity,
+                ConnectionId =
+                    this.World.EntityManager.GetComponentData<NetworkStreamConnection>(ConnectionEntity).Value,
+                Id = this.NetworkId,
+                State = this.GetConnectionState()
+            };
+        }
+
+        public bool Equals(Connection other)
+        {
+            return NetworkId.Equals(other.NetworkId) && ConnectionEntity.Equals(other.ConnectionEntity);
+        }
+
+        public static bool operator ==(Connection left, Connection right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(Connection left, Connection right)
+        {
+            return !left.Equals(right);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is Connection other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return this.NetworkId.Value;
+        }
+
+        public override string ToString()
+        {
+            return $"Connection {NetworkId.ToFixedString()}:{GetConnectionState()} in World:{World}";
         }
     }
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderLast = true)]
     [UpdateAfter(typeof(NetworkGroupCommandBufferSystem))] // to make sure we have the most up to date events for the tick (which are applied in that system)
+    [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     partial class ConnectionManagementUpdateConnections : SystemBase
     {
         protected override void OnCreate()
         {
             RequireForUpdate<NetworkStreamDriver>();
+            if (World.IsHost())
+            {
+                var netWorld = (NetcodeWorld)World;
+                netWorld.LocalConnection = new Connection(netWorld, SystemAPI.GetSingletonEntity<LocalConnection>());
+            }
         }
 
         protected override void OnUpdate()
         {
+            var netWorld = (NetcodeWorld)World;
             var connectionEventsForTick = SystemAPI.GetSingleton<NetworkStreamDriver>().ConnectionEventsForTick;
 
             var hostNetworkId = new NetworkId();
@@ -220,84 +235,106 @@ namespace Unity.NetCode
 
             foreach (var connectionEvent in connectionEventsForTick)
             {
-                var con = new Connection(World, connectionEntity: connectionEvent.ConnectionEntity, connectionEvent.Id);
+                var con = new Connection(netWorld, connectionEntity: connectionEvent.ConnectionEntity);
 
                 switch (connectionEvent.State)
                 {
                     case ConnectionState.State.Connected:
                     {
-                        OnConnectDelegate toInvoke = null;
-
-                        // TODO-release: If there are multiple worlds we need the world to know which Client/Server instance matches (add the world->Client mapping inside the world)
-                        //       In case of thin clients there will be no callbacks registered?
-
                         if (this.World.IsServer())
                         {
-                            Netcode.Server.Connections.Add(con);
-                            toInvoke += Netcode.Server.OnConnect;
+                            netWorld.AllConnections.Add(con);
                             if (this.World.IsHost() && con.NetworkId == hostNetworkId) // hostNetworkId to make sure we don't touch thin clients
                             {
-                                Netcode.Client.Connection = con;
-                                toInvoke += Netcode.Client.OnConnect;
+                                netWorld.LocalConnection = con;
                             }
                         }
                         else
                         {
-                            if (this.World != ClientServerBootstrap.ClientWorld) return; // TODO-release once we have multi world support in Netcode API, this is to handle thin clients (and secondary clients in tests), so that it doesn't override Netcode.Client. Should handle this for real though
-                            Netcode.Client.Connection = con;
-                            toInvoke = Netcode.Client.OnConnect;
-                        }
-
-                        try
-                        {
-                            toInvoke?.Invoke(new Connection { m_World = World, ConnectionEntity = connectionEvent.ConnectionEntity, NetworkId = connectionEvent.Id }, connectionEvent);
-                        }
-                        catch (Exception e)
-                        {
-                            Debug.LogException(e);
+                            netWorld.LocalConnection = con;
                         }
 
                         break;
                     }
                     case ConnectionState.State.Disconnected:
                     {
-                        OnDisconnectDelegate toInvoke = null;
-
+                        // TODO-next@connection store Disconnect reason somewhere for later access?
                         // Invoke callbacks before removing connection from list
                         if (World.IsServer())
                         {
-                            toInvoke = Netcode.Server.OnDisconnect;
-
-                            // TODO-release: This could instead be another system which keep the Server.Connections list in sync with actual connections
-                            Netcode.Server.Connections.Remove(con);
-                            if (World.IsHost() && con.NetworkId == hostNetworkId) // hostNetworkId to make sure we don't touch thin clients
+                            netWorld.AllConnections.Remove(con);
+                            if (World.IsHost() && con.NetworkId == hostNetworkId)
                             {
-                                // TODO-release: Connection needs to be invalid here or maybe with a state variable set (could also contain disconnect reason)
-                                Netcode.Client.Connection = con;
-                                toInvoke += Netcode.Client.OnDisconnect;
+                                netWorld.LocalConnection = con;
                             }
                         }
                         else
                         {
-                            // TODO-release: Connection needs to be invalid here or maybe with a state variable set (could also contain disconnect reason)
-                            if (this.World != ClientServerBootstrap.ClientWorld) return; // TODO-release this is to handle thin clients (and secondary clients in tests), so that it doesn't override Netcode.Client. Should handle this for real though
-                            Netcode.Client.Connection = con;
-                            toInvoke += Netcode.Client.OnDisconnect;
-                        }
-
-                        try
-                        {
-                            toInvoke?.Invoke(new Connection { m_World = World, ConnectionEntity = connectionEvent.ConnectionEntity, NetworkId = connectionEvent.Id }, connectionEvent);
-                        }
-                        catch (Exception e)
-                        {
-                            Debug.LogException(e);
+                            netWorld.LocalConnection = con;
                         }
 
                         break;
                     }
                 }
+
+                var onAnyConnectionEvent = netWorld.GetCallbackToInvokeOnConnectionEvent();
+                if (onAnyConnectionEvent == null || onAnyConnectionEvent.GetInvocationList().Length == 0)
+                {
+                    netWorld.NetDebug.DebugLog($"[{connectionEvent}]: No connection callback set in {nameof(NetcodeWorld)}.{nameof(NetcodeWorld.OnConnectionEvent)} or {nameof(Netcode)}.{nameof(Netcode.OnConnectionEvent)}."); // There's going to be other DebugLogs in bursted systems logging the actual events. This just augments those logs.
+                }
+                else
+                {
+                    foreach (var toInvoke in onAnyConnectionEvent.GetInvocationList())
+                    {
+                        try
+                        {
+                            toInvoke.Method.Invoke(toInvoke.Target, new object[] { new Connection(netWorld, connectionEvent.ConnectionEntity), connectionEvent });
+                        }
+                        catch (Exception e)
+                        {
+                            Debug.LogException(e);
+                        }
+                    }
+                }
             }
+        }
+
+        protected override void OnDestroy()
+        {
+            var netWorld = (NetcodeWorld)World;
+            if (!netWorld.IsServer()) Assert.IsTrue(netWorld.AllConnections.Count == 0, "sanity check failed");
+
+            // calling this manually since that won't be called if we dispose the world
+            foreach (var connection in netWorld.AllConnections)
+            {
+                if (!connection.IsValid()) continue;
+
+                var connectionEvent = new NetCodeConnectionEvent()
+                {
+                    ConnectionEntity = connection.ConnectionEntity,
+                    Id = connection.NetworkId,
+                    ConnectionId = this.EntityManager.GetComponentData<NetworkStreamConnection>(connection.ConnectionEntity).Value,
+                    DisconnectReason = NetworkStreamDisconnectReason.ConnectionClose,
+                    State = ConnectionState.State.Disconnected
+                };
+                var onAnyConnectionEvent = netWorld.GetCallbackToInvokeOnConnectionEvent();
+                if (onAnyConnectionEvent == null || onAnyConnectionEvent.GetInvocationList().Length == 0)
+                {
+                    netWorld.NetDebug.DebugLog($"[{connectionEvent}]: No connection callback set in {nameof(NetcodeWorld)}.{nameof(NetcodeWorld.OnConnectionEvent)} or {nameof(Netcode)}.{nameof(Netcode.OnConnectionEvent)}."); // There's going to be other DebugLogs in bursted systems logging the actual events. This just augments those logs.
+                }
+                else
+                {
+                    try
+                    {
+                        netWorld.GetCallbackToInvokeOnConnectionEvent().Invoke(connection, connectionEvent);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
+                }
+            }
+
         }
     }
 }

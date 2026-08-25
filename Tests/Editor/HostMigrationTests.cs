@@ -13,7 +13,6 @@ using UnityEngine;
 using Unity.NetCode.Tests.PrespawnTests;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine.SceneManagement;
-using System.Linq;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.NetCode.HostMigration;
 
@@ -582,7 +581,7 @@ namespace Unity.NetCode.Tests
             var serverConnectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
             var connections = serverConnectionQuery.ToComponentDataArray<NetworkStreamConnection>(Allocator.Temp);
             for (int i = 0; i < connections.Length; ++i)
-                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.DriverStore.Disconnect(connections[i]);
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Disconnect(connections[i]);
             testWorld.Tick();
             testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.DriverStore.Dispose();
             var serverNetDebugQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetDebug>());
@@ -1416,7 +1415,7 @@ namespace Unity.NetCode.Tests
 
                     Assert.AreEqual(ghostInstance.ghostId, ghostTracker.originalGhostId, $"{errorPrefix}: {worldName} Ghost {e} has mis-tracked ghostId {ghostInstance.ghostId}:{ghostTracker.originalGhostId}");
                     Assert.AreEqual(ghostInstance.spawnTick, ghostTracker.originalSpawnTick, $"{errorPrefix}: {worldName} Ghost {e} has mis-tracked spawnTick {ghostInstance.spawnTick}:{ghostTracker.originalSpawnTick}");
-                    Assert.IsTrue(expectedTrackerGhostIds.Contains(ghostInstance.ghostId), $"{errorPrefix}: {worldName} Ghost has id: {ghostInstance.ghostId} this should be one of 2,4,6,8");
+                    Assert.Contains(ghostInstance.ghostId, expectedTrackerGhostIds, $"{errorPrefix}: {worldName} Ghost has id: {ghostInstance.ghostId} this should be one of 2,4,6,8");
                 }
             };
 
@@ -1433,7 +1432,7 @@ namespace Unity.NetCode.Tests
                 {
                     var ghostInstance = world.EntityManager.GetComponentData<GhostInstance>(e);
 
-                    Assert.IsTrue(expectedPostMigrationmActionGhostIds.Contains(ghostInstance.ghostId), $"{errorPrefix}: {worldName} Ghost has id: {ghostInstance.ghostId} this should be one of 1,3,5,7");
+                    Assert.Contains(ghostInstance.ghostId, expectedPostMigrationmActionGhostIds, $"{errorPrefix}: {worldName} Ghost has id: {ghostInstance.ghostId} this should be one of 1,3,5,7");
                 }
             };
 

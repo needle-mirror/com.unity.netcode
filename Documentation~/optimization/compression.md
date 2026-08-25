@@ -21,6 +21,6 @@ So sending `0.123456789` with a quantization value of `10` would send only the v
 
 ## Delta compression
 
-As mentioned above, sending smaller values results in smaller amount of bits needed for the same type. A 32 bit float can be sent using less than 8 bits if it only changes a little. Games are usually composed of objects moving in small steps (rather than constantly teleporting), and sending the delta between each value change instead of the absolute value each time results in great bandwidth optimization gains. Use the [`Composite` property on `GhostFieldAttribute`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostFieldAttribute.html#Unity_NetCode_GhostFieldAttribute_Composite) to customize delta compression for a component.
+As mentioned above, sending smaller values results in smaller amount of bits needed for the same type. A 32 bit float can be sent using less than 8 bits if it only changes a little. Games are usually composed of objects moving in small steps (rather than constantly teleporting), and sending the delta between each value change instead of the absolute value each time results in great bandwidth optimization gains. Use the [`Composite` property on `GhostFieldAttribute`](xref:Unity.NetCode.GhostFieldAttribute.Composite) to customize delta compression for a component.
 
 Note that delta compression is calculated against a baseline. For [pre-spawned ghosts](../ghost-spawning.md#pre-spawned-ghosts), this baseline is updated against the ghost's initial value instead of zero.

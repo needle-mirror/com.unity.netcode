@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<engine:UXML
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:engine="UnityEngine.UIElements"
+    xmlns:editor="UnityEditor.UIElements"
+    xsi:noNamespaceSchemaLocation="../../../../../UIElementsSchema/UIElements.xsd">
+    <Style src="project://database/Packages/com.unity.netcode/Editor/Tracing/UI/Stylesheets/timeline-view.uss"/>
+
+        <engine:VisualElement name="progress-bar-container" class="tracing-window--centered-content tracing-window--hidden">
+            <engine:ProgressBar name="progress-bar" low-value="0" high-value="100" value="0" title="Processing trace" class="timeline__loader"/>
+        </engine:VisualElement>
+
+        <engine:VisualElement name="frame-selector-container" class="timeline__frame-selector__container">
+            <engine:VisualElement class="timeline__frame-selector__label-container">
+                <engine:Label text="Highlights" />
+                <engine:Label text="Target Diff Range" class="timeline__frame-selector__label--small"/>
+            </engine:VisualElement>
+
+            <engine:VisualElement class="timeline__frame-selector__slider-container">
+                <engine:MinMaxSlider class="timeline__range-selector tracing-window--hidden" name="frame-range-slider" low-limit="0" high-limit="1" min-value="0" max-value="1" />
+                <engine:SliderInt class="timeline__frame-selector tracing-window--hidden" name="frame-slider" low-value="0" high-value="1"  />
+            </engine:VisualElement>
+        </engine:VisualElement>
+
+
+        <engine:VisualElement name="tick-selector-container" class="timeline__tick-selector__container tracing-window--hidden">
+            <engine:VisualElement class="timeline__tick-selector__label">
+                <engine:Label text="Client Side" />
+            </engine:VisualElement>
+
+            <engine:ToggleButtonGroup name="tick-selector" allow-empty-selection="true" class="timeline__tick-selector__button-group-container" />
+        </engine:VisualElement>
+</engine:UXML>

@@ -8,6 +8,7 @@ using Unity.Jobs;
 using System.Runtime.InteropServices;
 using Unity.Assertions;
 using Unity.Burst.Intrinsics;
+using Unity.NetCode.EntitiesInternalAccess;
 
 namespace Unity.NetCode
 {
@@ -206,6 +207,7 @@ namespace Unity.NetCode
             var smoothingSingleton = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(atype));
             FixedString64Bytes singletonName = "GhostPredictionSmoothing-Singleton";
             state.EntityManager.SetName(smoothingSingleton, singletonName);
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, smoothingSingleton);
             SystemAPI.SetSingleton(new GhostPredictionSmoothing(m_SmoothingActions, m_UserSpecifiedComponentData, enableQuery));
         }
 
@@ -273,7 +275,7 @@ namespace Unity.NetCode
         {
             public DynamicTypeList DynamicTypeList;
             public DynamicTypeList UserList;
-            public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly predictionState;
+            public NativeParallelHashMap<ulong, SlotPtr>.ReadOnly predictionState;
 
             [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostType;
             [ReadOnly] public ComponentTypeHandle<PredictedGhost> predictedGhostType;
@@ -297,9 +299,10 @@ namespace Unity.NetCode
                 // This job is not written to support queries with enableable component types.
                 Assert.IsFalse(useEnabledMask);
 
-                if (!predictionState.TryGetValue(chunk, out var state) ||
-                    (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)
+                if (!predictionState.TryGetValue(chunk.SequenceNumber, out var slot) ||
+                    slot.Value->entityCapacity != chunk.Capacity)
                     return;
+                var state = (System.IntPtr)slot.Value;
 
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = DynamicTypeList.GetData();
                 int ghostChunkComponentTypesLength = DynamicTypeList.Length;

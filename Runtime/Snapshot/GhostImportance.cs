@@ -26,7 +26,8 @@ namespace Unity.NetCode
         /// </summary>
         public int priority;
         /// <summary>
-        /// Fast-path denoting the relevancy of the entire chunk.
+        /// A relevancy fast-path, enabling you to denote the relevancy of the entire chunk, without having to write individual
+        /// ghosts into the <see cref="GhostRelevancy.GhostRelevancySet"/>.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -34,13 +35,13 @@ namespace Unity.NetCode
         ///     otherwise defaults to <c>false</c>.
         /// </para>
         /// <para>
-        ///     When using this bool, there is no need to write ghost instances into the global `GhostRelevancySet`, unless
+        ///     This value acts as a pre-filter, that will be applied to all ghosts within the chunk.
+        ///     When modifying this bool, there is no need to write ghost instances into the global `GhostRelevancySet`, unless
         ///     you need to add an exception (e.g. a ghost that is very far away from the player, yet should remain relevant).
         /// </para>
         /// <para>
         ///     Note: Why not use <see cref="priority"/> to denote relevancy? Because relevancy still requires the chunk
-        ///     to be processed occassionally. In other words; there is a risk of breaking relevancy by forcing the importance
-        ///     to be artificially low.
+        ///     to be processed frequently, and prioritization denotes how often that work is performed.
         /// </para>
         /// </remarks>
         public bool isRelevant;

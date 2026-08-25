@@ -11,6 +11,7 @@ using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.NetCode.LowLevel;
 using Unity.Profiling;
 using Hash128 = Unity.Entities.Hash128;
@@ -41,6 +42,7 @@ namespace Unity.NetCode
     [BurstCompile]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [CreateAfter(typeof(DefaultVariantSystemGroup))]
+    [CreateAfter(typeof(NetDebugSystem))]
     [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     public partial struct GhostCollectionSystem : ISystem
     {
@@ -177,13 +179,26 @@ namespace Unity.NetCode
             return ghostTypeHash;
         }
 
+        /// <summary>
+        /// Builds the query for ghost prefabs that need to be stripped at runtime.
+        /// </summary>
+        /// <param name="em"></param>
+        /// <returns></returns>
+        internal static EntityQuery GetRuntimeStripQuery(in EntityManager em)
+        {
+            using var builder = new EntityQueryBuilder(Allocator.Temp);
+            builder.WithAll<GhostPrefabMetaData, Prefab, GhostPrefabRuntimeStrip>();
+            return builder.Build(em);
+        }
+
         /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<GhostCollection>();
             // TODO - Deduplicate this data by removing all unnecessary buffers.
-            m_CollectionSingleton = state.EntityManager.CreateSingleton<GhostCollection>("Ghost Collection");
+            m_CollectionSingleton = state.EntityManager.CreateSingleton<GhostCollection>("Ghost Collection Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, m_CollectionSingleton);
             state.EntityManager.AddBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton);
             state.EntityManager.AddBuffer<GhostCollectionComponentIndex>(m_CollectionSingleton);
             state.EntityManager.AddBuffer<GhostCollectionPrefab>(m_CollectionSingleton);
@@ -211,8 +226,8 @@ namespace Unity.NetCode
             {
                 Serializers = m_CustomSerializers
             });
-            using var entityQueryBuilder = new EntityQueryBuilder(Allocator.Temp).WithAll<GhostPrefabMetaData, Prefab, GhostPrefabRuntimeStrip>();
-            m_RuntimeStripQuery = state.GetEntityQuery(entityQueryBuilder);
+            using var entityQueryBuilder = new EntityQueryBuilder(Allocator.Temp);
+            m_RuntimeStripQuery = GhostCollectionSystem.GetRuntimeStripQuery(state.EntityManager);
             entityQueryBuilder.Reset();
             entityQueryBuilder.WithAll<NetworkStreamInGame>();
             m_InGameQuery = state.GetEntityQuery(entityQueryBuilder);
@@ -240,7 +255,20 @@ namespace Unity.NetCode
             m_UpdateNameMarker = new ProfilerMarker($"{state.WorldUnmanaged.Name}-GhostCollectionSystem_UpdateNames");
 
             if (!SystemAPI.TryGetSingletonEntity<CodeGhostPrefab>(out m_CodePrefabSingleton))
+            {
                 m_CodePrefabSingleton = state.EntityManager.CreateSingletonBuffer<CodeGhostPrefab>();
+                EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, m_CodePrefabSingleton);
+            }
+
+            var netDebug = SystemAPI.GetSingleton<NetDebug>();
+
+            if (!m_RuntimeStripQuery.IsEmptyIgnoreFilter)
+            {
+                m_RuntimeStripQuery.CompleteDependency();
+                using var _ = m_StrippingMarker.Auto();
+                RuntimeStripPrefabs(state.EntityManager, in netDebug, m_RuntimeStripQuery);
+            }
+
         }
 
         /// <inheritdoc/>
@@ -299,7 +327,7 @@ namespace Unity.NetCode
             {
                 m_RuntimeStripQuery.CompleteDependency();
                 using var _ = m_StrippingMarker.Auto();
-                RuntimeStripPrefabs(ref state, in netDebug);
+                RuntimeStripPrefabs(state.EntityManager, in netDebug, m_RuntimeStripQuery);
             }
 
             if (m_InGameQuery.IsEmptyIgnoreFilter)
@@ -364,16 +392,27 @@ namespace Unity.NetCode
                 using var ghostPrefabEntities = m_DestroyedGhostPrefabQuery.ToEntityArray(Allocator.Temp);
                 using var trackedPrefabs = m_DestroyedGhostPrefabQuery.ToComponentDataArray<GhostPrefabTracking>(Allocator.Temp);
                 var pendingGhostPrefabAssignment = SystemAPI.GetSingletonRW<GhostCollection>().ValueRW.PendingGhostPrefabAssignment;
+
+                // First remove all invalid entries from the map, ensures we won't accidentally map to an invalid entity
+                // and fail to process it correctly (could be left stale or with a -1 index and skip the update logic)
+                for(int i=0;i<trackedPrefabs.Length;++i)
+                    RemoveGhostPrefabFromTracking(trackedPrefabs[i], ghostPrefabEntities[i]);
+
                 for(int i=0;i<trackedPrefabs.Length;++i)
                 {
                     var tracking = trackedPrefabs[i];
-                    RemoveGhostPrefabFromTracking(tracking, ghostPrefabEntities[i]);
-                    if (tracking.GhostType != default)
+                    if (tracking.GhostType != default && tracking.GhostCollectionPrefabIndex != -1)
                     {
                         //Need to remap this with other ghosts of the same types. How to find this fast enough?
                         if (m_GhostPrefabForGhostType.TryGetFirstValue(tracking.GhostType, out var newPrefabEntity, out var _))
                         {
                             ghostCollectionList.ElementAt(tracking.GhostCollectionPrefabIndex).GhostPrefab = newPrefabEntity;
+                            // Make sure the new prefab entity has the same index as the one being cleaned (could be uninitialized as -1)
+                            state.EntityManager.SetComponentData(newPrefabEntity, new GhostPrefabTracking
+                            {
+                                GhostCollectionPrefabIndex = tracking.GhostCollectionPrefabIndex,
+                                GhostType = tracking.GhostType
+                            });
                         }
                         else
                         {
@@ -436,6 +475,16 @@ namespace Unity.NetCode
                             GhostType = ghostType
                         });
                     }
+                    else
+                    {
+                        // This prefab will not be added to the ghost collection (type index already has valid prefab),
+                        // register the ghost type in the tracker so cleanup can happen properly when it's deleted
+                        state.EntityManager.SetComponentData(ghostPrefabEntities[i], new GhostPrefabTracking
+                        {
+                            GhostCollectionPrefabIndex = -1,
+                            GhostType = ghostType
+                        });
+                    }
                 }
             }
             else if(state.WorldUnmanaged.IsClient())
@@ -481,6 +530,16 @@ namespace Unity.NetCode
                             });
                             //remove the pending assignment
                             pendingAssigment.Remove(ghostType);
+                        }
+                        else
+                        {
+                            // Only set the ghost type on the tracking component. It will be needed in case the entity
+                            // is deleted/cleaned without ever being initialized to the ghost collection
+                            state.EntityManager.SetComponentData(ent, new GhostPrefabTracking()
+                            {
+                                GhostCollectionPrefabIndex = -1,
+                                GhostType = ghostType
+                            });
                         }
                     }
                     pendingAssigment[default] = 0;
@@ -558,7 +617,19 @@ namespace Unity.NetCode
                 {
                     if (hash == 0)
                     {
-                        FixedString512Bytes error = $"The ghost collection contains a ghost which does not have a valid prefab on the client! Ghost: '{ctx.ghostName}' ('{entityPrefabName}').";
+                        FixedString4096Bytes error = $@"The ghost prefab collection contains a ghost which does not have a valid prefab on the client! Ghost: '{ctx.ghostName}' ('{entityPrefabName}').
+Netcode requires all ghost prefabs to be already loaded and registered when receiving state replication for them.
+
+This could be caused by the client not loading the same subscenes as the server (or not in a timely manner) while the network connection is in game already (has `NetworkStreamInGame` component). It could also happen when creating prefabs at runtime. So if you used GhostPrefabCreation.ConvertToGhostPrefab() remember to do it on BOTH server AND client EntityManagers.
+
+Example:
+// Server
+GhostPrefabCreation.ConvertToGhostPrefab(serverEntityManager, serverPrefab, config);
+
+// Client (required!)
+GhostPrefabCreation.ConvertToGhostPrefab(clientEntityManager, clientPrefab, config);
+
+Note: GameObject baking with GhostAuthoringComponent handles this automatically.";
 #if UNITY_EDITOR || ENABLE_UNITY_COLLECTIONS_CHECKS
                         BurstDiscardAppendBetterExceptionMessage(ghost, ref error, ref state);
 #endif
@@ -664,6 +735,16 @@ namespace Unity.NetCode
         [BurstDiscard]
         private void BurstDiscardAppendBetterExceptionMessage(in GhostCollectionPrefab clientGhost,
             ref FixedString512Bytes error, ref SystemState state)
+        {
+            BurstDiscardAppendBetterExceptionMessage(clientGhost, ref error, ref state);
+        }
+
+        /// <summary>
+        /// Small helper function (a hack, really) to manually look for this invalid hash inside the in-process ServerWorld[s], for easier debugging.
+        /// </summary>
+        [BurstDiscard]
+        private void BurstDiscardAppendBetterExceptionMessage(in GhostCollectionPrefab clientGhost,
+            ref FixedString4096Bytes error, ref SystemState state)
         {
 #if UNITY_EDITOR || ENABLE_UNITY_COLLECTIONS_CHECKS
             if (ClientServerBootstrap.ServerWorlds.Count == 0)
@@ -857,34 +938,42 @@ namespace Unity.NetCode
         }
 
         /// <summary>Perform runtime stripping of all prefabs which need it.</summary>
-        /// <param name="state"></param>
         /// <exception cref="InvalidOperationException"></exception>
-        private void RuntimeStripPrefabs(ref SystemState state, in NetDebug netDebug)
+        internal static void RuntimeStripPrefabs(in EntityManager em, in NetDebug netDebug, in EntityQuery runtimeStripQuery)
         {
-            using var prefabEntities = m_RuntimeStripQuery.ToEntityArray(Allocator.Temp);
-            if (state.WorldUnmanaged.IsHost())
+            using var prefabEntities = runtimeStripQuery.ToEntityArray(Allocator.Temp);
+            using var metaDatas = runtimeStripQuery.ToComponentDataArray<GhostPrefabMetaData>(Allocator.Temp);
+
+            if (em.WorldUnmanaged.IsHost())
             {
                 // On single world host, manually strip essentials and early return
-                state.EntityManager.RemoveComponent(m_RuntimeStripQuery, GhostPrefabCreation.RemoveOnServerWorldsSharedList(Entity.Null, state.EntityManager));
-                state.EntityManager.RemoveComponent<GhostPrefabRuntimeStrip>(m_RuntimeStripQuery);
+                em.RemoveComponent(runtimeStripQuery, GhostPrefabCreation.RemoveOnServerWorldsSharedList(Entity.Null, em));
+                em.RemoveComponent<GhostPrefabRuntimeStrip>(runtimeStripQuery);
+
+                for (int i = 0; i < prefabEntities.Length; i++)
+                {
+                    var prefabEntity = prefabEntities[i];
+                    ref var ghostMetaData = ref metaDatas[i].Value.Value;
+                    if (ghostMetaData.SingleWorldHostInterpolationSmoothing == SingleWorldHostInterpolationMode.Interpolate)
+                        em.AddComponent<NetcodeSmoothHostLocalToWorld>(prefabEntity);
+                }
 
                 // Since this is a single world host, we can't strip anything else so early return
                 return;
             }
 
-            using var metaDatas = m_RuntimeStripQuery.ToComponentDataArray<GhostPrefabMetaData>(Allocator.Temp);
             for (int i = 0; i < prefabEntities.Length; i++)
             {
                 var prefabEntity = prefabEntities[i];
                 ref var ghostMetaData = ref metaDatas[i].Value.Value;
 
                 // Delete everything from toBeDeleted from the prefab
-                ref var removeOnWorld = ref GetRemoveOnWorldList(ref ghostMetaData, state.WorldUnmanaged.IsServer());
+                ref var removeOnWorld = ref GetRemoveOnWorldList(ref ghostMetaData, em.WorldUnmanaged.IsServer());
                 if (removeOnWorld.Length > 0)
                 {
                     //Need to make a copy since we are making structural changes (removing components). The entity values
                     //remains the same but the chunks (and so the memory) they pertains does not.
-                    var entities = state.EntityManager.GetBuffer<LinkedEntityGroup>(prefabEntity).ToNativeArray(Allocator.Temp);
+                    using var entities = em.GetBuffer<LinkedEntityGroup>(prefabEntity).ToNativeArray(Allocator.Temp);
                     for (int rm = 0; rm < removeOnWorld.Length; ++rm)
                     {
                         var indexHashPair = removeOnWorld[rm];
@@ -900,12 +989,13 @@ namespace Unity.NetCode
                         }
 #endif
                         var ent = entities[indexHashPair.EntityIndex].Value;
-                        if (state.EntityManager.HasComponent(ent, compType))
-                            state.EntityManager.RemoveComponent(ent, compType);
+                        if (em.HasComponent(ent, compType))
+                            em.RemoveComponent(ent, compType);
                     }
                 }
             }
-            state.EntityManager.RemoveComponent<GhostPrefabRuntimeStrip>(m_RuntimeStripQuery);
+
+            em.RemoveComponent<GhostPrefabRuntimeStrip>(runtimeStripQuery);
 
             ref BlobArray<GhostPrefabBlobMetaData.ComponentReference> GetRemoveOnWorldList(ref GhostPrefabBlobMetaData ghostMetaData, bool isServer)
             {

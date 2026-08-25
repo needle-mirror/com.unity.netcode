@@ -7,7 +7,10 @@ namespace Unity.NetCode
     /// Stores packet loss causes and statistics for all received snapshots. Thus, client-only (with one exception).
     /// Access via <see cref="NetworkSnapshotAck"/>.
     /// </summary>
-    /// <remarks>Very similar approach to <see cref="Unity.Networking.Transport.UnreliableSequencedPipelineStage"/> Statistics.</remarks>
+    /// <remarks>
+    /// On the client, the fields <see cref="NumPacketsReceived"/>, <see cref="NumPacketsCulledOutOfOrder"/>, and
+    /// <see cref="NumPacketsDroppedNeverArrived"/> are sourced from <see cref="Unity.Networking.Transport.UnreliableSequencedPipelineStage.Statistics"/>.
+    /// </remarks>
     public struct SnapshotPacketLossStatistics
     {
         /// <summary>

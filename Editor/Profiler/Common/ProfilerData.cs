@@ -20,6 +20,10 @@ namespace Unity.NetCode.Editor
         internal NativeArray<TickData> tickData;
         internal float jitter;
         internal float rtt;
+        internal bool isHostMode;
+        internal bool hasConnectedClients;
+        internal string worldName;
+        internal bool hasWorldMetadata;
     }
 
     /// <summary>
@@ -31,6 +35,7 @@ namespace Unity.NetCode.Editor
     struct TickData
     {
         internal NetworkTick tick;
+        internal NetworkTick predictionTick;
         internal NetworkTick interpolationTick;
         internal uint packetCount;
         internal uint snapshotCount;

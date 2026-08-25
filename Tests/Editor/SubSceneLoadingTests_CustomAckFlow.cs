@@ -31,44 +31,77 @@ namespace Unity.NetCode.Tests
             RequireForUpdate<PrespawnSceneLoaded>();
         }
 
-        protected override void OnUpdate()
+        partial struct ProcessPrespawnAcks : IJobEntity
         {
-            var ecb = m_Barrier.CreateCommandBuffer();
-            var serverTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
-            Entities.ForEach((Entity entity, in NotifySceneLoaded streamingReq, in ReceiveRpcCommandRequest requestComponent) =>
+            public EntityCommandBuffer Ecb;
+            public BufferLookup<PrespawnSectionAck> PrespawnSceneAcksLookUp;
+            public void Execute(Entity entity, in NotifySceneLoaded streamingReq, in ReceiveRpcCommandRequest requestComponent)
             {
-                var prespawnSceneAcks = SystemAPI.GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
+                var prespawnSceneAcks = PrespawnSceneAcksLookUp[requestComponent.SourceConnection];
                 int ackIdx = prespawnSceneAcks.IndexOf(streamingReq.SceneHash);
                 if (ackIdx == -1)
                     prespawnSceneAcks.Add(new PrespawnSectionAck { SceneHash = streamingReq.SceneHash });
-                ecb.DestroyEntity(entity);
-            }).Schedule();
+                Ecb.DestroyEntity(entity);
+            }
+        }
 
-            Entities.ForEach((Entity entity, in NotifyUnloadingScene streamingReq, in ReceiveRpcCommandRequest requestComponent) =>
+        partial struct SendPrespawnAcks : IJobEntity
+        {
+            public NetworkTick ServerTick;
+            public EntityCommandBuffer Ecb;
+
+            public BufferLookup<PrespawnSectionAck> PrespawnSceneAcksLookUp;
+
+            public void Execute(Entity entity, in NotifyUnloadingScene streamingReq, in ReceiveRpcCommandRequest requestComponent)
             {
-                var prespawnSceneAcks = SystemAPI.GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
+                var prespawnSceneAcks = PrespawnSceneAcksLookUp[requestComponent.SourceConnection];
                 int ackIdx = prespawnSceneAcks.IndexOf(streamingReq.SceneHash);
                 if (ackIdx != -1)
                 {
                     prespawnSceneAcks.RemoveAt(ackIdx);
                     //Send back an rpc to confirm the unload
-                    var reqEnt = ecb.CreateEntity();
-                    ecb.AddComponent(reqEnt, new RequestUnLoadScene
+                    var reqEnt = Ecb.CreateEntity();
+                    Ecb.AddComponent(reqEnt, new RequestUnLoadScene
                     {
                         SceneHash = streamingReq.SceneHash,
-                        ServerTick = serverTick
+                        ServerTick = ServerTick
                     });
-                    ecb.AddComponent(reqEnt, new SendRpcCommandRequest
+                    Ecb.AddComponent(reqEnt, new SendRpcCommandRequest
                     {
                         TargetConnection = requestComponent.SourceConnection
                     });
                 }
-                ecb.DestroyEntity(entity);
-            }).Schedule();
+                Ecb.DestroyEntity(entity);
+            }
+        }
+
+
+        protected override void OnUpdate()
+        {
+            var ecb = m_Barrier.CreateCommandBuffer();
+            var serverTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+
+            Dependency = new ProcessPrespawnAcks { Ecb = ecb, PrespawnSceneAcksLookUp=SystemAPI.GetBufferLookup<PrespawnSectionAck>() }.Schedule(Dependency);
+            Dependency = new SendPrespawnAcks{ ServerTick = serverTick, Ecb = ecb, PrespawnSceneAcksLookUp=SystemAPI.GetBufferLookup<PrespawnSectionAck>() }.Schedule(Dependency);
 
             m_Barrier.AddJobHandleForProducer(Dependency);
         }
     }
+
+    partial struct CleanupScene : IJobEntity
+    {
+        public NativeParallelHashMap<ulong, Entity> Hashmap;
+        public EntityCommandBuffer Ecb;
+        public void Execute(Entity entity, in RequestUnLoadScene unloadScene, in ReceiveRpcCommandRequest requestComponent)
+        {
+            if(Hashmap.TryGetValue(unloadScene.SceneHash, out var sceneEntity))
+            {
+                Ecb.RemoveComponent<RequestSceneLoaded>(sceneEntity);
+            }
+            Ecb.DestroyEntity(entity);
+        }
+    }
+
 
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
@@ -78,22 +111,16 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var hashmap = new NativeParallelHashMap<ulong, Entity>(16, Allocator.TempJob);
-            Entities.ForEach((Entity entity, in SubSceneWithPrespawnGhosts sub) =>
+            foreach( var (sub, entity) in SystemAPI.Query<SubSceneWithPrespawnGhosts>().WithEntityAccess() )
             {
                 hashmap[sub.SubSceneHash] =  entity;
-            }).Run();
+            }
+
             var barrier = World.GetExistingSystemManaged<BeginSimulationEntityCommandBufferSystem>();
             var ecb = barrier.CreateCommandBuffer();
-            Entities
-                .WithDisposeOnCompletion(hashmap)
-                .ForEach((Entity entity, in RequestUnLoadScene unloadScene, in ReceiveRpcCommandRequest requestComponent) =>
-                {
-                    if(hashmap.TryGetValue(unloadScene.SceneHash, out var sceneEntity))
-                    {
-                        ecb.RemoveComponent<RequestSceneLoaded>(sceneEntity);
-                    }
-                    ecb.DestroyEntity(entity);
-                }).Schedule();
+
+            Dependency = new CleanupScene {Hashmap=hashmap, Ecb=ecb }.Schedule(Dependency);
+            Dependency = hashmap.Dispose(Dependency);
             barrier.AddJobHandleForProducer(Dependency);
         }
     }
@@ -178,7 +205,6 @@ namespace Unity.NetCode.Tests
                     //Only 5 ghost should be present
                     var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                     Assert.AreEqual(numObjects, query.CalculateEntityCount());
-
                 }
             }
         }

@@ -1,6 +1,7 @@
 using System;
 using Unity.Collections;
 using Unity.Entities;
+using UnityEngine;
 
 namespace Unity.NetCode
 {
@@ -72,10 +73,11 @@ namespace Unity.NetCode
         /// The tick we should be gathering (i.e. raising, sending) input commands for, for them to arrive in time
         /// to be processed by the server.
         /// It is identical to the <see cref="ServerTick"/> except; a) when using <see cref="ClientTickRate.MaxPredictAheadTimeMS"/>
-        /// with a very high ping connection, b) when using <see cref="ClientTickRate.ForcedInputLatencyTicks"/>, c) when in an "off" frame with no prediction in
-        /// <see cref="NetCodeConfig.HostWorldMode.SingleWorld"/> mode (in this case, <see cref="InputTargetTick"/> is for the next tick, as we're accumulating inputs for it in those off frames).
+        /// with a very high ping connection, b) when using <see cref="ClientTickRate.ForcedInputLatencyTicks"/>,
+        /// c) when in an "off frame" in <see cref="NetCodeConfig.HostWorldMode.SingleWorld"/> mode (in this case,
+        /// <see cref="InputTargetTick"/> is for the next tick, as we're accumulating inputs for it in those off frames).
         /// The four timelines are therefore in this order: <c>Interpolation Tick (oldest) -> Snapshot Arrival Tick (from the server)
-        /// -> ServerTick (client prediction) -> InputTargetTick (i.e. inputs being sent)</c>.
+        /// -> ServerTick (client prediction) -> InputTargetTick (i.e. inputs being raised and sent)</c>.
         /// </summary>
         /// <remarks>
         /// Use this variable (not <see cref="ServerTick"/>) when assigning a tick value to your command data
@@ -89,8 +91,6 @@ namespace Unity.NetCode
                 {
                     var networkTick = ServerTick;
                     networkTick.Add(EffectiveInputLatencyTicks);
-                    if (IsOffFrame)
-                        networkTick.Add(1);
                     return networkTick;
                 }
                 return NetworkTick.Invalid;
@@ -172,7 +172,7 @@ namespace Unity.NetCode
         public bool IsCatchUpTick => (Flags & NetworkTimeFlags.IsCatchUpTick) != 0;
         /// <summary>
         /// Counts the number of predicted ticks that have been triggered on this frame (while inside the prediction loop).
-        /// Thus, client only, and increments BEFORE the tick occurs (i.e. the first predicted tick will have a value of 1).
+        /// Increments BEFORE the tick occurs (i.e. the first predicted tick will have a value of 1).
         /// Outside the prediction loop, records the current or last frames prediction tick count (until prediction restarts).
         /// </summary>
         public int PredictedTickIndex { get; internal set; }
@@ -183,10 +183,11 @@ namespace Unity.NetCode
         /// </summary>
         /// <remarks>
         /// With Single World Host, it's possible to have "off" frames where no game prediction group executes. If there will be or if there has been a
-        /// prediction group execution this frame, this value will be set. This value is only set during the SimulationSystemGroup.
-        /// To see if a tick will execute this frame, use <see cref="IsOffFrame"/>
+        /// prediction group execution this frame, this value will be set.
+        /// To see if a tick will execute this frame, use <see cref="IsOffFrame"/>, which is set much earlier in the frame.
         /// </remarks>
         public int NumPredictedTicksExpected { get; internal set; }
+
         /// <summary>
         /// Indicates whether we're in an "off" frame where no netcode tick is executing.
         /// Always false on clients worlds, since they always have partial ticks.
@@ -212,8 +213,16 @@ namespace Unity.NetCode
                 if (IsFirstTimeFullyPredictingTick) flags.Append((FixedString64Bytes) $"|{nameof(IsFirstTimeFullyPredictingTick)}");
                 if (IsCatchUpTick) flags.Append((FixedString32Bytes) $"|{nameof(IsCatchUpTick)}");
             }
-            FixedString32Bytes partial = IsPartialTick ? "PARTIAL" : "FULL";
-            return $"NetworkTime[ServerTick:{ServerTick.ToFixedString()}|{(int) (ServerTickFraction * 100)}%|{partial}|+{SimulationStepBatchSize}|{PredictedTickIndex}/{NumPredictedTicksExpected}, InputTargetTick:{InputTargetTick.ToFixedString()}|+{EffectiveInputLatencyTicks}, InterpolationTick:{InterpolationTick.ToFixedString()}|{(int) (InterpolationTickFraction * 100)}%|D{commandInterpolationDelay}, Flags:{flags}]";
+            return $"{ToShortFixedString()}[InputTargetTick:{InputTargetTick.ToFixedString()}|+{EffectiveInputLatencyTicks}, InterpolationTick:{InterpolationTick.ToFixedString()}|{(int) (InterpolationTickFraction * 100)}%|D{commandInterpolationDelay}, Flags:{flags}]";
+        }
+
+        /// <summary>Helper to debug NetworkTime issues via logs.</summary>
+        /// <returns>Formatted string containing a sub-set of NetworkTime data.</returns>
+        public FixedString512Bytes ToShortFixedString()
+        {
+            FixedString32Bytes offFrame = IsOffFrame ? "OFF" : "PARTIAL";
+            FixedString32Bytes partial = IsPartialTick ? offFrame : "FULL";
+            return $"NetworkTime[ServerTick:{ServerTick.ToFixedString()}|{(int) (ServerTickFraction * 100)}%|{partial}|+{SimulationStepBatchSize}|{PredictedTickIndex}/{NumPredictedTicksExpected}";
         }
 
         /// <inheritdoc cref="ToFixedString"/>
@@ -272,7 +281,8 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// System in charge of updating some network time values in advance, so they can be used outside the normal <see cref="SimulationSystemGroup"/>
+    /// System in charge of updating some network time values in advance, so they can be used outside the normal <see cref="SimulationSystemGroup"/>.
+    /// For example, in <see cref="GhostBehaviour"/>'s Update.
     /// In order to get <see cref="NetworkTime.IsOffFrame"/>, make sure your system executes after this system.
     /// </summary>
     [UpdateInGroup(typeof(InitializationSystemGroup))]

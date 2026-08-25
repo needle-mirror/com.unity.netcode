@@ -20,21 +20,13 @@ namespace Unity.NetCode.Editor
 
         static void ModeChanged(PlayModeStateChange playModeState)
         {
-            if (playModeState != PlayModeStateChange.ExitingPlayMode)
+            if (playModeState != PlayModeStateChange.ExitingPlayMode || !EditorAnalytics.enabled)
             {
                 return;
             }
 
-            if (GhostComponentAnalytics.CanSendGhostComponentScale())
-            {
-                var scaleData = ComputeScaleData();
-                GhostComponentAnalytics.SendGhostComponentScale(scaleData);
-            }
-            if (GhostComponentAnalytics.CanSendGhostComponentConfiguration())
-            {
-                var configurationData = ComputeConfigurationData();
-                GhostComponentAnalytics.SendGhostComponentConfiguration(configurationData);
-            }
+            GhostComponentAnalytics.SendGhostComponentScale(ComputeScaleData());
+            GhostComponentAnalytics.SendGhostComponentConfiguration(ComputeConfigurationData());
         }
 
         static GhostScaleAnalyticsData ComputeScaleData()
@@ -137,6 +129,7 @@ namespace Unity.NetCode.Editor
             }
             data.NumMainClientWorlds = numMainClientWorlds;
             data.NumServerWorlds = numServerWorlds;
+            data.NetCodeConfigCount = AssetDatabase.FindAssets($"t:{nameof(NetCodeConfig)}").Length;
 
             return data;
         }
@@ -198,11 +191,7 @@ namespace Unity.NetCode.Editor
     }
 
     [Serializable]
-#if UNITY_2023_2_OR_NEWER
     struct GhostTypeData : IAnalytic.IData
-#else
-    struct GhostTypeData
-#endif
     {
         public string GhostId;
         public int ChildrenCount;
@@ -287,11 +276,7 @@ namespace Unity.NetCode.Editor
     }
 
     [Serializable]
-#if UNITY_2023_2_OR_NEWER
     struct GhostScaleAnalyticsData : IAnalytic.IData
-#else
-    struct GhostScaleAnalyticsData
-#endif
     {
         public PlaymodeSettings Settings;
         public int ServerSpawnedGhostCount;
@@ -304,6 +289,10 @@ namespace Unity.NetCode.Editor
         public int SnapshotTargetSize;
         public int NumMainClientWorlds;
         public int NumServerWorlds;
+        // Number of NetCodeConfig assets in the project. Used to track how many projects still rely on the
+        // (deprecated, RemovedAfter 6.8) ability to add multiple configs. >1 implies deprecated multi-config usage.
+        // TODO (6.8): Once multiple configs are removed this should always report 1.
+        public int NetCodeConfigCount;
 
         public override string ToString()
         {
@@ -318,6 +307,7 @@ namespace Unity.NetCode.Editor
                            $"{nameof(SnapshotTargetSize)}:{SnapshotTargetSize}, " +
                            $"{nameof(NumMainClientWorlds)}:{NumMainClientWorlds}, " +
                            $"{nameof(NumServerWorlds)}:{NumServerWorlds}, " +
+                           $"{nameof(NetCodeConfigCount)}:{NetCodeConfigCount}, " +
                            $" {nameof(GhostTypes)}:\n");
 
             foreach (var ghostTypeData in GhostTypes)
@@ -401,43 +391,6 @@ namespace Unity.NetCode.Editor
             NetCodeAnalytics.StoreGhostComponent(analyticsData);
         }
 
-#if !UNITY_2023_2_OR_NEWER
-        static bool s_ScaleRegistered;
-        static bool s_ConfigurationRegistered;
-        static bool RegisterEvent(string eventName, int ver)
-        {
-            return EditorAnalytics.RegisterEventWithLimit(eventName, k_MaxEventsPerHour, k_MaxItems, k_VendorKey, ver) == AnalyticsResult.Ok;
-        }
-#endif
-        static bool EnableScaleAnalytics()
-        {
-#if !UNITY_2023_2_OR_NEWER
-            if (s_ScaleRegistered)
-            {
-                return true;
-            }
-            s_ScaleRegistered = RegisterEvent(k_Scale, k_ScaleVersion);
-            return s_ScaleRegistered;
-#else
-            return true;
-#endif
-        }
-
-        static bool EnableConfigurationAnalytics()
-        {
-#if !UNITY_2023_2_OR_NEWER
-            if (s_ConfigurationRegistered)
-            {
-                return true;
-            }
-            s_ConfigurationRegistered = RegisterEvent(k_Configuration, k_ConfigurationVersion);
-            return s_ConfigurationRegistered;
-#else
-            return true;
-#endif
-        }
-
-#if UNITY_2023_2_OR_NEWER
         /// <summary>
         /// Generic basic class that allow to dispatch any <see cref="IAnalytic.IData"/> data. Used internally by
         /// GhostComponentAnalytics
@@ -469,53 +422,18 @@ namespace Unity.NetCode.Editor
         {
             public GhostConfigurationAnalytics(GhostConfigurationAnalyticsData data) : base(data) {}
         }
-#endif
-
-        static bool CanSendAnalytics()
-        {
-            return EditorAnalytics.enabled;
-        }
-
-        public static bool CanSendGhostComponentScale()
-        {
-            return CanSendAnalytics() && EnableScaleAnalytics();
-        }
-
-        public static bool CanSendGhostComponentConfiguration()
-        {
-            return CanSendAnalytics() && EnableConfigurationAnalytics();
-        }
 
         public static void SendGhostComponentScale(GhostScaleAnalyticsData data)
         {
-#if UNITY_2023_2_OR_NEWER
             EditorAnalytics.SendAnalytic(new GhostScaleAnalytics(data));
-#else
-            if (!s_ScaleRegistered)
-            {
-                return;
-            }
-            EditorAnalytics.SendEventWithLimit(k_Scale, data, k_ScaleVersion);
-#endif
         }
 
         public static void SendGhostComponentConfiguration(GhostConfigurationAnalyticsData[] data)
         {
-#if !UNITY_2023_2_OR_NEWER
-            if (!s_ConfigurationRegistered)
-            {
-                return;
-            }
-            foreach (var analyticsData in data)
-            {
-                EditorAnalytics.SendEventWithLimit(k_Configuration, analyticsData, k_ConfigurationVersion);
-            }
-#else
             foreach (var analyticsData in data)
             {
                 EditorAnalytics.SendAnalytic(new GhostConfigurationAnalytics(analyticsData));
             }
-#endif
         }
     }
 }

@@ -34,7 +34,7 @@ namespace Unity.NetCode
     public struct GhostOwner : IComponentData
     {
         /// <summary>
-        /// The <see cref="NetworkId"/> of the client the entity is associated with.
+        /// The <see cref="Unity.NetCode.NetworkId"/> of the client the entity is associated with.
         /// </summary>
         [GhostField] public int NetworkId;
     }

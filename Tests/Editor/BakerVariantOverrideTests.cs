@@ -129,11 +129,13 @@ that component on the root entity.")]
                 "Baker-set DontSerializeVariant should be recorded in the prefab's GhostPrefabMetaData blob.");
         }
 
-        // Tests below assert different component presence on the server vs client prefab. The single-world-host
-        // mode merges both into one prefab, so the server-vs-client divergence those tests verify cannot be
-        // observed there — same constraint as PerPrefabOverridesTests.OverrideComponentPrefabType_*.
+        const string k_PrefabDivergenceDisableReason = "Asserts different component presence on the server vs client prefab. Single-world-host " +
+            "mode merges both into one prefab, so the server-vs-client divergence this verifies cannot be observed there — same constraint as " +
+            "PerPrefabOverridesTests.OverrideComponentPrefabType_*. Variants either mean: different serialization rules (must be in sync!), or " +
+            "prefab stripping (which would disable replication anyway).";
+
         [Test]
-        [DisableSingleWorldHostTest]
+        [DisableSingleWorldHostTest(isPermanentReason: k_PrefabDivergenceDisableReason)]
         [Description(@"A baker that sets PrefabType=Server on a component must produce a server prefab that still
 has the component and a client prefab that has it stripped.")]
         public void BakerOverride_PrefabTypeServer_RemovesComponentOnClient()
@@ -171,7 +173,7 @@ has the component and a client prefab that has it stripped.")]
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
+        [DisableSingleWorldHostTest(isPermanentReason: k_PrefabDivergenceDisableReason)]
         [Description(@"When both an inspection-component override and a baker override target the same
 (entity, component), the inspection override wins for each field. Baker says PrefabType.Server,
 inspection says PrefabType.All — the component must remain present on the client.")]
@@ -237,7 +239,7 @@ inspection says PrefabType.All — the component must remain present on the clie
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
+        [DisableSingleWorldHostTest(isPermanentReason: k_PrefabDivergenceDisableReason)]
         [Description(@"A baker override on a child GameObject's primary entity must apply only to that child
 entity. The root entity must remain unaffected.")]
         public void BakerOverride_OnChildEntity_AffectsOnlyChild()
@@ -301,7 +303,7 @@ entity. The root entity must remain unaffected.")]
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
+        [DisableSingleWorldHostTest(isPermanentReason: k_PrefabDivergenceDisableReason)]
         [Description(@"Cross-targeting test: a baker running on a child GameObject sets PrefabType=Server on the
 ROOT entity's component (via the targetGameObject parameter). The buffer lives on the child's primary
 entity but the override must take effect on the root — server keeps it, client strips it.")]

@@ -1,10 +1,11 @@
-#if UNITY_EDITOR
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using NUnit.Framework;
+using Unity.Mathematics;
+using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
@@ -23,8 +24,8 @@ namespace Unity.NetCode.Tests
             // Test if PredictionUpdate is called with the right timings
             await testWorld.ConnectAsync(enableGhostReplication: true);
 
-            var prefab = SubSceneHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "Prediction", autoRegister: false, typeof(PredictionTestBehaviour));
-            var authoring = prefab.GetComponent<GhostAdapter>();
+            var prefab = GhostObjectPrefabHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "Prediction", autoRegister: false, typeof(PredictionTestBehaviour));
+            var authoring = prefab.GetComponent<GhostObject>();
             authoring.SupportedGhostModes = GhostModeMask.All;
             authoring.DefaultGhostMode = GhostMode.OwnerPredicted;
             authoring.HasOwner = true;
@@ -32,14 +33,14 @@ namespace Unity.NetCode.Tests
             Netcode.RegisterPrefab(prefab);
 
             var serverObj = GameObject.Instantiate(prefab).GetComponent<PredictionTestBehaviour>();
-            serverObj.Ghost.OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
+            serverObj.Ghost.OwnerNetworkId = testWorld.ClientWorlds[0].LocalConnection.NetworkId;
             serverObj.name = "PredictionObjectForTest";
             await testWorld.TickMultipleAsync(6);
-            var clientObj = FindObjectUtils.FindObjectsByType<PredictionTestBehaviour>().First(x => x != serverObj);
+            var clientObj = GameObject.FindObjectsByType<PredictionTestBehaviour>().Where(g => !g.Ghost.IsPrefab()).First(x => x != serverObj);
             Assert.That(clientObj.Ghost.World.IsClient());
 
-            Assert.That(serverObj.Ghost.OwnerNetworkId, Is.EqualTo(testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0])));
-            Assert.That(clientObj.Ghost.OwnerNetworkId, Is.EqualTo(testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0])));
+            Assert.That(serverObj.Ghost.OwnerNetworkId, Is.EqualTo(testWorld.ClientWorlds[0].LocalConnection.NetworkId));
+            Assert.That(clientObj.Ghost.OwnerNetworkId, Is.EqualTo(testWorld.ClientWorlds[0].LocalConnection.NetworkId));
 
             clientObj.ValueForInput = 0;
             int nbTicks = 10;
@@ -61,7 +62,7 @@ namespace Unity.NetCode.Tests
 
             await testWorld.ConnectAsync(enableGhostReplication: true);
 
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("exception in prediction loop");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("exception in prediction loop");
 
             var serverHelper = GameObject.Instantiate(prefab);
             await testWorld.TickMultipleAsync(4);
@@ -104,14 +105,14 @@ namespace Unity.NetCode.Tests
             // Test if PredictionUpdate has exception, that it fails gracefully
             await testWorld.ConnectAsync(enableGhostReplication: true);
 
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("exception in prediction loop", autoRegister: false);
-            prefab.GetComponent<GhostAdapter>().HasOwner = true;
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("exception in prediction loop", autoRegister: false);
+            prefab.GetComponent<GhostObject>().HasOwner = true;
 
             Netcode.RegisterPrefab(prefab.gameObject);
             var serverObj = GameObject.Instantiate(prefab);
             var serverObj2 = GameObject.Instantiate(prefab);
-            serverObj.GetComponent<GhostAdapter>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
-            serverObj2.GetComponent<GhostAdapter>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
+            serverObj.GetComponent<GhostObject>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
+            serverObj2.GetComponent<GhostObject>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
             await testWorld.TickMultipleAsync(4);
             var clientObj = PredictionCallbackHelper.ClientInstances[0];
             Assert.That(clientObj.Ghost.World.IsClient());
@@ -123,7 +124,7 @@ namespace Unity.NetCode.Tests
             var executionCount = 0;
             void ExceptionInPrediction(GameObject self)
             {
-                if (self.GetComponent<GhostAdapter>().NetworkTime.IsFirstTimeFullyPredictingTick)
+                if (self.GetComponent<GhostObject>().NetworkTime.IsFirstTimeFullyPredictingTick)
                 {
                     executionCount++;
                     throw new Exception(exceptionToExpect);
@@ -144,7 +145,7 @@ namespace Unity.NetCode.Tests
             int expectedExceptionCount = 6;
             for (int i = 0; i < expectedExceptionCount; i++)
             {
-                LogAssert.Expect(LogType.Exception, "Exception: " + exceptionToExpect);
+                LogAssert.Expect(LogType.Error, new Regex($".*Exception: {exceptionToExpect}.*"));
             }
             await testWorld.TickAsync();
             Assert.That(executionCount, Is.EqualTo(expectedExceptionCount)); // make sure both predicted update ran and that one exception didn't affect the other object's loop
@@ -158,20 +159,20 @@ namespace Unity.NetCode.Tests
             await testWorld.ConnectAsync(enableGhostReplication: true);
 
             // 2 GhostBehaviour each with a PredictionUpdate
-            var prefabYesYes = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("prediction test yesyes", autoRegister: false);
+            var prefabYesYes = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("prediction test yesyes", autoRegister: false);
             prefabYesYes.gameObject.AddComponent<GhostBehaviourA>();
 
             // 2 GhostBehaviours, only 1 with a PredictionUpdate
-            var prefabYesNo = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("prediction test yesno", autoRegister: false);
+            var prefabYesNo = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("prediction test yesno", autoRegister: false);
             prefabYesNo.gameObject.AddComponent<BehaviourAllData>();
 
             // 1 GhostBehaviour, no PredictionUpdate
-            var prefabNo = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("prediction test no", autoRegister: false).gameObject;
+            var prefabNo = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("prediction test no", autoRegister: false).gameObject;
             Object.DestroyImmediate(prefabNo.GetComponent<PredictionCallbackHelper>(), allowDestroyingAssets: true);
             prefabNo.gameObject.AddComponent<BehaviourAllData>();
 
             // No GhostBehaviour, just a GhostObject
-            var prefabZeroBehaviour = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("prediction test zero", autoRegister: false).gameObject;
+            var prefabZeroBehaviour = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("prediction test zero", autoRegister: false).gameObject;
             Object.DestroyImmediate(prefabZeroBehaviour.GetComponent<PredictionCallbackHelper>(), allowDestroyingAssets: true);
 
             Netcode.RegisterPrefab(prefabYesYes.gameObject);
@@ -181,11 +182,11 @@ namespace Unity.NetCode.Tests
 
             var serverZero = GameObject.Instantiate(prefabZeroBehaviour);
             await testWorld.TickMultipleAsync(4);
-            var clientZero = FindObjectUtils.FindObjectsByType<GhostAdapter>().First(ghost => ghost.IsClient);
+            var clientZero = GameObject.FindObjectsByType<GhostObject>().Where(ghost => !ghost.IsPrefab()).First(ghost => ghost.IsClient);
 
             var serverNo = GameObject.Instantiate(prefabNo).GetComponent<BehaviourAllData>();
             await testWorld.TickMultipleAsync(4);
-            var clientNo = FindObjectUtils.FindObjectsByType<BehaviourAllData>().First(data => data.Ghost.IsClient);
+            var clientNo = GameObject.FindObjectsByType<BehaviourAllData>().Where(g => !g.Ghost.IsPrefab()).First(data => data.Ghost.IsClient);
 
             var serverYesNo = GameObject.Instantiate(prefabYesNo);
             await testWorld.TickMultipleAsync(4);
@@ -218,6 +219,8 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(30+4, clientYesNo.SomeGhostField.Value);
         }
 
+#if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
+        // At history size 6 the server throttles snapshot send cadence (withholding sends until in-flight snapshots are acked), so fewer snapshots arrive and the expected prediction-replay counts below no longer hold.
         [Test(Description = "make sure that enabling a GhostBehaviour mid replay does indeed reenable its prediction update (and that it doesn't stay stuck disabled)")]
         public async Task TestEnableDisable_GhostBehaviour_DifferentTick_SameFrame()
         {
@@ -228,7 +231,7 @@ namespace Unity.NetCode.Tests
             await testWorld.ConnectAsync(enableGhostReplication: true, maxSteps: 100);
 
             // 2 GhostBehaviour each with a PredictionUpdate
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("PredHelper", autoRegister: true);
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("PredHelper", autoRegister: true);
 
             var server1 = GameObject.Instantiate(prefab);
             await testWorld.TickMultipleAsync(30);
@@ -253,6 +256,7 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(18, client1.SomeGhostField.Value, "sanity check failed, not getting the expected number of ticks");
             Assert.AreEqual(15, client2.SomeGhostField.Value);
         }
+#endif
 
         [Test]
         public async Task PredictionUpdateRespectScriptExecutionOrder()
@@ -260,9 +264,9 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
 
-            var prefab = SubSceneHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "Prediction", autoRegister: false,
+            var prefab = GhostObjectPrefabHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "Prediction", autoRegister: false,
                 typeof(GhostBehaviourA), typeof(GhostBehaviourB));
-            var authoring = prefab.GetComponent<GhostAdapter>();
+            var authoring = prefab.GetComponent<GhostObject>();
             authoring.SupportedGhostModes = GhostModeMask.All;
             authoring.DefaultGhostMode = GhostMode.OwnerPredicted;
             authoring.HasOwner = true;
@@ -272,7 +276,7 @@ namespace Unity.NetCode.Tests
 
             var update = new List<MonoBehaviour>();
             var predictionUpdate = new List<MonoBehaviour>();
-            var serverObjects = new GhostAdapter[5];
+            var serverObjects = new GhostObject[5];
             for (int i = 0; i < 5; ++i)
             {
                 var serverObj = GameObject.Instantiate(prefab).GetComponent<GhostBehaviourWithPriority>();
@@ -281,8 +285,8 @@ namespace Unity.NetCode.Tests
                     c.update = update;
                     c.predictionUpdate = predictionUpdate;
                 }
-                //awake the GhostBehaviours and GhostAdapter, because mock start as disabled.
-                serverObj.Ghost.OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
+                //awake the GhostBehaviours and GhostObject, because mock start as disabled.
+                serverObj.Ghost.OwnerNetworkId = testWorld.ClientWorlds[0].LocalConnection.NetworkId;
                 serverObj.name = $"Ghost{i}";
                 serverObjects[i] = serverObj.Ghost;
             }
@@ -292,8 +296,8 @@ namespace Unity.NetCode.Tests
             var clientUpdate = new List<MonoBehaviour>();
             var clientPredictionUpdate = new List<MonoBehaviour>();
             //we should have 5 ghost client-side
-            var clientObjects = FindObjectUtils.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Exclude)
-                .Where(go=>!go.World.IsServer()).ToArray();
+            var clientObjects = GameObject.FindObjectsByType<GhostObject>(FindObjectsInactive.Exclude)
+                .Where(go=>!go.World.IsServer() && !go.IsPrefab()).ToArray();
             Assert.AreEqual(5, clientObjects.Length);
             for (int i = 0; i < 5; ++i)
             {
@@ -373,7 +377,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("prediction");
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("prediction");
             var serverHelper = GameObject.Instantiate(prefab);
             await testWorld.TickMultipleAsync(4);
             var clientHelper = PredictionCallbackHelper.ClientInstances[0];
@@ -382,8 +386,8 @@ namespace Unity.NetCode.Tests
             {
                 var helper = o.GetComponent<PredictionCallbackHelper>();
                 var networkTime = helper.Ghost.World.EntityManager.CreateEntityQuery(typeof(NetworkTime)).GetSingleton<NetworkTime>();
-                Assert.AreEqual(networkTime.ServerTick, Netcode.NetworkTime.ServerTick);
-                Assert.AreEqual(networkTime.IsInPredictionLoop, Netcode.NetworkTime.IsInPredictionLoop);
+                Assert.AreEqual(networkTime.ServerTick, Netcode.Time.ServerTick);
+                Assert.AreEqual(networkTime.IsInPredictionLoop, Netcode.Time.IsInPredictionLoop);
             }
 
             serverHelper.OnPredictionEvent += OnServerHelperOnOnPredictionEvent;
@@ -400,8 +404,8 @@ namespace Unity.NetCode.Tests
             testWorld.DriverSimulatedDelay = 100;
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true, maxSteps: 100);
-            var prefabMonobehaviour = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("prediction");
-            var activator = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("activator");
+            var prefabMonobehaviour = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("prediction");
+            var activator = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("activator");
 
             bool serverPredictionCalled = false;
             bool serverStartCalled = false;
@@ -410,7 +414,7 @@ namespace Unity.NetCode.Tests
 
             prefabMonobehaviour.CallbackHolder.OnPrediction += o =>
             {
-                var ghost = o.GetComponent<GhostAdapter>();
+                var ghost = o.GetComponent<GhostObject>();
                 if (ghost.IsServer)
                 {
                     serverPredictionCalled = true;
@@ -424,7 +428,7 @@ namespace Unity.NetCode.Tests
             };
             prefabMonobehaviour.CallbackHolder.OnStart += o =>
             {
-                var ghost = o.GetComponent<GhostAdapter>();
+                var ghost = o.GetComponent<GhostObject>();
                 if (ghost.IsServer)
                 {
                     serverStartCalled = true;
@@ -439,7 +443,7 @@ namespace Unity.NetCode.Tests
             prefabMonobehaviour.enabled = false;
             var serverHelper = GameObject.Instantiate(prefabMonobehaviour);
             await testWorld.TickMultipleAsync(32);
-            var clientHelper = FindObjectUtils.FindObjectsByType<PredictionCallbackHelper>(findObjectsInactive: FindObjectsInactive.Include).First(o => o.Ghost.IsClient);
+            var clientHelper = GameObject.FindObjectsByType<PredictionCallbackHelper>(findObjectsInactive: FindObjectsInactive.Include).Where(ghost => !ghost.Ghost.IsPrefab()).First(o => o.Ghost.IsClient);
 
             Assert.IsFalse(clientStartCalled);
             Assert.IsFalse(clientPredictionCalled);
@@ -460,8 +464,84 @@ namespace Unity.NetCode.Tests
             Assert.IsTrue(clientStartCalled);
             Assert.IsTrue(clientPredictionCalled);
         }
+
+        [Test(Description = "GameObject version of the SingleWorldHostTests.SingleWorldHost_Interpolation_Works ECS version")]
+        public async Task SingleWorldHost_Interpolation_Works([Values] SingleWorldHostInterpolationMode mode)
+        {
+            await using var testWorld = new NetCodeTestWorld();
+            await testWorld.SetupGameObjectTest(serverCount:0, clientCount:0, singleWorldHostCount:1);
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("host smooth", autoRegister: false);
+            var ghostPrefab = prefab.Ghost;
+            ghostPrefab.SingleWorldHostInterpolationSmoothing = mode;
+            ghostPrefab.DefaultGhostMode = GhostMode.Predicted;
+            Netcode.RegisterPrefab(ghostPrefab.gameObject);
+
+            var settingsEntity = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+            var clientServerTickRate = new ClientServerTickRate();
+            clientServerTickRate.ResolveDefaults();
+            clientServerTickRate.SimulationTickRate = 20;
+            testWorld.ServerWorld.EntityManager.SetComponentData(settingsEntity, clientServerTickRate);
+
+            await testWorld.ConnectAsync(enableGhostReplication: true, dt: clientServerTickRate.SimulationFixedTimeStep);
+
+            Assert.AreEqual(20, testWorld.GetSingleton<ClientServerTickRate>(testWorld.ServerWorld).SimulationTickRate);
+
+            await testWorld.TickMultipleAsync(3); // position ourselves at the same starting point as the ECS version of the test
+
+            var serverGO = GameObject.Instantiate(prefab);
+
+            serverGO.OnPredictionEvent += o =>
+            {
+                o.transform.localPosition += Vector3.one * Netcode.DeltaTime;
+                o.transform.Rotate(Vector3.up, math.radians(Netcode.DeltaTime));
+            };
+
+            var hasSmoothComponent = testWorld.ServerWorld.EntityManager.HasComponent<NetcodeSmoothHostLocalToWorld>(serverGO.Ghost.Entity);
+            Assert.That(hasSmoothComponent, Is.EqualTo(mode == SingleWorldHostInterpolationMode.Interpolate), $"NetcodeSmoothHostLocalToWorld presence should match mode={mode}");
+
+            await SingleWorldHostSharedTest.ValidateHostInterpolation(testWorld, mode, () => serverGO.Ghost.GhostTransform.Value,
+                () => new LocalTransform() { Position = serverGO.transform.position, Rotation = serverGO.transform.rotation});
+        }
+
+        [Test(Description = "There's certain conditions where go transform is overriden by smoothing, but in other cases, the go transform should still be the authority when outside the prediction loop")]
+        public async Task MakeSureTransformChanges_OutsidePrediction_AreStillApplied([Values] SingleWorldHostInterpolationMode mode)
+        {
+            await using var testWorld = new NetCodeTestWorld();
+            await testWorld.SetupGameObjectTest();
+            await testWorld.ConnectAsync(enableGhostReplication: true);
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("ghost", autoRegister: false);
+
+            var ghostPrefab = prefab.Ghost;
+            ghostPrefab.SingleWorldHostInterpolationSmoothing = mode;
+            ghostPrefab.DefaultGhostMode = GhostMode.Predicted;
+            Netcode.RegisterPrefab(ghostPrefab.gameObject);
+
+            var server = GameObject.Instantiate(prefab);
+
+            // test is currently right after Update(), so we do an authoritative position change which should "stick" and not get overriden by presentation systems
+            server.transform.position = Vector3.one;
+
+            await testWorld.TickMultipleAsync(4);
+            var client = PredictionCallbackHelper.ClientInstances[0];
+            if (mode == SingleWorldHostInterpolationMode.Interpolate && testWorld.ServerWorld.IsHost())
+            {
+                // host smoothing should have overriden the position and reset it back to the authoritative position
+                Assert.That(server.transform.position, Is.EqualTo(Vector3.zero), "server position");
+                Assert.That(client.transform.position, Is.EqualTo(Vector3.zero), "client position");
+            }
+            else
+            {
+                Assert.That(server.transform.position, Is.EqualTo(Vector3.one), "server position");
+                Assert.That(client.transform.position, Is.EqualTo(Vector3.one), "client position");
+            }
+
+            server.Ghost.Position = Vector3.one * 2;
+            // normally the GO transform is the source of truth. So we need to publish manually in order to get that change to stick
+            server.Ghost.PublishTransform();
+            await testWorld.TickMultipleAsync(3);
+
+            Assert.That(server.transform.position, Is.EqualTo(Vector3.one * 2), "server position");
+            Assert.That(client.transform.position, Is.EqualTo(Vector3.one * 2), "client position");
+        }
     }
 }
-#endif
-
-

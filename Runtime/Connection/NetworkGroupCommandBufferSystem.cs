@@ -169,7 +169,7 @@ namespace Unity.NetCode
                 for (int i = 0; i < incorrectlyDisposedConnections.Length; i++)
                 {
                     netDebug.LogError($"The entity for {incorrectlyDisposedConnections[i].Value.ToFixedString()} ({incorrectlyDisposedConnectionEntities[i].ToFixedString()}) has been incorrectly disposed in '{state.WorldUnmanaged.Name}'! You should never dispose the connection entity yourself! Instead, call Disconnect on the driver with it. Manually disconnecting it for you now.");
-                    networkStreamDriver.DriverStore.Disconnect(incorrectlyDisposedConnections[i]);
+                    networkStreamDriver.Disconnect(incorrectlyDisposedConnections[i]);
                 }
                 state.EntityManager.RemoveComponent<NetworkStreamConnection>(m_IncorrectlyDisposedConnectionsQuery);
             }

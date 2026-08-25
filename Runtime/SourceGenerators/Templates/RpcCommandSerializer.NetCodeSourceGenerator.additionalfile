@@ -31,7 +31,11 @@ namespace __COMMAND_NAMESPACE__
         [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
-            RpcExecutor.ExecuteCreateRequestComponent<__COMMAND_NAME__Serializer, __COMMAND_COMPONENT_TYPE__>(ref parameters);
+            RpcExecutor.__COMMAND_EXECUTE_CREATE_REQUEST_COMPONENT__<__COMMAND_NAME__Serializer, __COMMAND_COMPONENT_TYPE__>(ref parameters
+            #region __COMMAND_EXECUTE_CREATE_REQUEST_COMPONENT_ADDITIONAL_ARGS__
+                ,__COMMAND_EXECUTE_CREATE_REQUEST_COMPONENT_ADDITIONAL_ARG__
+            #endregion
+                );
         }
 
         static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =

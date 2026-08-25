@@ -24,33 +24,29 @@ namespace Unity.NetCode.Tests
         static readonly ProfilerMarker k_TickServerPresentationSystem = new ProfilerMarker("TickServerPresentationSystem");
         static readonly ProfilerMarker k_TickClientPresentationSystem = new ProfilerMarker("TickClientPresentationSystem");
 
-        public World CreateServerWorld(string name, World world = null)
+        public NetcodeWorld CreateServerWorld(string name, NetcodeWorld world = null)
         {
             EnsureDefaultWorldInitialized();
             if (world == null)
-                world = new World(name, WorldFlags.GameServer);
+                world = new NetcodeWorld(name, WorldFlags.GameServer);
             ClientServerBootstrap.AssignCurrentActiveWorldIfNotSet(world);
             TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_ServerSystems); // Ensure CreationOrder is respected.
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, NetCodeTestWorld.m_ServerSystems);
 #if !UNITY_CLIENT || UNITY_EDITOR
             AppendWorldToUpdateList(world);
 #endif
-            if (!m_TestWorld.m_IncludeNetcodeSystems)
-            {
-                // this also happens in Unity.NetCode.ConfigureServerWorldSystem.OnCreate, we need to register only if necessary
-                ClientServerBootstrap.ServerWorlds.Add(world);
-            }
+            
 #if UNITY_EDITOR
             m_TestWorld.BakeGhostCollection(world);
 #endif
             return world;
         }
 
-        public World CreateHostWorld(string name, World world = null)
+        public NetcodeWorld CreateHostWorld(string name, NetcodeWorld world = null)
         {
             EnsureDefaultWorldInitialized();
             if (world == null)
-                world = new World(name, WorldFlags.GameServer | WorldFlags.GameClient);
+                world = new NetcodeWorld(name, WorldFlags.GameServer | WorldFlags.GameClient);
             ClientServerBootstrap.AssignCurrentActiveWorldIfNotSet(world);
 
             TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_HostSystems); // Ensure CreationOrder is respected.
@@ -58,12 +54,7 @@ namespace Unity.NetCode.Tests
 #if !UNITY_SERVER || UNITY_EDITOR
             AppendWorldToUpdateList(world);
 #endif
-            if (!m_TestWorld.m_IncludeNetcodeSystems)
-            {
-                // this also happens in Unity.NetCode.ConfigureClientWorldSystem.OnCreate, we need to register only if necessary
-                ClientServerBootstrap.ClientWorlds.Add(world);
-                ClientServerBootstrap.ServerWorlds.Add(world);
-            }
+
 #if UNITY_EDITOR
             m_TestWorld.BakeGhostCollection(world);
 #endif
@@ -90,11 +81,11 @@ namespace Unity.NetCode.Tests
             m_DefaultWorld = null;
         }
 
-        public World CreateClientWorld(string name, bool thinClient, World world = null)
+        public NetcodeWorld CreateClientWorld(string name, bool thinClient, NetcodeWorld world = null)
         {
             EnsureDefaultWorldInitialized();
             if (world == null)
-                world = new World(name, thinClient ? WorldFlags.GameThinClient : WorldFlags.GameClient);
+                world = new NetcodeWorld(name, thinClient ? WorldFlags.GameThinClient : WorldFlags.GameClient);
             ClientServerBootstrap.AssignCurrentActiveWorldIfNotSet(world);
             if (world.IsThinClient())
             {
@@ -109,11 +100,7 @@ namespace Unity.NetCode.Tests
 #if !UNITY_SERVER || UNITY_EDITOR
             AppendWorldToUpdateList(world);
 #endif
-            if (!m_TestWorld.m_IncludeNetcodeSystems)
-            {
-                // this also happens in Unity.NetCode.ConfigureClientWorldSystem.OnCreate, we need to register only if necessary
-                ClientServerBootstrap.ClientWorlds.Add(world);
-            }
+            
 #if UNITY_EDITOR
             m_TestWorld.BakeGhostCollection(world);
 #endif
@@ -142,15 +129,12 @@ namespace Unity.NetCode.Tests
             m_WorldsToUpdate.Add(world);
         }
 
-        public void DisposeClientWorld(World clientWorld)
+        public void DisposeClientWorld(NetcodeWorld clientWorld)
         {
             if (clientWorld != null)
             {
                 RemoveWorldFromUpdateList(clientWorld);
-                if (!m_TestWorld.m_IncludeNetcodeSystems)
-                {
-                    ClientServerBootstrap.ClientWorlds.Remove(clientWorld);
-                }
+
                 if (m_TestWorld.AlwaysDispose || clientWorld.IsCreated) // issue with shutdown test, shutdown already destroys a world, no need to dispose it again
                 {
                     clientWorld.Dispose();
@@ -158,19 +142,12 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public void DisposeServerWorld(World serverWorld)
+        public void DisposeServerWorld(NetcodeWorld serverWorld)
         {
             if (serverWorld != null)
             {
                 RemoveWorldFromUpdateList(serverWorld);
-                if (!m_TestWorld.m_IncludeNetcodeSystems)
-                {
-                    ClientServerBootstrap.ServerWorlds.Remove(serverWorld);
-                    if (serverWorld.IsHost())
-                    {
-                        ClientServerBootstrap.ClientWorlds.Remove(serverWorld);
-                    }
-                }
+
                 if (m_TestWorld.AlwaysDispose || serverWorld.IsCreated)
                 {
                     serverWorld.Dispose();
@@ -192,7 +169,6 @@ namespace Unity.NetCode.Tests
                 UpdateWorldSystemGroup(world, ref marker, typeof(InitializationSystemGroup));
             }
 
-            FlushLogs();
             //TODO: add proper marker
             foreach (var world in m_WorldsToUpdate)
             {
@@ -202,7 +178,6 @@ namespace Unity.NetCode.Tests
                 //UpdateWorldSystemGroup(world, ref marker, typeof(EarlyUpdateSystemGroup));
             }
 
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
                 var marker = world.IsClient()
@@ -210,13 +185,11 @@ namespace Unity.NetCode.Tests
                     : k_TickServerSimulationSystem;
                 UpdateWorldSystemGroup(world, ref marker, typeof(SimulationSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
                 var profilerMarker = k_TickClientPresentationSystem;
                 //UpdateWorldSystemGroup(world, ref profilerMarker, typeof(PreLateUpdateSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
                 var marker = world.IsClient()
@@ -224,15 +197,10 @@ namespace Unity.NetCode.Tests
                     : k_TickServerPresentationSystem;
                 UpdateWorldSystemGroup(world, ref marker, typeof(PresentationSystemGroup));
             }
-            FlushLogs();
-#if USING_UNITY_LOGGING
-            // Flush the pending logs since the system doing that might not have run yet which means Log.Expect does not work
-            Logging.Internal.LoggerManager.ScheduleUpdateLoggers().Complete();
-#endif
         }
 
 #pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
-        public async Task TickAsync(float dt, NetcodeAwaitable waitInstruction = null, bool skipSanityCheck = false)
+        public async Task TickAsync(float dt, Awaitable waitInstruction = null, bool skipSanityCheck = false)
 #pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
         {
             // This is called from the various methods that tick the world in NetcodeTestWorld, like TickUntilConnected. In order to have a single implementation, we use the TickAsync from them and then just Wait on them in edit mode. But this means TickAsync needs to work in edit mode so we just TickNoYield here.
@@ -240,50 +208,50 @@ namespace Unity.NetCode.Tests
             TickNoAwait(dt, skipSanityCheck: skipSanityCheck);
         }
 
-        public void TickClientWorld(float dt)
+        public void TickClientWorld(float dt, bool clientOnly)
         {
             m_TestWorld.ApplyDTClient(dt);
 
+            bool CanTick(World world)
+            {
+                return clientOnly ? !world.IsServer() : world.IsClient();
+            }
+
             foreach (var world in m_WorldsToUpdate)
             {
-                if(!world.IsClient())
+                if(!CanTick(world))
                     continue;
                 var marker = k_TickClientInitializationSystem;
                 UpdateWorldSystemGroup(world, ref marker, typeof(InitializationSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
-                if(!world.IsClient())
+                if(!CanTick(world))
                     continue;
                 var marker = k_TickClientInitializationSystem;
                 //UpdateWorldSystemGroup(world, ref marker, typeof(EarlyUpdateSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
-                if(!world.IsClient())
+                if(!CanTick(world))
                     continue;
                 var marker = k_TickClientSimulationSystem;
                 UpdateWorldSystemGroup(world, ref marker, typeof(SimulationSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
-                if(!world.IsClient())
+                if(!CanTick(world))
                     continue;
                 var profilerMarker = k_TickClientPresentationSystem;
                 //UpdateWorldSystemGroup(world, ref profilerMarker, typeof(PreLateUpdateSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
-                if(!world.IsClient())
+                if(!CanTick(world))
                     continue;
                 var profilerMarker = k_TickClientPresentationSystem;
                 UpdateWorldSystemGroup(world, ref profilerMarker, typeof(PresentationSystemGroup));
             }
-            FlushLogs();
         }
 
         public void TickServerWorld(float dt)
@@ -297,7 +265,6 @@ namespace Unity.NetCode.Tests
                 var marker = k_TickServerInitializationSystem;
                 UpdateWorldSystemGroup(world, ref marker, typeof(InitializationSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
                 if(!world.IsServer())
@@ -305,7 +272,6 @@ namespace Unity.NetCode.Tests
                 var marker = k_TickServerInitializationSystem;
                 //UpdateWorldSystemGroup(world, ref marker, typeof(EarlyUpdateSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
                 if(!world.IsServer())
@@ -313,7 +279,6 @@ namespace Unity.NetCode.Tests
                 var marker = k_TickServerSimulationSystem;
                 UpdateWorldSystemGroup(world, ref marker, typeof(SimulationSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
                 if(!world.IsServer())
@@ -321,7 +286,6 @@ namespace Unity.NetCode.Tests
                 var profilerMarker = k_TickServerPresentationSystem;
                 //UpdateWorldSystemGroup(world, ref profilerMarker, typeof(PreLateUpdateSystemGroup));
             }
-            FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
                 // At runtime, server worlds can have PresentationSystems too (for late update)
@@ -330,14 +294,6 @@ namespace Unity.NetCode.Tests
                 var profilerMarker = k_TickServerPresentationSystem;
                 UpdateWorldSystemGroup(world, ref profilerMarker, typeof(PresentationSystemGroup));
             }
-            FlushLogs();
-        }
-
-        public void FlushLogs()
-        {
-#if USING_UNITY_LOGGING
-            Logging.Internal.LoggerManager.ScheduleUpdateLoggers().Complete();
-#endif
         }
 
         public void RemoveWorldFromUpdateList(World world)

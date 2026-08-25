@@ -31,6 +31,8 @@ namespace Unity.NetCode.Editor
             { avgSizePerEntityKey, "Avg size / instance" },
         };
 
+        internal static readonly string s_InfoTextLabelContainerUssClass = "info-text__container";
+
         internal static readonly string s_ProfilerDocsLink = "https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/manual/testing/network-profiler.html";
 
         internal static readonly string s_SnapshotOverheadTooltip = "Ghost snapshot overhead.\nMetadata not directly linked to ghost data but still part of a snapshot's tick, such as spawns, despawns, and prefab lists. Refer to the Netcode for Entities Profiler documentation for more information.";

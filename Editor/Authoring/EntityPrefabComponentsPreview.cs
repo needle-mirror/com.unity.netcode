@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Unity.Collections;
 using Unity.Collections.NotBurstCompatible;
 using Unity.Entities;
@@ -22,7 +21,7 @@ namespace Unity.NetCode.Editor
         }
 
         /// <summary>Triggers the baking conversion process on the 'authoringComponent' and appends all resulting baked entities and components to the 'bakedDataMap'.</summary>
-        public void BakeEntireNetcodePrefab(GhostAuthoringComponent ghostAuthoring, GhostAuthoringInspectionComponent inspectionComponent, Dictionary<GhostAuthoringInspectionComponent, BakedResult> cachedBakedResults)
+        public void BakeEntireNetcodePrefab(BaseGhostSettings ghostAuthoring, GhostAuthoringInspectionComponent inspectionComponent, Dictionary<GhostAuthoringInspectionComponent, BakedResult> cachedBakedResults)
         {
             GhostAuthoringInspectionComponent.forceBake = false;
             if (ghostAuthoring == null)
@@ -37,9 +36,10 @@ namespace Unity.NetCode.Editor
 
                 // TODO - Handle exceptions due to invalid prefab setup. E.g.
                 // "InvalidOperationException: OwnerPrediction mode can only be used on prefabs which have a GhostOwner"
-                using var world = new World(nameof(EntityPrefabComponentsPreview));
+                using var world = new NetcodeWorld(nameof(EntityPrefabComponentsPreview));
                 using var blobAssetStore = new BlobAssetStore(128);
                 ghostAuthoring.ForcePrefabConversion = true;
+                var bakingSettings = new BakingSettings(BakingUtility.BakingFlags.AddEntityGUID, blobAssetStore);
 
                 var bakeResult = new BakedResult
                 {
@@ -47,12 +47,24 @@ namespace Unity.NetCode.Editor
                     GameObjectResults = new (32),
                 };
 
-                var bakingSettings = new BakingSettings(BakingUtility.BakingFlags.AddEntityGUID, blobAssetStore);
-                BakingUtility.BakeGameObjects(world, new[] {ghostAuthoring.gameObject}, bakingSettings);
-                var bakingSystem = world.GetExistingSystemManaged<BakingSystem>();
+                Entity primaryEntity;
+
+                bool isGhostObject = false;
                 var primaryEntitiesMap = new HashSet<Entity>(16);
 
-                var primaryEntity = bakingSystem.GetEntity(ghostAuthoring.gameObject);
+                if (ghostAuthoring is GhostObject ghostObject)
+                {
+                    isGhostObject = true;
+                    BakingUtility.PrepareWorldForBaking(world, bakingSettings); // initializes a few required singletons like GhostComponentSerializerCollectionData
+                    Netcode.RegisterPrefab(ghostObject.gameObject, world);
+                    primaryEntity = ghostObject.Entity;
+                }
+                else
+                {
+                    BakingUtility.BakeGameObjects(world, new[] {ghostAuthoring.gameObject}, bakingSettings);
+                    var bakingSystem = world.GetExistingSystemManaged<BakingSystem>();
+                    primaryEntity = bakingSystem.GetEntity(ghostAuthoring.gameObject);
+                }
                 var ghostBlobAsset = world.EntityManager.GetComponentData<GhostPrefabMetaData>(primaryEntity).Value;
 
                 // One-shot collection of baker-contributed GhostVariantOverride entries from every linked entity.
@@ -60,8 +72,8 @@ namespace Unity.NetCode.Editor
                 // equality. Mirrors the aggregation in GhostAuthoringBakingSystem.ProcessRoot.
                 var bakerOverrides = CollectBakerVariantOverrides(world, primaryEntity);
 
-                CreatedBakedResultForPrimaryEntities(bakeResult, world, bakingSystem, primaryEntitiesMap, ghostBlobAsset, cachedBakedResults, bakerOverrides);
-                CreatedBakedResultForAdditionalEntities(bakeResult, world, primaryEntitiesMap, ghostBlobAsset, bakingSystem, bakerOverrides);
+                CreatedBakedResultForPrimaryEntities(bakeResult, world, primaryEntitiesMap, ghostBlobAsset, cachedBakedResults, isGhostObject, bakerOverrides);
+                CreatedBakedResultForAdditionalEntities(bakeResult, world, primaryEntitiesMap, ghostBlobAsset, bakerOverrides);
             }
             finally
             {
@@ -101,7 +113,7 @@ namespace Unity.NetCode.Editor
             return collected;
         }
 
-        static void CreatedBakedResultForPrimaryEntities(BakedResult bakedResult, World world, BakingSystem bakingSystem, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference, Dictionary<GhostAuthoringInspectionComponent, BakedResult> cachedBakedResults, List<GhostVariantBakedOverride> bakerOverrides)
+        static void CreatedBakedResultForPrimaryEntities(BakedResult bakedResult, World world, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference, Dictionary<GhostAuthoringInspectionComponent, BakedResult> cachedBakedResults, bool isGhostObject, List<GhostVariantBakedOverride> bakerOverrides)
         {
             foreach (var t in bakedResult.GhostAuthoring.GetComponentsInChildren<Transform>())
             {
@@ -121,17 +133,28 @@ namespace Unity.NetCode.Editor
                 if (discoveredInspectionComponent != null)
                     cachedBakedResults[discoveredInspectionComponent] = bakedResult;
 
-                var primaryEntity = bakingSystem.GetEntity(go);
-                if (bakingSystem.EntityManager.Exists(primaryEntity))
+                Entity primaryEntity;
+                if (isGhostObject)
                 {
-                    goResult.BakedEntities.Add(CreateBakedEntityResult(goResult, 0, world, bakingSystem, primaryEntity, false, blobAssetReference, bakerOverrides));
+                    Netcode.RegisterPrefab(go, world);
+                    var link = GhostEntityMapping.LookupEntityReferencePrefab(go, world.Unmanaged);
+                    primaryEntity = link.Entity;
+                }
+                else
+                {
+                    var bakingSystem = world.GetExistingSystemManaged<BakingSystem>();
+                    primaryEntity = bakingSystem.GetEntity(go);
+                }
+                if (world.EntityManager.Exists(primaryEntity))
+                {
+                    goResult.BakedEntities.Add(CreateBakedEntityResult(goResult, 0, world, primaryEntity, false, blobAssetReference, bakerOverrides));
                     primaryEntitiesMap.Add(primaryEntity);
                 }
                 bakedResult.GameObjectResults[go] = goResult;
             }
         }
 
-        static void CreatedBakedResultForAdditionalEntities(BakedResult bakedResult, World world, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference, BakingSystem bakingSystem, List<GhostVariantBakedOverride> bakerOverrides)
+        static void CreatedBakedResultForAdditionalEntities(BakedResult bakedResult, World world, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference, List<GhostVariantBakedOverride> bakerOverrides)
         {
             // Note: We only expect the ROOT entity to have a LinkedEntityGroup,
             // but checking EVERY baked GameObject as this is not an assumption we control.
@@ -156,35 +179,35 @@ namespace Unity.NetCode.Editor
                             continue;
 
                         // Find the actual authoring GameObject for this linked entity. It might be one of our children.
-                        var foundActualAuthoring = TryGetAuthoringForAdditionalEntity(linkedEntity, bakingSystem, bakedResult.GameObjectResults.Values, out var actualAuthoring);
+                        var foundActualAuthoring = TryGetAuthoringForAdditionalEntity(linkedEntity, world, bakedResult.GameObjectResults.Values, out var actualAuthoring);
                         if (!foundActualAuthoring)
                         {
-                            Debug.LogWarning($"Expected to find the source BakedGameObjectResult for Additional Entity '{linkedEntity.ToFixedString()}' ('{bakingSystem.EntityManager.GetName(linkedEntity)}') (via EntityGuid search), but did not! Assuming the authoring GameObject is '{kvp.Value.SourceGameObject.name}'! Please file a bug report if this assumption is false.", kvp.Value.SourceGameObject);
+                            Debug.LogWarning($"Expected to find the source BakedGameObjectResult for Additional Entity '{linkedEntity.ToFixedString()}' ('{world.EntityManager.GetName(linkedEntity)}') (via EntityGuid search), but did not! Assuming the authoring GameObject is '{kvp.Value.SourceGameObject.name}'! Please file a bug report if this assumption is false.", kvp.Value.SourceGameObject);
 
                             actualAuthoring = kvp.Value;
                         }
-                        var entityResult = CreateBakedEntityResult(actualAuthoring, i, world, bakingSystem, linkedEntity, true, blobAssetReference, bakerOverrides);
+                        var entityResult = CreateBakedEntityResult(actualAuthoring, i, world, linkedEntity, true, blobAssetReference, bakerOverrides);
                         actualAuthoring.BakedEntities.Add(entityResult);
                     }
                 }
             }
         }
 
-        static bool TryGetAuthoringForAdditionalEntity(Entity additionalEntity, BakingSystem bakingSystem, Dictionary<GameObject, BakedGameObjectResult>.ValueCollection results, out BakedGameObjectResult found)
+        static bool TryGetAuthoringForAdditionalEntity(Entity additionalEntity, World bakingWorld, Dictionary<GameObject, BakedGameObjectResult>.ValueCollection results, out BakedGameObjectResult found)
         {
             found = default;
-            if (!bakingSystem.EntityManager.HasComponent<EntityGuid>(additionalEntity))
+            if (!bakingWorld.EntityManager.HasComponent<EntityGuid>(additionalEntity))
             {
                 Debug.LogError($"Additional entity '{additionalEntity.ToFixedString()}' did not have an EntityGuid! Thus, cannot find Authoring for it!");
                 return false;
             }
-            var additionalEntitiesEntityGuid = bakingSystem.EntityManager.GetComponentData<EntityGuid>(additionalEntity);
+            var additionalEntitiesEntityGuid = bakingWorld.EntityManager.GetComponentData<EntityGuid>(additionalEntity);
 
             foreach (var result in results)
             {
                 foreach (var x in result.BakedEntities)
                 {
-                    if (x.Guid.OriginatingId == additionalEntitiesEntityGuid.OriginatingId)
+                    if (x.Guid.OriginatingEntityId == additionalEntitiesEntityGuid.OriginatingEntityId)
                     {
                         found = result;
                         return true;
@@ -195,7 +218,7 @@ namespace Unity.NetCode.Editor
             return false;
         }
 
-        static BakedEntityResult CreateBakedEntityResult(BakedGameObjectResult authoring, int entityIndex, World world, BakingSystem bakingSystem, Entity convertedEntity, bool isLinkedEntity, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference, List<GhostVariantBakedOverride> bakerOverrides)
+        static BakedEntityResult CreateBakedEntityResult(BakedGameObjectResult authoring, int entityIndex, World world, Entity convertedEntity, bool isLinkedEntity, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference, List<GhostVariantBakedOverride> bakerOverrides)
         {
             var guid = world.EntityManager.GetComponentData<EntityGuid>(convertedEntity);
             var result = new BakedEntityResult
@@ -217,7 +240,10 @@ namespace Unity.NetCode.Editor
             var variantTypesList = new NativeList<ComponentTypeSerializationStrategy>(4, Allocator.Temp);
             foreach (var compItem in result.BakedComponents)
             {
-                var searchHash = compItem.VariantHash;
+                // Resolve with the inspection override when set; otherwise fall back to the context-contributed
+                // default (baker override or GhostObject-layer default), so serializationStrategy agrees with
+                // defaultSerializationStrategy and the SaveVariant self-heal below doesn't write a spurious override.
+                var searchHash = compItem.VariantHash != 0 ? compItem.VariantHash : compItem.ContextDefaultVariantHash;
 
                 variantTypesList.Clear();
                 for (int i = 0; i < compItem.availableSerializationStrategies.Length; i++)
@@ -253,10 +279,19 @@ namespace Unity.NetCode.Editor
                     var removedCompRef = removedArray[i];
                     if (removedCompRef.EntityIndex != entityIndex) continue;
                     var removedComp = ComponentType.FromTypeIndex(TypeManager.GetTypeIndexFromStableTypeHash(removedCompRef.StableHash));
-                    bool IsNotAlreadyAdded(BakedComponentItem x) => x.managedType != removedComp.GetManagedType();
-                    if (newComponents.All(IsNotAlreadyAdded))
-                        CreateBakedComponentItem(removedComp);
+
+                    foreach (var item in newComponents)
+                    {
+                        if (IsAlreadyAdded(item, removedComp))
+                        {
+                            return;
+                        }
+                    }
+                    CreateBakedComponentItem(removedComp);
                 }
+                return;
+
+                bool IsAlreadyAdded(BakedComponentItem x, ComponentType removedComp) => x.managedType == removedComp.GetManagedType();
             }
 
             void CreateBakedComponentItem(ComponentType componentType)
@@ -283,7 +318,7 @@ namespace Unity.NetCode.Editor
                     {
                         var ov = bakerOverrides[i];
                         if (ov.ComponentTypeFullNameHash != componentTypeFullNameHash) continue;
-                        if (ov.TargetGameObjectInstanceId != parent.Guid.OriginatingId) continue;
+                        if (ov.TargetGameObjectInstanceId != parent.Guid.OriginatingEntityId) continue;
                         if (ov.TargetEntitySerial != parent.Guid.Serial) continue;
                         componentItem.BakerContributedOverrides ??= new List<GhostVariantBakedOverride>(2);
                         componentItem.BakerContributedOverrides.Add(ov);
@@ -298,12 +333,18 @@ namespace Unity.NetCode.Editor
                     }
                 }
 
+                // GhostObject (GameObject-layer) prefabs apply per-prefab default variants at registration time
+                // (see GhostObjectVariantDefaults / PrefabRegistry). Mirror them here so the inspector displays the
+                // true effective default rather than the global (system) default.
+                if (parent.IsRoot && parent.GoParent.RootAuthoring is GhostObject)
+                    componentItem.GhostObjectContributedVariantHash = GhostObjectVariantDefaults.GetDefaultVariantOverrideHash(managedType);
+
                 using var availableSs = collectionData.GetAllAvailableSerializationStrategiesForType(managedType, componentItem.VariantHash, parent.IsRoot);
                 var canSerializeInAtLeastOneVariant = GhostComponentSerializerCollectionData.AnyVariantsAreSerialized(in availableSs);
-                // Pass the baker-contributed variant hash (or 0 if none) so the resolver returns the baker's
-                // chosen variant as the "default" for this prefab. Falls back to the system default when the
-                // baker did not contribute a variant.
-                var defaultVariant = collectionData.GetCurrentSerializationStrategyForComponent(managedType, componentItem.BakerContributedVariantHash, parent.IsRoot);
+                // Pass the context-contributed variant hash (baker override or GO-layer default, 0 if none) so the
+                // resolver returns the context's chosen variant as the "default" for this prefab. Falls back to the
+                // system default when the context did not contribute one.
+                var defaultVariant = collectionData.GetCurrentSerializationStrategyForComponent(managedType, componentItem.ContextDefaultVariantHash, parent.IsRoot);
 
                 // Remove test variants as they cannot be selected:
                 for (var j = availableSs.Length - 1; j >= 0; j--)
@@ -321,8 +362,16 @@ namespace Unity.NetCode.Editor
                     ssDisplayNames[j] = vt.DisplayName.ToString();
                     if (defaultVariant.Hash == availableSs[j].Hash)
                     {
-                        var defaultTag = ComponentTypeSerializationStrategy.GetDefaultDisplayName(defaultVariant.DefaultRule);
-                        if (!defaultTag.IsEmpty)
+                        var defaultTag = ComponentTypeSerializationStrategy.GetDefaultDisplayName(defaultVariant.DefaultRule).ToString();
+                        // Check if the rule was registered by Netcode
+                        if (defaultTag.Length != 0 && (defaultVariant.DefaultRule & ComponentTypeSerializationStrategy.DefaultType.YesAsIsUserSpecifiedNewDefault) != 0)
+                        {
+                            var registeringSystem =
+                                world.GetExistingSystemManaged<GhostComponentSerializerCollectionSystemGroup>()?.DefaultVariantRules?.TryGetRuleRegistrationSystem(ComponentType.ReadWrite(managedType));
+                            if (registeringSystem != null && registeringSystem.GetType().Assembly == typeof(TransformDefaultVariantSystem).Assembly)
+                                defaultTag = "Netcode Default";
+                        }
+                        if (defaultTag.Length != 0)
                             ssDisplayNames[j] += $" ({defaultTag})";
                     }
                 }

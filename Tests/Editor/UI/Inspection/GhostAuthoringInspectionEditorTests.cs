@@ -123,6 +123,7 @@ namespace Unity.NetCode.Editor.Tests.UI.Inspection
         /// </summary>
         void CreateAndBakeInspector(GhostAuthoringInspectionComponent.ComponentOverride[] overrides = null)
         {
+            using var _ = new NetCodeTestWorld(); // useful to setup/teardown global test states, even if not using worlds
             m_GhostRoot = new GameObject("InspectorTestGhost");
             m_GhostRoot.AddComponent<TestNetCodeAuthoring>().Converter = new GhostConverter();
             var auth = m_GhostRoot.AddComponent<GhostAuthoringComponent>();

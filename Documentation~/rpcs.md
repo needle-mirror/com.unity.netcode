@@ -2,7 +2,7 @@
 
 Use remote procedure calls (RPCs) to communicate high-level game flow events and send one-off, non-predicted commands from the client to the server. A job on the sending side can issue RPCs, and the RPCs then execute on a job on the receiving side. This limits what you can do in an RPC, such as what data you can read and modify, and what calls you're allowed to make from the engine. For more information on the job system, refer to the Unity User Manual documentation on the [C# Job System](https://docs.unity3d.com/Manual/JobSystem.html).
 
-To make the system a bit more flexible in the Netcode for Entities context, you can create an entity that contains specific Netcode components such as [`SendRpcCommandRequest`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.SendRpcCommandRequest.html) and [`ReceiveRpcCommandRequest`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ReceiveRpcCommandRequest.html), which this page outlines.
+To make the system a bit more flexible in the Netcode for Entities context, you can create an entity that contains specific Netcode components such as [`SendRpcCommandRequest`](xref:Unity.NetCode.SendRpcCommandRequest) and [`ReceiveRpcCommandRequest`](xref:Unity.NetCode.ReceiveRpcCommandRequest), which this page outlines.
 
 ## Comparing ghosts and RPCs
 
@@ -36,7 +36,7 @@ Use RPCs to:
 
 ## Extend `IRpcCommand`
 
-To use RPCs in Netcode for Entities, create a command by extending the [`IRpcCommand`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IRpcCommand.html):
+To use RPCs in Netcode for Entities, create a command by extending the [`IRpcCommand`](xref:Unity.NetCode.IRpcCommand):
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/rpcs.cs#DefineRPC)]
 
@@ -48,7 +48,10 @@ This generates all the code you need for serialization and deserialization as we
 
 ## Sending and receiving commands
 
-To complete the example, you need to create some entities to send and receive the commands you created. To send the command, you need to create an entity and add the command and the special component [`SendRpcCommandRequest`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.SendRpcCommandRequest.html) to it. This component has a member called `TargetConnection` that refers to the remote connection you want to send this command to.
+To complete the example, you need to create some entities to send and receive the commands you created. To send the command, you need to create an entity and add the command and the special component [`SendRpcCommandRequest`](xref:Unity.NetCode.SendRpcCommandRequest) to it. This component has a member called `TargetConnection` that refers to the remote connection you want to send this command to.
+<!--- TODO-release enable with single-world host
+When using a single-world host, you can also use `BroadcastTargets`. When `TargetConnection` is set to `Entity.Null`, `BroadcastTargets` determines which connections an RPC is sent to. You can use this to send an RPC to all clients including the host client (default), or to all clients except the host client.
+-->
 
 > [!NOTE]
 > If `TargetConnection` is set to `Entity.Null`, the message is broadcast to all clients. You don't have to set this value on a client, because clients can only send RPCs send to the server.
@@ -61,7 +64,7 @@ When the RPC is received, an entity that you can filter on is created by a code-
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/rpcs.cs#ReceiveRPC)]
 
-The [`RpcSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.RpcSystem.html) automatically finds all of the requests, sends them, and then deletes the send request. On the remote side they show up as entities with the same `IRpcCommand` and a [`ReceiveRpcCommandRequestComponent`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ReceiveRpcCommandRequestComponent.html), which you can use to identify which connection the request was received from.
+The [`RpcSystem`](xref:Unity.NetCode.RpcSystem) automatically finds all of the requests, sends them, and then deletes the send request. On the remote side they show up as entities with the same `IRpcCommand` and a [`ReceiveRpcCommandRequest`](xref:Unity.NetCode.ReceiveRpcCommandRequest), which you can use to identify which connection the request was received from.
 
 ## Creating an RPC without generating code
 
@@ -69,12 +72,12 @@ Code generation for RPCs is optional. If you don't want to use it, you need to c
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/rpcs.cs#RPCSerializer)]
 
-The [`IRpcCommandSerializer`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IRpcCommandSerializer.html) interface has three methods: `Serialize`, `Deserialize`, and `CompileExecute`. `Serialize` and `Deserialize` store the data in a packet, while `CompileExecute` uses Burst to create a `FunctionPointer`. The function it compiles takes an [`RpcExecutor.Parameters`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.RpcExecutor.Parameters.html) by reference that contains entries that you're able to use as needed.
+The [`IRpcCommandSerializer`](xref:Unity.NetCode.IRpcCommandSerializer`1) interface has three methods: `Serialize`, `Deserialize`, and `CompileExecute`. `Serialize` and `Deserialize` store the data in a packet, while `CompileExecute` uses Burst to create a `FunctionPointer`. The function it compiles takes an [`RpcExecutor.Parameters`](xref:Unity.NetCode.RpcExecutor.Parameters) by reference that contains entries that you're able to use as needed.
 
 > [!NOTE]
 > Don't read from (or write to) the struct field values themselves (do not read or write in-place), instead read from (and write to) the by-ref argument `data`.
 <!--
-TODO enable with single world host
+TODO enable with single-world host
 > [!NOTE]
 > When using a single-world host, local RPCs bypass the serialization/deserialization flow and are executed locally. You can access local RPC data using the `RpcExecutor.Parameters.GetPassthroughActionData` method and test whether you're in a passthrough situation using the `RpcExecutor.Parameters.IsPassthroughRPC` bool.
 -->
@@ -85,18 +88,18 @@ To create an entity that holds an RPC, use the function `ExecuteCreateRequestCom
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/rpcs.cs#ModifiedInvokeExecute)]
 
-This creates an entity with a [`ReceiveRpcCommandRequest`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ReceiveRpcCommandRequest.html) and `OurRpcCommand` components.
+This creates an entity with a [`ReceiveRpcCommandRequest`](xref:Unity.NetCode.ReceiveRpcCommandRequest) and `OurRpcCommand` components.
 
 > [!NOTE]
 > You don't need to create a receiving RPC entity here if you don't need one.
 > For example, for an RPC denoting new chat messages, it may be simpler to append your chat message to a buffer on the
 > NetworkConnection entity, then consume said buffer directly via a system.
 
-Once you create an [`IRpcCommandSerializer`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IRpcCommanSerializer.html), you need to make sure that the [`RpcCommandRequest`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) system picks it up. To do this, you can create a system that invokes the `RpcCommandRequest`, as follows:
+Once you create an [`IRpcCommandSerializer`](xref:Unity.NetCode.IRpcCommandSerializer`1), you need to make sure that the [`RpcCommandRequest`](xref:Unity.NetCode.RpcCommandRequest`2) system picks it up. To do this, you can create a system that invokes the `RpcCommandRequest`, as follows:
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/rpcs.cs#ReceiveRPCWithSerializer)]
 
-The `RpcCommandRequest` system uses an [`RpcQueue`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.RpcQueue-1.html) internally to schedule outgoing RPCs.
+The `RpcCommandRequest` system uses an [`RpcQueue`](xref:Unity.NetCode.RpcQueue`2) internally to schedule outgoing RPCs.
 
 ## Serializing RPCs
 
@@ -109,7 +112,7 @@ You might have data that you want to attach to the `RpcCommand`. To do this, you
 
 ## `RpcQueue`
 
-The [`RpcQueue`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.RpcQueue-1.html) is used internally to schedule outgoing RPCs. However, you can manually create your own queue and use it to schedule RPCs.
+The [`RpcQueue`](xref:Unity.NetCode.RpcQueue`2) is used internally to schedule outgoing RPCs. However, you can manually create your own queue and use it to schedule RPCs.
 
 To do this, call `GetSingleton<RpcCollection>().GetRpcQueue<OurRpcCommand>();`. You can either call it in `OnUpdate` or call it in `OnCreate` and cache the value through the lifetime of your application. If you do call it in `OnCreate`, you must make sure that the system calling it is created after `RpcSystem`.
 

@@ -377,3 +377,17 @@
     width: 16px;
     height: 16px;
 }
+
+.icon__host {
+    background-image: var(--host-icon);
+    width: 16px;
+    height: 16px;
+}
+
+.info-text__container {
+    margin-bottom: 10px;
+}
+
+.label-with-icon__aligned {
+    justify-content: space-between;
+}

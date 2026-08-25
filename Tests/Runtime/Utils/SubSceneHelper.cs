@@ -1,7 +1,6 @@
 #if UNITY_EDITOR
 using System;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Threading;
@@ -117,6 +116,34 @@ namespace Unity.NetCode.Tests
             return subSceneComponent;
         }
 
+        /// <summary>
+        /// Create a subscene populated with the provided GameObjects added as scene placed objects.
+        /// </summary>
+        static public SubScene CreateSubSceneWithGameObjects(Scene parentScene, string scenePath, string subSceneName,
+            GameObject[] gameObjects)
+        {
+            var subScene = CreateSubScene($"{scenePath}/{subSceneName}.unity");
+            subScene.isSubScene = true;
+            SceneManager.SetActiveScene(parentScene);
+            foreach (var obj in gameObjects)
+                SceneManager.MoveGameObjectToScene(obj, subScene);
+
+            EditorSceneManager.MarkSceneDirty(subScene);
+            EditorSceneManager.SaveScene(subScene);
+            var subSceneGo = new GameObject("SubScene");
+            subSceneGo.SetActive(false);
+            var subSceneComponent = subSceneGo.AddComponent<SubScene>();
+            var subSceneAsset = AssetDatabase.LoadAssetAtPath<SceneAsset>(subScene.path);
+            subSceneComponent.AutoLoadScene = false;
+            subSceneComponent.SceneAsset = subSceneAsset;
+            subSceneGo.SetActive(true);
+            EditorSceneManager.MarkSceneDirty(parentScene);
+            EditorSceneManager.SaveScene(parentScene, parentScene.path);
+            EditorSceneManager.CloseScene(subScene, false);
+            AssetDatabase.Refresh();
+            return subSceneComponent;
+        }
+
         //Create a xz grid of object with 1 mt spacing starting from offset startOffset.
         static public SubScene CreateSubScene(Scene parentScene, string scenePath, string subSceneName, int numRows, int numCols, GameObject prefab,
             Vector3 startOffsets)
@@ -146,10 +173,6 @@ namespace Unity.NetCode.Tests
             return subSceneComponent;
         }
 
-        static public void AddSubSceneToParentScene(Scene parentScene, Scene subScene)
-        {
-        }
-
         static public Scene CreateEmptyScene(string scenePath, string name)
         {
             //Create the parent scene
@@ -169,72 +192,12 @@ namespace Unity.NetCode.Tests
             return CreatePrefab(path, go);
         }
 
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-
-        public static GameObject CreateGhostBehaviourPrefab(string path, string name, params Type[] componentTypes)
-        {
-            return CreateGhostBehaviourPrefab(path, name, true, componentTypes);
-        }
-
-        /// <summary>
-        /// Creates GhostBehaviour prefab with proper prefab ref tracking setup.
-        /// </summary>
-        /// <param name="path">Ex: Assets/Tests</param>
-        /// <param name="name">Ex: MyPrefab (no extension .prefab)</param>
-        /// <param name="autoRegister">In order to modify the generated prefab, you need to prevent it from registering automatically, modify it, then register it yourself using <see cref="Netcode.RegisterPrefab(GameObject,World)"/></param>
-        /// <param name="componentTypes">Asserts one of the provided component is a GhostBehaviour. No need to add GhostAdapter, that should be added automatically by GhostBehaviour RequireComponent</param>
-        /// <returns></returns>
-        public static GameObject CreateGhostBehaviourPrefab(string path, string name, bool autoRegister = true, params Type[] componentTypes)
-        {
-            Assert.That(componentTypes.Any(t => t.IsSubclassOf(typeof(GhostBehaviour))));
-            var go = new GameObject(name);
-            go.SetActive(false); // to prevent Awake from triggering initialization and logging null refs
-            foreach (var type in componentTypes)
-            {
-                go.AddComponent(type);
-            }
-
-            go.GetComponent<GhostAdapter>().SkipAutomaticPrefabRegistration = !autoRegister;
-            var prefab = CreatePrefab(path, go);
-            prefab.SetActive(true);
-            foreach (var world in World.All)
-            {
-                // check all possible worlds for the prefab that was just created and reenable it there too, since normal prefab creation would think the prefab is inactive
-                // and automatically set the associated entity disabled too
-                var link = GhostEntityMapping.LookupEntityReferencePrefab(prefab.GetEntityId(), world.Unmanaged);
-                if (link.WasInitialized)
-                {
-                    link.World.EntityManager.SetEnabled(link.Entity, true);
-                    // also have to override this in tests, since prefab registration will have had the wrong value during registration
-                    var pendingGameObjectSpawn = link.World.EntityManager.GetComponentData<PendingGameObjectSpawn>(link.Entity);
-                    pendingGameObjectSpawn.ShouldBeActive = true;
-                    link.World.EntityManager.SetComponentData(link.Entity, pendingGameObjectSpawn);
-                }
-            }
-            return prefab;
-        }
-        public static GameObject CreateGhostBehaviourPrefab(string path, GameObject gameObject,
-            params Type[] componentTypes)
-        {
-            Assert.That(componentTypes.Any(t => t.IsSubclassOf(typeof(GhostBehaviour))));
-            gameObject.SetActive(false); // to prevent Awake from triggering and logging null refs
-            foreach (var type in componentTypes)
-            {
-                gameObject.AddComponent(type);
-            }
-            var prefab = CreatePrefab(path, gameObject);
-            prefab.SetActive(true);
-            return prefab;
-        }
-#endif
         static public GameObject CreatePrefab(string directoryPath, GameObject go)
         {
             if (!Directory.Exists(directoryPath))
                 Directory.CreateDirectory(directoryPath);
             var assetPath = $"{directoryPath}/{go.name}.prefab";
-#if UNITY_6000_3_OR_NEWER // Since this is just a sanity check when writing tests, it's ok to define it out where the API isn't available
             Assert.IsFalse(AssetDatabase.AssetPathExists(assetPath), $"path already exists for asset {assetPath}");
-#endif
             var prefab = PrefabUtility.SaveAsPrefabAsset(go, assetPath);
             Object.DestroyImmediate(go);
 
@@ -248,7 +211,7 @@ namespace Unity.NetCode.Tests
         {
             if (subScenes.Length == 0)
             {
-                subScenes = FindObjectUtils.FindObjectsByType<SubScene>();
+                subScenes = Object.FindObjectsByType<SubScene>();
             }
 
             var sceneEntities = new Entity[subScenes.Length];
@@ -263,12 +226,22 @@ namespace Unity.NetCode.Tests
                     Flags = SceneLoadFlags.BlockOnImport | SceneLoadFlags.BlockOnStreamIn
                 });
             }
-            var loaded = false;
+            bool loaded = false;
             for (int i = 0; i < 128 && !loaded; ++i)
             {
                 Thread.Sleep(100);
                 world.Update();
-                loaded = sceneEntities.All(s => SceneSystem.IsSceneLoaded(world.Unmanaged, s));
+                loaded = true;
+                foreach (var entity in sceneEntities)
+                {
+                    if (SceneSystem.IsSceneLoaded(world.Unmanaged, entity))
+                    {
+                        continue;
+                    }
+
+                    loaded = false;
+                    break;
+                }
             }
 
             if (!loaded)

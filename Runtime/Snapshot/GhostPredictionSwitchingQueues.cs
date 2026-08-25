@@ -3,6 +3,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.Transforms;
 
 namespace Unity.NetCode
@@ -125,6 +126,7 @@ namespace Unity.NetCode
             var singletonEntity = state.EntityManager.CreateEntity(
                 ComponentType.ReadOnly<GhostPredictionSwitchingQueues>(),
                 ComponentType.ReadOnly<GhostOwnerPredictedSwitchingQueue>());
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, singletonEntity);
             state.EntityManager.SetName(singletonEntity, (FixedString64Bytes)"GhostPredictionQueues");
             SystemAPI.SetSingleton(new GhostPredictionSwitchingQueues
             {
@@ -149,7 +151,8 @@ namespace Unity.NetCode
 #if UNITY_EDITOR
         static void SetupAnalyticsSingleton(EntityManager entityManager)
         {
-            entityManager.CreateSingleton<PredictionSwitchingAnalyticsData>();
+            var analyticsEntity = entityManager.CreateSingleton<PredictionSwitchingAnalyticsData>();
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(entityManager, analyticsEntity);
         }
 #endif
 

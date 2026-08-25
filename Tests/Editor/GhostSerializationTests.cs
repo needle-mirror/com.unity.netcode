@@ -27,6 +27,14 @@ namespace Unity.NetCode.Tests
             baker.AddBuffer<GhostValueBufferSerializer>(entity);
         }
     }
+    internal class SmallGhostConverter : TestNetCodeAuthoring.IConverter
+    {
+        public void Bake(GameObject gameObject, IBaker baker)
+        {
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new SmallTestComponent {});
+        }
+    }
 
     internal enum EnumUntyped
     {
@@ -65,12 +73,16 @@ namespace Unity.NetCode.Tests
         Value0 = 0xABBA1970F1809FE2,
     }
 
+    [InternalBufferCapacity(0)]
     internal struct GhostValueBufferSerializer : IBufferElementData
     {
         [GhostField] public GhostValueSerializer Values;
         public override string ToString() => $"BUF[{Values}]";
     }
-
+    internal struct SmallTestComponent : IComponentData
+    {
+        [GhostField] public byte Value;
+    }
     internal struct GhostValueSerializer : IComponentData
     {
         [GhostField] public bool BoolValue;
@@ -220,12 +232,11 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(serverValues.UnionValue.State3.A,clientValues.UnionValue.State3.A);
             Assert.AreEqual(serverValues.UnionValue.State3.B,clientValues.UnionValue.State3.B);
         }
-        void SetGhostValuesOnServer(NetCodeTestWorld testWorld, int baseValue, int length = 2)
+        void SetGhostValuesOnServer(World serverWorld, Entity serverEntity, int baseValue, int length = 2)
         {
-            var serverEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ServerWorld);
             Assert.AreNotEqual(Entity.Null, serverEntity);
-            testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, CreateGhostValues(baseValue, serverEntity));
-            var buffer = testWorld.ServerWorld.EntityManager.GetBuffer<GhostValueBufferSerializer>(serverEntity);
+            serverWorld.EntityManager.SetComponentData(serverEntity, CreateGhostValues(baseValue, serverEntity));
+            var buffer = serverWorld.EntityManager.GetBuffer<GhostValueBufferSerializer>(serverEntity);
             buffer.Length = length;
             for (int i = 0; i < length; i++)
             {
@@ -369,7 +380,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                SetGhostValuesOnServer(testWorld, 42);
+                SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, 42);
                 testWorld.Connect();
                 testWorld.GoInGame();
 
@@ -400,14 +411,14 @@ namespace Unity.NetCode.Tests
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.SpawnOnServer(ghostGameObject);
-                SetGhostValuesOnServer(testWorld, 42);
+                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+                SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, 42);
                 testWorld.Connect();
                 testWorld.GoInGame();
                 testWorld.TickUntilClientsHaveAllGhosts();
 
                 VerifyGhostValues(testWorld);
-                SetGhostValuesOnServer(testWorld, 43);
+                SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, 43);
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick();
@@ -419,14 +430,71 @@ namespace Unity.NetCode.Tests
 
         internal enum SetMode
         {
+            /// <summary>GhostField changes will be rate-limited by MaxSendRate.</summary>
             ConstantChanges,
+            /// <summary>Resending GhostField changes until acked will be rate-limited by MaxSendRate.</summary>
             OnlyOneChange,
         }
 
 #if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
         // TODO: Really we should add test coverage to ensure we're actually hitting the MaxSendRate condition of `GhostSendSystem.GatherGhostChunks`,
         // but that requires better analytics.
-        [Test]
+        [Test(Description = "MaxSendRate lowers the snapshot send rate - except when structural changes occur to the chunk - so this test ensures that structural changes trigger early resends.")]
+        public void GhostValuesAreSerialized_IgnoresMaxSendRate_WhenConstantStructuralChangesOccur([Values]SetMode setMode, [Values]GhostOptimizationMode optMode,
+            [Values(1, 20)]int maxSendRate)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.SetTestLatencyProfile(NetCodeTestLatencyProfile.RTT60ms);
+            testWorld.Bootstrap(true);
+            var ghostGameObject = new GameObject($"SmallGhost_MaxSendRate_{maxSendRate}");
+            var config = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            config.MaxSendRate = (byte)maxSendRate;
+            // Use predicted to always get latest values:
+            config.SupportedGhostModes = GhostModeMask.Predicted;
+            config.OptimizationMode = optMode;
+            config.HasOwner = true;
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new SmallGhostConverter();
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+            var serverGhost = testWorld.SpawnOnServer(ghostGameObject);
+            testWorld.ServerWorld.EntityManager.SetComponentData(serverGhost, new GhostOwner { NetworkId = 1,});
+            testWorld.ServerWorld.EntityManager.SetComponentData(serverGhost, new SmallTestComponent { Value = byte.MaxValue});
+            testWorld.Connect(maxSteps:16);
+            testWorld.GoInGame();
+            testWorld.TickUntilClientsHaveAllGhosts();
+
+            // Replicate changes over N frames.
+            var clientEnt = testWorld.TryGetSingletonEntity<SmallTestComponent>(testWorld.ClientWorlds[0]);
+            NetworkTick lastSnapshotTick = NetworkTick.Invalid;
+            int numSnapshotsArrivedForGhost = 0;
+            const int numTicksInTest = 30;
+            const int structuralChangeInterval = 3;
+            for (int tick = 0; tick < numTicksInTest; ++tick)
+            {
+                // Make a structural change every 3rd tick:
+                // NOTE: We're assuming all these new ghost entities EVENTUALLY end up in serverGhost's chunk.
+                if(tick % structuralChangeInterval == 0)
+                    testWorld.SpawnOnServer(ghostGameObject); // Trigger a chunk order change on each tick.
+
+                if(setMode == SetMode.ConstantChanges || tick == 0) // Make 1 change in the OneChange case.
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverGhost, new SmallTestComponent { Value = (byte)tick});
+
+                testWorld.Tick();
+
+                var clientSnapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
+                var clientSnapshot = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(clientEnt);
+                var snapshotTick = clientSnapshot.GetLatestTick(clientSnapshotBuffer);
+                if (snapshotTick != lastSnapshotTick)
+                {
+                    lastSnapshotTick = snapshotTick;
+                    numSnapshotsArrivedForGhost++;
+                }
+            }
+            // As the structural change triggers a resend every nth tick,
+            // we expect to see far more packets arriving than in the other test:
+            Assert.That(numSnapshotsArrivedForGhost, Is.EqualTo(numTicksInTest/structuralChangeInterval).Within(2), nameof(numSnapshotsArrivedForGhost));
+        }
+        [Test(Description = "MaxSendRate lowers the snapshot send rate - except when structural changes occur to the chunk - so we test those outcomes here.")]
         public void GhostValuesAreSerialized_RespectsMaxSendRate([Values]SetMode setMode, [Values]GhostOptimizationMode optMode,
             [Values(1, 20, 100, 0)]int maxSendRate)
         {
@@ -445,9 +513,9 @@ namespace Unity.NetCode.Tests
             ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
             testWorld.CreateWorlds(true, 1);
-            var serverGhost = testWorld.SpawnOnServer(ghostGameObject);
-            testWorld.ServerWorld.EntityManager.SetComponentData(serverGhost, new GhostOwner { NetworkId = 1,});
-            SetGhostValuesOnServer(testWorld, 0);
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+            testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = 1,});
+            SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, 0);
             testWorld.Connect(maxSteps:16);
             testWorld.GoInGame();
             testWorld.TickUntilClientsHaveAllGhosts();
@@ -463,10 +531,10 @@ namespace Unity.NetCode.Tests
             for (int tick = 0; tick < numTicksInTest; ++tick)
             {
                 if(setMode == SetMode.ConstantChanges || tick == 0) // Make 1 change in the OneChange case.
-                    SetGhostValuesOnServer(testWorld, tick);
+                    SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, tick);
                 testWorld.Tick();
-                AddIfChanged(serverValues, tick, testWorld.ServerWorld);
-                AddIfChanged(clientValues, tick - snapshotAckLatencyInTicks, testWorld.ClientWorlds[0]);
+                AddIfChanged(serverValues, serverEnt, tick, testWorld.ServerWorld);
+                AddIfChanged(clientValues, clientEnt, tick - snapshotAckLatencyInTicks, testWorld.ClientWorlds[0]);
 
                 var clientSnapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
                 var clientSnapshot = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(clientEnt);
@@ -513,19 +581,16 @@ namespace Unity.NetCode.Tests
                 if(tick >= 0 && tick < serverValues.Length)
                     VerifyGhostValues(serverValues[tick].val, val);
             }
-
-            unsafe bool AddIfChanged(NativeList<(int tick, GhostValueSerializer val)> list, int tick, World world)
+            unsafe void AddIfChanged(NativeList<(int tick, GhostValueSerializer val)> list, Entity entity, int tick, World world)
             {
                 var previous = list.IsEmpty ? default : list[list.Length - 1];
-                var current = testWorld.GetSingleton<GhostValueSerializer>(world);
+                var current = world.EntityManager.GetComponentData<GhostValueSerializer>(entity);
                 var memCmp = UnsafeUtility.MemCmp(&current, &previous.val, UnsafeUtility.SizeOf<GhostValueSerializer>());
                 //UnityEngine.Debug.Log($"  - TestWorld[{NetCodeTestWorld.TickIndex}]  iteration:{tick} = previous:{previous.val.IntValue}, current:{current.IntValue} = memCmp:{memCmp} ");
                 if (list.IsEmpty || memCmp != 0)
                 {
                     list.Add((tick, current));
-                    return true;
                 }
-                return false;
             }
         }
 #endif
@@ -541,13 +606,13 @@ namespace Unity.NetCode.Tests
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.SpawnOnServer(ghostGameObject);
-                SetGhostValuesOnServer(testWorld, 42);
+                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+                SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, 42);
                 testWorld.Connect();
                 testWorld.GoInGame();
                 testWorld.TickUntilClientsHaveAllGhosts();
                 VerifyGhostValues(testWorld);
-                SetGhostValuesOnServer(testWorld, 43);
+                SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, 43);
 
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
@@ -604,7 +669,6 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        [DisableSingleWorldHostTest]
         public void EntityReferenceUnavailableGhostIsResolved()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -633,7 +697,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
                 }
 
-                var con = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var con = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, con);
                 var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(con).Value;
 
@@ -700,11 +764,11 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void ManyEntitiesCanBeDespawnedSameTick([Values(NetCodeTestLatencyProfile.PL33, NetCodeTestLatencyProfile.RTT16ms_PL5)]NetCodeTestLatencyProfile profile)
+        public void ManyEntitiesCanBeDespawnedSameTick()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.SetTestLatencyProfile(profile);
+                testWorld.SetTestLatencyProfile(NetCodeTestLatencyProfile.RTT16ms_PL5);
                 testWorld.Bootstrap(true);
 
                 var ghostGameObject = new GameObject();
@@ -742,7 +806,6 @@ namespace Unity.NetCode.Tests
         }
         [Test]
         [Category(NetcodeTestCategories.Foundational)]
-        [DisableSingleWorldHostTest]
         public void SnapshotAckMaskIsReportedCorrectlyByTheClient()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -812,14 +875,14 @@ namespace Unity.NetCode.Tests
                 //and the holes should match the expected bits.
                 //How to test this?
 
-                //If I receive multiple valid packet in the same frame (increasing ids), there is still an hole, because
+                //If I receive multiple valid packet in the same frame (increasing ids), there is still a hole, because
                 //only the last one is processed
                 //Current mask is 1111 1111 1111 1111 1111 1111 1111 1111  1111 1111 1111 1111  1111 1111 1111 1111
                 testWorld.TickServerWorld();
                 testWorld.TickServerWorld();
-                testWorld.TickClientWorld();
+                testWorld.TickClientWorld(clientOnly: true);
                 //client should now clobber the last snapshot and report the ack only for the last one.
-                //the mask will looks like:  1111 1111 1111 1111 1111 1111 1111 1111  1111 1111 1111 1111  1111 1111 1111 1101
+                //the mask will look like:  1111 1111 1111 1111 1111 1111 1111 1111  1111 1111 1111 1111  1111 1111 1111 1101
                 currentMask <<= 2;
                 currentMask |= 0x1;
                 var mask = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ClientWorlds[0]).ReceivedSnapshotByLocalMask;
@@ -871,7 +934,6 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        [DisableSingleWorldHostTest]
         public void GhostValuesAreSerializedWhenLargerThanMaxMessageSize()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -900,6 +962,8 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 64; ++i)
                     testWorld.Tick();
 
+                var clientNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
+
                 VerifyGhostValues(testWorld);
                 SetLargeGhostValues(testWorld, "b", testWorld.DriverMaxMessageSize * 2);
 
@@ -910,14 +974,13 @@ namespace Unity.NetCode.Tests
                 VerifyGhostValues(testWorld);
 
 #if NETCODE_DEBUG
-                LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
-                LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
+                LogAssert.Expect(LogType.Warning, new Regex(@$"PERFORMANCE(.*)NID\[{clientNetworkId}\](.*)fit even one ghost"));
+                LogAssert.Expect(LogType.Warning, new Regex(@$"PERFORMANCE(.*)NID\[{clientNetworkId}\](.*)fit even one ghost"));
 #endif
             }
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void TooSmall_SnapshotPacketSize_FailsGracefully_ViaMaxSnapshotSendAttempts([Values]bool useNetworkStreamSnapshotTargetSize)
         {
             using var testWorld = new NetCodeTestWorld();
@@ -929,9 +992,9 @@ namespace Unity.NetCode.Tests
             testWorld.CreateWorlds(true, 1);
 
             const int maxMessageSize = GhostSystemConstants.MinSnapshotPacketSize;
-            testWorld.SpawnOnServer(ghostGameObject);
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
             var maxTheoreticalSizeGhostSendSystemCanSend = (int)(maxMessageSize * math.pow(2, GhostSystemConstants.MaxSnapshotSendAttempts-1)); // Ignoring headers etc.
-            SetGhostValuesOnServer(testWorld, 43, (int) (maxTheoreticalSizeGhostSendSystemCanSend * 0.01f)); // It's a huge struct inside the buffer.
+            SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, 43, (int) (maxTheoreticalSizeGhostSendSystemCanSend * 0.01f)); // It's a huge struct inside the buffer.
 
             testWorld.Connect();
             testWorld.GoInGame();
@@ -941,7 +1004,7 @@ namespace Unity.NetCode.Tests
             ghostSendSystemData.TempStreamInitialSize *= 32; // Prevents the other overflow error regarding temp stream size!
             if (useNetworkStreamSnapshotTargetSize)
             {
-                var ent = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var ent = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 testWorld.ServerWorld.EntityManager.AddComponentData(ent, new NetworkStreamSnapshotTargetSize
                 {
                     Value = maxMessageSize,
@@ -955,11 +1018,12 @@ namespace Unity.NetCode.Tests
             testWorld.Tick();
             testWorld.Tick();
             testWorld.Tick();
+            var clientId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
 #if NETCODE_DEBUG // These warnings only appear when NETCODE_DEBUG is defined, but the fatal error makes it through.
             for(int i = 0; i < GhostSystemConstants.MaxSnapshotSendAttempts - 1; i++)
-                LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
+                LogAssert.Expect(LogType.Warning, new Regex(@$"PERFORMANCE(.*)NID\[{clientId}\](.*)fit even one ghost"));
 #endif
-            LogAssert.Expect(LogType.Error, new Regex(@$"FATAL(.*){nameof(GhostSystemConstants.MaxSnapshotSendAttempts)}(.*)NID\[1\]"));
+            LogAssert.Expect(LogType.Error, new Regex(@$"FATAL(.*){nameof(GhostSystemConstants.MaxSnapshotSendAttempts)}(.*)NID\[{clientId}\]"));
         }
 
 #if NETCODE_SNAPSHOT_HISTORY_SIZE_6
@@ -981,7 +1045,7 @@ namespace Unity.NetCode.Tests
             for(int i = 0; i < 24; i++)
                 testWorld.Tick();
     #if NETCODE_DEBUG
-            LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE\: Snapshot history is saturated for ghost chunk:(\d*), ghostType\:0, 4\/6 in\-flight \(TSLR\:15\<\=16\), sent anyway\:(true|false)\!"));
+            LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE\: Snapshot history is saturated for ghost chunk:(\d*), ghostType\:0, 4\/6 in\-flight \(TSLR\:15\<\=16\), sent anyway\:(True|False)\!"));
     #endif
         }
 #endif
@@ -1015,7 +1079,7 @@ namespace Unity.NetCode.Tests
             Assert.IsFalse(clientTime.IsPartialTick,
                 "Test is only valid if the client world is on a full tick, but it is on a partial tick");
 
-            testWorld.SpawnOnServer(ghostGameObject);
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
             testWorld.TickUntilClientsHaveAllGhosts();
 
             // Ensure that the ghost is spawned
@@ -1026,7 +1090,7 @@ namespace Unity.NetCode.Tests
                 "GhostValueSerializer has invalid ghostId on the client, it should have been replicated from the server");
 
             // Set values on the server and ensure they replicate correctly
-            SetGhostValuesOnServer(testWorld, 1234);
+            SetGhostValuesOnServer(testWorld.ServerWorld, serverEnt, 1234);
             for (int i = 0; i < 16; i++)
             {
                 testWorld.Tick();

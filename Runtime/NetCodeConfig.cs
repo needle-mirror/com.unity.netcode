@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using Unity.NetCode.Tracing;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Relay;
 using Unity.Networking.Transport.Utilities;
@@ -33,7 +34,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Which client-hosted mode to use.
         /// </summary>
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST || NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
         public enum HostWorldMode
 #else
         internal enum HostWorldMode
@@ -54,6 +55,21 @@ namespace Unity.NetCode
         /// <summary>
         /// Netcode helper: Allows you to add multiple configs to the PreloadedAssets list. There can only be one global one.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// DEPRECATED: Support for multiple <see cref="NetCodeConfig"/> assets is being removed. The single global config
+        /// is now resolved via <c>NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig</c> (in the Editor) and via the
+        /// single preloaded asset (in builds). This field is retained only so that builds can continue to resolve the global
+        /// config deterministically while existing user projects are migrated. It is set automatically during the build
+        /// pre-process step; you should not need to set it manually.
+        /// </para>
+        /// <para>
+        /// TODO (6.8): Remove this field entirely. By then, the build pre-processor should be marking all non-global configs
+        /// with <c>HideFlags.DontSaveInBuild</c> so that only the single global config is ever loaded at runtime, making this
+        /// flag (and the deterministic sort in <see cref="CompareTo"/>) unnecessary.
+        /// </para>
+        /// </remarks>
+        [Obsolete("Support for multiple NetCodeConfigs is deprecated. There can only be one global config, resolved via NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig (Editor) or the single preloaded asset (builds). This field is now managed automatically by the build pre-processor and will be removed. (RemovedAfter 6.8)", false)]
         public bool IsGlobalConfig;
 
         /// <summary>
@@ -187,6 +203,14 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
         [Range(64, NetworkParameterConstants.AbsoluteMaxMessageSize)]
         public int MaxMessageSize;
 
+        [SerializeField]
+#if NETCODE_TRACING_TOOL
+        public
+#else
+        internal
+#endif
+        TracingConfig TracingConfig;
+
         internal NetCodeConfig()
         {
             // Note that these will be clobbered by any ScriptableObject in-place deserialization.
@@ -203,6 +227,9 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
             ClientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             GhostSendSystemData = default;
             GhostSendSystemData.Initialize();
+
+            TracingConfig = new TracingConfig();
+            TracingConfig.ResetToDefault();
 
             ResetIfDefault(ref ConnectTimeoutMS, NetworkParameterConstants.ConnectTimeoutMS);
             ResetIfDefault(ref MaxConnectAttempts, NetworkParameterConstants.MaxConnectAttempts);
@@ -229,26 +256,38 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
         /// <remarks><see cref="RuntimeInitializeLoadType.AfterAssembliesLoaded"/> guarantees that this is called BEFORE Entities initialization.</remarks>
         /// <returns></returns>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
-        internal static void RuntimeTryFindSettings()
+        private static void RuntimeInitializeGlobalConfig()
         {
             if (Application.isEditor)
             {
                 void OnQuit()
                 {
                     Application.quitting -= OnQuit;
-                    Global = default; // resetting for convenience, to make sure we don't carry over settings with no domain reloads. Normally this should get reset next time we enter playmode, but that doesn't happen for editor tests when running them after having tested a project which changes settings at runtime
+                    FindAndAssignGlobalConfig(); // resetting it to the default global config if playmode code changed it at runtime. This way this can be accessed from editor time scripts with the expected idempotent value (the editor should behave the same way before and after playmode)
                 }
 
                 Application.quitting += OnQuit;
             }
 
+            FindAndAssignGlobalConfig();
+        }
+
+        internal static void FindAndAssignGlobalConfig()
+        {
             var configs = Resources.FindObjectsOfTypeAll<NetCodeConfig>();
+            // CompareTo sorts the deterministically-chosen global config (IsGlobalConfig == true) to index 0.
+            // TODO (6.8): Once the build pre-processor strips non-global configs via HideFlags.DontSaveInBuild and we rely on the project settings for the source of truth, builds will only ever load a single config, so this whole method can be removed.
             Array.Sort(configs);
             if (configs.Length > 0)
             {
+                // In builds only the single global config is added to the preloaded assets, so finding more than one
+                // here implies either an in-Editor session (where all loaded assets are visible) or a user project that
+                // still ships multiple configs. Multiple configs are deprecated: warn loudly but keep resolving
+                // deterministically (via the sort above) so existing projects don't hard-break.
                 NetCodeConfig erringConfig = default;
-                var errSb = new StringBuilder($"[NetCodeConfig] Discovered {configs.Length} loaded NetcodeConfig files. Using '{configs[0].name}', but the following errors occured:");
+                var errSb = new StringBuilder($"[NetCodeConfig] Discovered {configs.Length} loaded NetCodeConfig assets. Support for multiple NetCodeConfigs is deprecated (RemovedAfter 6.8); there should only be a single global config. Using '{configs[0].name}'.");
                 bool isUsingGlobalConfig = false;
+#pragma warning disable 618 // IsGlobalConfig is obsolete, but still required to resolve deterministically until 6.8.
                 for (var i = 0; i < configs.Length; i++)
                 {
                     var config = configs[i];
@@ -260,15 +299,31 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
                     }
                     isUsingGlobalConfig |= config.IsGlobalConfig;
                 }
+#pragma warning restore 618
 
-                if (erringConfig)
+                if (configs.Length > 1)
                 {
-                    errSb.Append("\nImplies an error during ProjectSettings selection! Please open the ProjectSettings and re-apply the NetCodeConfig!");
-                    Debug.LogError(errSb, erringConfig); // Support the ping, allowing quick-jump to error.
+                    errSb.Append("\nPlease remove the extra NetCodeConfig asset(s) and keep only the one selected in Project Settings > Multiplayer. Duplicate configs (e.g. from copy/paste) will be excluded from future builds.");
+                    if (erringConfig)
+                    {
+                        errSb.Append("\nThis also implies an error during ProjectSettings selection! Please open the ProjectSettings and re-apply the NetCodeConfig!");
+                        Debug.LogError(errSb, erringConfig);
+                    }
+                    else
+                    {
+                        Debug.LogWarning(errSb, configs[0]); // TODO (6.8) this should become an invalid case and an error. The current warning here executes in both playmode and in builds.
+                    }
                 }
+
+                Global = configs[0];
             }
-            // It is valid to NOT have a Global config, but to have multiple NetCodeConfigs in your build.
-            Global = configs.Length > 0 ? configs[0] : null;
+            else
+            {
+                Debug.LogError($"No {nameof(NetCodeConfig)} found, generating one for this session. This won't be saved. To fix this error, open your Project Settings and go to the Multiplayer section which will automatically create the appropriate config. Or create a new config using Assets/Create/Multiplayer/NetCodeConfig Asset.");
+                var newInstance = ScriptableObject.CreateInstance<NetCodeConfig>();
+                newInstance.Reset();
+                Global = newInstance;
+            }
         }
 
         /// <summary>
@@ -278,8 +333,12 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
         /// <returns>Whether the config and names match.</returns>
         public int CompareTo(NetCodeConfig other)
         {
+            // TODO (6.8): Remove the IsGlobalConfig tie-break once non-global configs are stripped from builds; only the
+            // name comparison should be needed (or this whole comparer can go if multiple configs are fully removed).
+#pragma warning disable 618 // IsGlobalConfig is obsolete, but still required to resolve deterministically until 6.8.
             if (IsGlobalConfig != other.IsGlobalConfig)
                 return -IsGlobalConfig.CompareTo(other.IsGlobalConfig);
+#pragma warning restore 618
             return string.Compare(name, other.name, StringComparison.Ordinal);
         }
     }

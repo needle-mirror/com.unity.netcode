@@ -1,10 +1,6 @@
 #if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
-#if ENTITIES_1_5_OR_NEWER
-//Uncomment this to test the version with Reflection. It is only for testing purpose.
-#define  HAS_NEW_SYSTEMATTRIBUTE_API
-#endif
 
 using Unity.Entities;
 using System;
@@ -99,9 +95,9 @@ namespace Unity.NetCode
                 //if query is emtpy and no lag compesation, there is nothing to run
                 if (noEntitiesMatchingQuery)
                 {
-                    //On the client, if users set this to 0 is the same as disabling the hystory backup.
+                    // On the client, if users set this to 0, it's the same as disabling the history backup.
                     if (m_LagCompensationQuery.IsEmptyIgnoreFilter ||
-                        (group.World.IsClient() &&
+                        (!group.World.IsServer() &&
                          m_LagCompensationQuery.GetSingleton<LagCompensationConfig>().ClientHistorySize == 0))
                     {
                         return false;
@@ -130,82 +126,6 @@ namespace Unity.NetCode
 
     static class MovePhysicsSystemUtilities
     {
-#if !HAS_NEW_SYSTEMATTRIBUTE_API
-        //TODO: remove this hack when the new Entities package is public.
-        private static MethodInfo s_HackGetSystemTypeMethod = null;
-        private static int s_FieldOffset = -1;
-        public static Type GetSystemType(World world, SystemHandle systemHandle)
-        {
-            if (s_HackGetSystemTypeMethod == null || s_FieldOffset == -1)
-            {
-                s_HackGetSystemTypeMethod = typeof(TypeManager).GetMethod("GetSystemType",
-                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
-                    null, new Type[] { typeof(SystemTypeIndex) }, null);
-                Assertions.Assert.IsNotNull(s_HackGetSystemTypeMethod);
-                var fieldInfo = typeof(SystemState).GetField("m_SystemTypeIndex",
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                Assertions.Assert.IsNotNull(fieldInfo);
-                s_FieldOffset = UnsafeUtility.GetFieldOffset(fieldInfo);
-            }
-
-            ref var systemState = ref world.Unmanaged.ResolveSystemStateRef(systemHandle);
-            SystemTypeIndex systemTypeIndex;
-            unsafe { fixed (void* data = &systemState) {
-                systemTypeIndex = *(SystemTypeIndex*)((byte*)data + s_FieldOffset);
-            }}
-            return (Type)s_HackGetSystemTypeMethod.Invoke(null, new object[] { systemTypeIndex });
-        }
-
-        public static bool MovePhysicsSystem(Type systemType, SystemHandle handle,
-            ref NativeHashMap<SystemTypeIndex, SystemHandle> physicsSystemTypes)
-        {
-            SystemTypeIndex systemTypeIndex = TypeManager.GetSystemTypeIndex(systemType);
-            if (physicsSystemTypes.ContainsKey(systemTypeIndex))
-                return false;
-            var attribs = TypeManager.GetSystemAttributes(systemType, typeof(UpdateBeforeAttribute));
-            foreach (var attr in attribs)
-            {
-                var dependencyTypeIndex = TypeManager.GetSystemTypeIndex(((UpdateBeforeAttribute)attr).SystemType);
-                if (physicsSystemTypes.ContainsKey(dependencyTypeIndex))
-                {
-                    physicsSystemTypes[systemTypeIndex] = handle;
-                    return true;
-                }
-            }
-            attribs = TypeManager.GetSystemAttributes(systemType, typeof(UpdateAfterAttribute));
-            foreach (var attr in attribs)
-            {
-                var dependencyTypeIndex = TypeManager.GetSystemTypeIndex(((UpdateAfterAttribute)attr).SystemType);
-                if (physicsSystemTypes.ContainsKey(dependencyTypeIndex))
-                {
-                    physicsSystemTypes[systemTypeIndex] = handle;
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        public static void MovePhysicsSystems(FixedStepSimulationSystemGroup srcGrp,
-            PredictedFixedStepSimulationSystemGroup dstGrp, ref NativeHashMap<SystemTypeIndex, SystemHandle> physicsSystemTypes)
-        {
-            bool didMove = true;
-            var managedSystems = srcGrp.ManagedSystems;
-            var unmanagedSystems = srcGrp.GetUnmanagedSystems();
-            while (didMove)
-            {
-                didMove = false;
-                foreach (var system in managedSystems)
-                {
-                    didMove |= MovePhysicsSystemUtilities.MovePhysicsSystem(system.GetType(), system.SystemHandle, ref physicsSystemTypes);
-                }
-                foreach (var system in unmanagedSystems)
-                {
-                    var systemType = MovePhysicsSystemUtilities.GetSystemType(srcGrp.World, system);
-                    didMove |= MovePhysicsSystemUtilities.MovePhysicsSystem(systemType, system, ref physicsSystemTypes);
-                }
-            }
-        }
-#else
         public static void MovePhysicsSystems(FixedStepSimulationSystemGroup srcGrp,
             PredictedFixedStepSimulationSystemGroup dstGrp,
             ref NativeHashMap<SystemTypeIndex, SystemHandle> physicsSystemTypes)
@@ -248,7 +168,6 @@ namespace Unity.NetCode
             }
             return false;
         }
-#endif
     }
 
     /// <summary>

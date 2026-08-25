@@ -1,6 +1,3 @@
-
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-
 using System;
 using UnityEngine;
 
@@ -12,7 +9,7 @@ namespace Unity.NetCode
     /// ScriptableObject.
     /// There is a another options, that is to collect them during scene-post processing and store in registry
     /// scriptable instead.
-    /// The GhostAdapter then can store the GUID as usual. That second approach, also provide a natural hook to register
+    /// The GhostObject then can store the GUID as usual. That second approach, also provide a natural hook to register
     /// these prefabs on the fly when the scene is loaded.
     /// This works hand in hand with the <see cref="PrefabsRegistry"/>
     /// </summary>
@@ -20,7 +17,7 @@ namespace Unity.NetCode
     internal class GhostPrefabReference : ScriptableObject
     {
         [SerializeField] public UnityEngine.GameObject Prefab;
-        [SerializeField] public GhostAdapter Ghost;
+        [SerializeField] public bool SkipAutomaticPrefabRegistration;
 
         // TODO-next@prefabRegistration what if the object is never referenced in the scene, so never loaded? We need a way to set "this list of prefabs is still loaded"
         void OnEnable()
@@ -29,7 +26,7 @@ namespace Unity.NetCode
             // TODO-next@prefabRegistration check how NGO does auto prefab registration https://github.com/Unity-Technologies/com.unity.netcode.gameobjects/blob/develop/com.unity.netcode.gameobjects/Editor/Configuration/NetworkPrefabProcessor.cs
             // TODO-next@prefabRegistration this is already handled in a PR coming further down the line. Keeping as is right now, tests are passing. But this is most likely flaky if you try to use this on your own in different ways
             // TODO-next@prefabRegistration could call automatic prefab registration only after NetworkStreamInGame is set. Should check this once we handle scene switching and networkStreamInGame.
-            if (Application.isPlaying && !s_IsPostProcessing && !Ghost.SkipAutomaticPrefabRegistration)
+            if (Application.isPlaying && !s_IsPostProcessing && !SkipAutomaticPrefabRegistration)
                 Netcode.RegisterPrefab(Prefab);
         }
 
@@ -46,27 +43,13 @@ namespace Unity.NetCode
 
         void OnPostprocessPrefab(UnityEngine.GameObject g)
         {
-            var adapter = g.GetComponent<GhostAdapter>();
+            var adapter = g.GetComponent<GhostObject>();
             if (adapter == null)
                 return;
 
-            try
-            {
-                GhostPrefabReference.s_IsPostProcessing = true;
-                adapter.prefabReference = ScriptableObject.CreateInstance<GhostPrefabReference>();
-                adapter.prefabReference.name = "GhostPrefabReference";
-
-                adapter.prefabReference.Prefab = g;
-                adapter.prefabReference.Ghost = adapter;
-                context.AddObjectToAsset("GhostPrefabReference", adapter.prefabReference);
-            }
-            finally
-            {
-                GhostPrefabReference.s_IsPostProcessing = false;
-            }
+            adapter.InitializeAsPrefab();
+            context.AddObjectToAsset("GhostPrefabReference", adapter.prefabReference);
         }
     }
 #endif // UNITY_EDITOR
 }
-
-#endif

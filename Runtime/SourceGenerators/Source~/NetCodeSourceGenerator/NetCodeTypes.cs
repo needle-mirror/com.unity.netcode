@@ -67,10 +67,12 @@ namespace Unity.NetCode.Generators
         public bool Quantized;
         public bool SupportCommand;
         public bool Composite;
+        // Never selected as best-match fallback for fields that don't specify this SubType.
+        public bool IsOptIn;
 
         public override string ToString()
         {
-            return $"{nameof(TypeRegistryEntry)}:[{nameof(Type)}: {Type}, {nameof(Template)}: {Template}, {nameof(TemplateOverride)}: {TemplateOverride}, {nameof(SubType)}: {SubType}, {nameof(Smoothing)}: {Smoothing}, {nameof(Quantized)}: {Quantized}, {nameof(SupportCommand)}: {SupportCommand}, {nameof(Composite)}: {Composite}]";
+            return $"{nameof(TypeRegistryEntry)}:[{nameof(Type)}: {Type}, {nameof(Template)}: {Template}, {nameof(TemplateOverride)}: {TemplateOverride}, {nameof(SubType)}: {SubType}, {nameof(Smoothing)}: {Smoothing}, {nameof(Quantized)}: {Quantized}, {nameof(SupportCommand)}: {SupportCommand}, {nameof(Composite)}: {Composite}, {nameof(IsOptIn)}: {IsOptIn}]";
         }
     }
 }

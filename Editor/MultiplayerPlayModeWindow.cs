@@ -569,7 +569,8 @@ Denotes that the server driver is closed i.e. not currently listening.
             }
             else
             {
-                NetCodeConfig.RuntimeTryFindSettings();
+                if (NetCodeConfig.Global == null)
+                    NetCodeConfig.FindAndAssignGlobalConfig();
                 if (NetCodeConfig.Global != null)
                     hostMode = NetCodeConfig.Global.HostWorldModeSelection;
             }
@@ -1583,7 +1584,7 @@ $@"<b>GhostCount</b> Singleton
                     {
                         UnityEngine.Debug.Log($"[{World.Name}] You triggered a disconnection of {existingConn.Value.ToFixedString()} (on {connectedEntity.ToFixedString()}) via {nameof(MultiplayerPlayModeWindow)}!");
                         MultiplayerPlayModeWindow.s_ForceRepaint = true;
-                        netStream.ValueRW.DriverStore.Disconnect(existingConn);
+                        netStream.ValueRW.Disconnect(existingConn);
                         DisconnectPending = true;
                         UpdateStatusText();
                     }
@@ -1660,7 +1661,7 @@ $@"<b>GhostCount</b> Singleton
                             Debug.LogError($"Unable to disconnect NetworkId[{networkId.Value}] (found on Entity {entity.ToFixedString()} on {World.Name}) as no NetworkStreamConnection component found!");
                             continue;
                         }
-                        netStream.DriverStore.Disconnect(conn);
+                        netStream.Disconnect(conn);
                         goto found;
                     }
                 }
@@ -1674,7 +1675,7 @@ $@"<b>GhostCount</b> Singleton
         {
             ref readonly var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
             ref var driverStore = ref netStream.DriverStore;
-            IsListening = netStream.DriverStore.GetDriverInstanceRO(netStream.DriverStore.FirstDriver).driver.Listening;
+            IsListening = netStream.DriverStore.HasListeningInterfaces;
             ConnectionEventsForTick.Clear();
             if (EditorApplication.isPaused) // Can't see one frame events when unpaused anyway.
                 ConnectionEventsForTick.AddRange(netStream.ConnectionEventsForTick);
@@ -1762,14 +1763,17 @@ Across {ghostChunkCount} Chunks{ghostsPerChunk}
                 entry.DriverIndex = (byte)driverIdx;
                 entry.TransportType = driverStore.GetDriverType(driverIdx);
                 ref var driver = ref driverStore.GetDriverRW(driverIdx); // RW as calling non-readonly method!
-                entry.NetworkFamily = driver.GetLocalEndpoint().Family;
+                if (driver.Bound)
+                {
+                    entry.NetworkFamily = driver.GetLocalEndpoint().Family;
+                    entry.Endpoint = clientConnection.HasValue
+                        ? driver.GetRemoteEndpoint(clientConnection.Value)
+                        : driver.GetLocalEndpoint();
+                }
                 entry.IsWebSocket = driver.CurrentSettings.TryGet<WebSocketParameter>(out _);
                 entry.SimulatorEnabled = driverStore.GetDriverInstanceRO(driverIdx).simulatorEnabled;
                 entry.Listening = driver.Listening;
                 entry.Bound = driver.Bound;
-                entry.Endpoint = clientConnection.HasValue
-                    ? driver.GetRemoteEndpoint(clientConnection.Value)
-                    : driver.GetLocalEndpoint();
             }
         }
     }

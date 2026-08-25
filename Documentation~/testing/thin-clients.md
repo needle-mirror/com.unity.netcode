@@ -6,7 +6,7 @@ Thin clients are heavily stripped down and should run as little logic as possibl
 
 ## Using thin clients
 
-Only systems that have been explicitly marked with the [`WorldSystemFilterFlags.ThinClientSimulation`](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/api/Unity.Entities.WorldSystemFilterFlags.html) flag will run on thin client worlds. No rendering is done for thin client data, so they are invisible to the presentation.
+Only systems that have been explicitly marked with the [`WorldSystemFilterFlags.ThinClientSimulation`](xref:Unity.Entities.WorldSystemFilterFlags) flag will run on thin client worlds. No rendering is done for thin client data, so they are invisible to the presentation.
 
 In some cases, you might need to check if your system logic should be running for thin clients, and then early out or cancel processing. The `World.IsThinClient()` extension methods can be used in these cases, and note that `World.IsClient` returns true for both thin and full clients.
 
@@ -20,9 +20,9 @@ Thin clients can be used in a variety of ways to help test multiplayer games. Th
 
 ## Set up inputs for thin clients
 
-Thin clients don't work with [`AutoCommandTarget`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.AutoCommandTarget.html) by default, because `AutoCommandTarget` requires the same ghost to exist on both the client and the server, and thin clients don't create ghosts. So you need to set up the [`CommandTarget`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.CommandTarget.html) component on the connection entity yourself.
+Thin clients don't work with [`AutoCommandTarget`](xref:Unity.NetCode.AutoCommandTarget) by default, because `AutoCommandTarget` requires the same ghost to exist on both the client and the server, and thin clients don't create ghosts. So you need to set up the [`CommandTarget`](xref:Unity.NetCode.CommandTarget) component on the connection entity yourself.
 
-[`IInputComponentData`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IInputComponentData.html) is the primary input API. It automatically handles writing inputs (from your input struct) directly to the replicated dynamic buffer. When a ghost entity that contains an `IInputCommandData` composed struct is baked, an [`ICommandData`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ICommandData.html) dynamic buffer is automatically added to the entity. However, this baking process is not available on thin clients, because thin clients don't create ghosts entities.
+[`IInputComponentData`](xref:Unity.NetCode.IInputComponentData) is the primary input API. It automatically handles writing inputs (from your input struct) directly to the replicated dynamic buffer. When a ghost entity that contains an `IInputCommandData` composed struct is baked, an [`ICommandData`](xref:Unity.NetCode.ICommandData) dynamic buffer is automatically added to the entity. However, this baking process is not available on thin clients, because thin clients don't create ghosts entities.
 
 `ICommandData` is also supported with thin clients ([details here](../command-stream.md)), but you'll need to perform the same thin client set up work described below as with `IInputComponentData`.
 

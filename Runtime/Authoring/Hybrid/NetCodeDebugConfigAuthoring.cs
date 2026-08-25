@@ -8,6 +8,7 @@ namespace Unity.NetCode
     /// enable packet dumps.
     /// </summary>
     [HelpURL(Authoring.HelpURLs.NetCodeDebugConfigAuthoring)]
+    [AddComponentMenu("Multiplayer/NetCode Debug Config Authoring", 5)]
     public class NetCodeDebugConfigAuthoring : MonoBehaviour
     {
         /// <summary>

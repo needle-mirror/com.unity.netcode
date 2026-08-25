@@ -8,25 +8,21 @@ using UnityEngine.Analytics;
 namespace Unity.NetCode.Analytics
 {
 
-#if UNITY_2023_2_OR_NEWER
     internal interface IAnalyticsSender
     {
         void SendAnalytic(IAnalytic analytic);
     }
-#endif
 
     internal static class NetCodeAnalytics
     {
         const string NetCodeGhostConfiguration = "netcode_ghost_configuration";
         const char Separator = ';';
 
-#if UNITY_2023_2_OR_NEWER
         /// <summary>
         /// Used for mocking.
         /// Default is null which uses EditorAnalytics.
         /// </summary>
         internal static IAnalyticsSender s_AnalyticsSender { get; set; }
-#endif
 
         public static void StoreGhostComponent(GhostConfigurationAnalyticsData component)
         {
@@ -92,7 +88,6 @@ namespace Unity.NetCode.Analytics
             SessionState.EraseString(NetCodeGhostConfiguration);
         }
 
-#if UNITY_2023_2_OR_NEWER
         internal static void SendAnalytic(IAnalytic data)
         {
             try
@@ -111,11 +106,6 @@ namespace Unity.NetCode.Analytics
                 UnityEngine.Debug.LogException(e);
             }
         }
-#else
-        internal static void SendAnalytic(object data)
-        {
-        }
-#endif
     }
 }
 #endif

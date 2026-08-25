@@ -344,6 +344,57 @@ namespace Unity.NetCode.Generators
                 Composite = false,
                 Template = "NetCode.GhostSnapshotValueQuaternionUnquantized.cs"
             },
+            // PostTransformMatrix (float4x4) replicated as a non-uniform scale (float3).
+            // These entries are gated behind a SubType so that ONLY GhostFields that explicitly opt in
+            // (via [GhostField(SubType = GhostFieldSubType.PostTransformMatrixScale)]) use them.
+            // IsOptInTemplate keeps them out of the best-match fallback too: generic float4x4
+            // fields keep recursing into per-member serialization, so existing users get no
+            // behavioural/bandwidth change.
+            // SubType value must match Unity.NetCode.GhostFieldSubType.PostTransformMatrixScale.
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Mathematics.float4x4",
+                SubType = int.MaxValue,
+                Quantized = true,
+                Smoothing = SmoothingAction.Interpolate,
+                SupportCommand = false,
+                Composite = false,
+                IsOptIn = true,
+                Template = "NetCode.GhostSnapshotValuePostTransformMatrix.cs"
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Mathematics.float4x4",
+                SubType = int.MaxValue,
+                Quantized = true,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = false,
+                Composite = false,
+                IsOptIn = true,
+                Template = "NetCode.GhostSnapshotValuePostTransformMatrix.cs"
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Mathematics.float4x4",
+                SubType = int.MaxValue,
+                Quantized = false,
+                Smoothing = SmoothingAction.Interpolate,
+                SupportCommand = false,
+                Composite = false,
+                IsOptIn = true,
+                Template = "NetCode.GhostSnapshotValuePostTransformMatrixUnquantized.cs"
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Mathematics.float4x4",
+                SubType = int.MaxValue,
+                Quantized = false,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = false,
+                Composite = false,
+                IsOptIn = true,
+                Template = "NetCode.GhostSnapshotValuePostTransformMatrixUnquantized.cs"
+            },
             new TypeRegistryEntry
             {
                 Type = "Unity.Entities.Entity",

@@ -10,7 +10,7 @@ using Unity.Networking.Transport.TLS;
 using Unity.Networking.Transport.Relay;
 using Unity.Networking.Transport.Utilities;
 using UnityEngine;
-
+using Debug = UnityEngine.Debug;
 
 namespace Unity.NetCode
 {
@@ -20,9 +20,9 @@ namespace Unity.NetCode
     /// </summary>
     public static class DefaultDriverBuilder
     {
-        internal const int DefaultPayloadCapacity = 16 * 1024;
-        const int MaxFrameTimeMS = 100;
-        const int DefaultWindowSize = 32;
+        const int DefaultPayloadCapacity = 16 * 1024;
+        const int MaxFrameTimeMS = 500;
+        const int DefaultWindowSize = 256;
 
         /// <summary>
         /// Return an instance of the <see cref="IPCAndSocketDriverConstructor"/> constructor
@@ -95,6 +95,10 @@ namespace Unity.NetCode
                 ncp.maxMessageSize = config.MaxMessageSize;
                 ncp.receiveQueueCapacity = isServer ? config.ServerReceiveQueueCapacity : config.ClientReceiveQueueCapacity;
                 ncp.sendQueueCapacity = isServer ? config.ServerSendQueueCapacity : config.ClientSendQueueCapacity;
+            }
+            else
+            {
+                Debug.LogError($"Sanity check failed, there should always be a {nameof(NetCodeConfig)} available. Using default driver settings instead.");
             }
 
             // We use this method instead of the raw struct option because - if UTP add new fields,
@@ -218,7 +222,7 @@ namespace Unity.NetCode
                 return true;
             }
             netDebug.DebugLog("[DefaultDriverConstructor.ClientUseSocketDriver] RequestedPlayType is ClientAndServer Or Server, so looking for a server world instance in the same process.");
-            if (ClientServerBootstrap.ServerWorld != null && ClientServerBootstrap.ServerWorld.IsCreated)
+            if (ClientServerBootstrap.ServerWorld != null && ClientServerBootstrap.ServerWorld.IsCreated && !ClientServerBootstrap.ServerWorld.IsHost())
             {
                 netDebug.DebugLog("[DefaultDriverConstructor.ClientUseSocketDriver] Found server world instance. Thus, preferring IPC network interface.");
                 return false;
@@ -284,7 +288,7 @@ namespace Unity.NetCode
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         public static void RegisterClientUdpDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
-            Assert.IsTrue(world.IsClient());
+            world.AssertIsClientOnly();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterClientUdpDriver] Creating the client default UDP socket network interface driver.");
             var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, driverInstance);
@@ -303,7 +307,7 @@ namespace Unity.NetCode
         public static void RegisterClientWebSocketDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug,
             NetworkSettings settings)
         {
-            Assert.IsTrue(world.IsClient());
+            world.AssertIsClientOnly();
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance();
 #if UNITY_EDITOR || NETCODE_DEBUG
             if (NetworkSimulatorSettings.Enabled)
@@ -333,7 +337,7 @@ namespace Unity.NetCode
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         public static void RegisterClientIpcDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
-            Assert.IsTrue(world.IsClient());
+            world.AssertIsClientOnly();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterClientIpcDriver] Creating the client default IPC network interface driver.");
             var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new IPCNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.IPC, driverInstance);
@@ -379,7 +383,8 @@ namespace Unity.NetCode
         /// <remarks>Not available for WebGL builds. Always available in the Editor.</remarks>
         public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
-            RegisterServerIpcDriver(world, ref driverStore, netDebug, settings);
+            if (!world.IsHost())
+                RegisterServerIpcDriver(world, ref driverStore, netDebug, settings);
 #if !UNITY_WEBGL || UNITY_EDITOR
             RegisterServerUdpDriver(world, ref driverStore, netDebug, settings);
 #else
@@ -398,7 +403,7 @@ namespace Unity.NetCode
         /// <remarks>Not available for WebGL builds. Always available in the Editor.</remarks>
         public static void RegisterServerIpcDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
-            Assert.IsTrue(world.IsServer());
+            world.AssertIsServer();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerIpcDriver] Creating the server default IPC network interface driver.");
             var ipcDriver = CreateServerNetworkDriver(new IPCNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.IPC, ipcDriver);
@@ -416,7 +421,7 @@ namespace Unity.NetCode
         /// <remarks>Not available for WebGL builds. Always available in the Editor.</remarks>
         public static void RegisterServerUdpDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
-            Assert.IsTrue(world.IsServer());
+            world.AssertIsServer();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerUdpDriver] Creating the server default socket network interface driver.");
             var socketDriver = CreateServerNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, socketDriver);
@@ -438,7 +443,7 @@ namespace Unity.NetCode
             NetworkSettings settings)
         {
             Assert.IsTrue(ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Client);
-            Assert.IsTrue(world.IsServer());
+            world.AssertIsServer();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerWebSocketDriver] Creating the server WebSocket network interface driver.");
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance
             {
@@ -456,8 +461,9 @@ namespace Unity.NetCode
         /// <param name="driverInstance">The <see cref="NetworkDriverStore.NetworkDriverInstance"/> instance to configure</param>
         public static void CreateClientPipelines(ref NetworkDriverStore.NetworkDriverInstance driverInstance)
         {
-            driverInstance.unreliablePipeline = driverInstance.driver.CreatePipeline(typeof(NullPipelineStage));
+            driverInstance.unreliablePipeline = driverInstance.driver.CreatePipeline(typeof(UnreliableSequencedPipelineStage));
             driverInstance.reliablePipeline = driverInstance.driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+            driverInstance.outOfBandPipeline = driverInstance.driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
             driverInstance.unreliableFragmentedPipeline = driverInstance.driver.CreatePipeline(typeof(FragmentationPipelineStage));
         }
 
@@ -467,8 +473,9 @@ namespace Unity.NetCode
         /// <param name="driverInstance">The <see cref="NetworkDriverStore.NetworkDriverInstance"/> instance to configure</param>
         public static void CreateServerPipelines(ref NetworkDriverStore.NetworkDriverInstance driverInstance)
         {
-            driverInstance.unreliablePipeline = driverInstance.driver.CreatePipeline(typeof(NullPipelineStage));
+            driverInstance.unreliablePipeline = driverInstance.driver.CreatePipeline(typeof(UnreliableSequencedPipelineStage));
             driverInstance.reliablePipeline = driverInstance.driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+            driverInstance.outOfBandPipeline = driverInstance.driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
             driverInstance.unreliableFragmentedPipeline = driverInstance.driver.CreatePipeline(typeof(FragmentationPipelineStage));
         }
 
@@ -481,8 +488,12 @@ namespace Unity.NetCode
         public static void CreateClientSimulatorPipelines(ref NetworkDriverStore.NetworkDriverInstance driverInstance)
         {
             driverInstance.unreliablePipeline = driverInstance.driver.CreatePipeline(
+                typeof(UnreliableSequencedPipelineStage),
                 typeof(SimulatorPipelineStage));
             driverInstance.reliablePipeline = driverInstance.driver.CreatePipeline(
+                typeof(ReliableSequencedPipelineStage),
+                typeof(SimulatorPipelineStage));
+            driverInstance.outOfBandPipeline = driverInstance.driver.CreatePipeline(
                 typeof(ReliableSequencedPipelineStage),
                 typeof(SimulatorPipelineStage));
             driverInstance.unreliableFragmentedPipeline = driverInstance.driver.CreatePipeline(

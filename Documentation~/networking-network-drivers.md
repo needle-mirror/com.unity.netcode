@@ -1,8 +1,8 @@
 # Netcode for Entities multi-driver architecture
 
-Netcode for Entities has a multi-driver architecture, allowing you to use multiple [`NetworkDriver`s](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.NetworkDriver.html), stored in the [`NetworkDriverStore`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetworkDriverStore.html), at the same time.
+Netcode for Entities has a multi-driver architecture, allowing you to use multiple [`NetworkDriver`s](xref:Unity.Networking.Transport.NetworkDriver), stored in the [`NetworkDriverStore`](xref:Unity.NetCode.NetworkDriverStore), at the same time.
 
-`NetworkDriver` configuration is designed to be customizable and is implemented using a delegate/strategy pattern. Netcode for Entities provides a [default strategy implementation](#default-driver-setup) that can be changed by creating your own custom strategy class that implements the [`INetworkStreamDriverConstructor`](https://docs.unity3d.com/Packages/com.unity.netcode.adapter.utp@latest?subfolder=/api/Unity.Netcode.INetworkStreamDriverConstructor.html) interface.
+`NetworkDriver` configuration is designed to be customizable and is implemented using a delegate/strategy pattern. Netcode for Entities provides a [default strategy implementation](#default-driver-setup) that can be changed by creating your own custom strategy class that implements the [`INetworkStreamDriverConstructor`](xref:Unity.NetCode.INetworkStreamDriverConstructor) interface.
 
 The most common use cases for implementing a custom initialization strategy, or [resetting the `NetworkDriverStore`](#reset-the-networkdriverstore-setup), are usually:
 
@@ -16,16 +16,16 @@ The most common use cases for implementing a custom initialization strategy, or 
 
 ## `NetworkDriverStore`
 
-The [`NetworkDriverStore`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetworkDriverStore.html) struct stores `NetworkDriver` instances and, by default, is automatically configured by [`NetworkStreamReceiveSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetworkStreamReceiveSystem.html) at world creation time.
+The [`NetworkDriverStore`](xref:Unity.NetCode.NetworkDriverStore) struct stores `NetworkDriver` instances and, by default, is automatically configured by [`NetworkStreamReceiveSystem`](xref:Unity.NetCode.NetworkStreamReceiveSystem) at world creation time.
 
-`NetworkDriverStore` allows up to three drivers to be used, each using a different [`INetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.INetworkInterface.html). While it's possible to listen or connect to different addresses at the same time, the `NetworkDriverStore` interface limits the options to the most common use cases that Netcode for Entities is designed for:
+`NetworkDriverStore` allows up to three drivers to be used, each using a different [`INetworkInterface`](xref:Unity.Networking.Transport.INetworkInterface). While it's possible to listen or connect to different addresses at the same time, the `NetworkDriverStore` interface limits the options to the most common use cases that Netcode for Entities is designed for:
 
 - The server can listen from multiple `NetworkDriver`s, commonly listening to the same server port.
 - The client is primarily designed to use only a single `NetworkDriver` and connection.
 
 ## Default driver setup
 
-Netcode for Entities provides a default `NetworkDriver` setup, implemented by the [`IPCAndSocketDriverConstructor`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IPCAndSocketDriverConstructor.html). The driver setup is different for each world type and depends on the [PlayMode Tool](testing/playmode-tool.md) settings.
+Netcode for Entities provides a default `NetworkDriver` setup, implemented by the [`IPCAndSocketDriverConstructor`](xref:Unity.NetCode.IPCAndSocketDriverConstructor). The driver setup is different for each world type and depends on the [PlayMode Tool](testing/playmode-tool.md) settings.
 
 ### Default server configuration
 
@@ -33,8 +33,8 @@ For the server world, the `NetworkDriverStore` contains multiple drivers to list
 
 | Slot   | Interface                                                            | Description                                                                      |
 |--------|----------------------------------------------------------------------|----------------------------------------------------------------------------------|
-| Slot 1 | [`IPCNetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.IPCNetworkInterface.html)                                                  | Used to connect local client instances directly to the server for self-hosting.   |
-| Slot 2 | [`UDPNetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.UDPNetworkInterface.html) (standalone)<br/>[`WebsocketNetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.WebSocketNetworkInterface.html) (web) | For accepting external connections.                                               |
+| Slot 1 | [`IPCNetworkInterface`](xref:Unity.Networking.Transport.IPCNetworkInterface)                                                  | Used to connect local client instances directly to the server for self-hosting.   |
+| Slot 2 | [`UDPNetworkInterface`](xref:Unity.Networking.Transport.UDPNetworkInterface) (standalone)<br/>[`WebsocketNetworkInterface`](xref:Unity.Networking.Transport.WebSocketNetworkInterface) (web) | For accepting external connections.                                               |
 
 ### Default client configuration
 
@@ -42,9 +42,9 @@ For the client world, the `NetworkDriverStore` always uses a single `NetworkDriv
 
 | Mode          | Network Emulator |                                                                        |
 |---------------|------------------|------------------------------------------------------------------------|
-| Client        | On/Off           | [`UDPNetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.UDPNetworkInterface.html) (standalone)<br/>[`WebsocketNetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.WebSocketNetworkInterface.html) (web)   |
-| Client/Server | Off              | [`IPCNetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.IPCNetworkInterface.html)                                                    |
-| Client/Server | On               | [`UDPNetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.UDPNetworkInterface.html) (standalone)<br/>[`WebsocketNetworkInterface`](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.WebSocketNetworkInterface.html) (web)   |                                                   |
+| Client        | On/Off           | [`UDPNetworkInterface`](xref:Unity.Networking.Transport.UDPNetworkInterface) (standalone)<br/>[`WebsocketNetworkInterface`](xref:Unity.Networking.Transport.WebSocketNetworkInterface) (web)   |
+| Client/Server | Off              | [`IPCNetworkInterface`](xref:Unity.Networking.Transport.IPCNetworkInterface)                                                    |
+| Client/Server | On               | [`UDPNetworkInterface`](xref:Unity.Networking.Transport.UDPNetworkInterface) (standalone)<br/>[`WebsocketNetworkInterface`](xref:Unity.Networking.Transport.WebSocketNetworkInterface) (web)   |                                                   |
 
 When a game runs in Client/Server mode, the client can connect to the local server in two different ways, depending on whether the Network Emulator is turned on or off.
 
@@ -109,4 +109,4 @@ There are multiple ways to reset the driver store:
 
 ## Additional resources
 
-* [Use Unity Relay with Netcode for Entities](networking-using-relay.md)
+* [Connect using a relay server](networking-using-relay.md)

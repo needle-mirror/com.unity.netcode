@@ -1,6 +1,7 @@
 #if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
+using System;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
@@ -23,7 +24,6 @@ namespace Unity.NetCode.Tests
             byteBuf.Length = 3;
             for (int i = 0; i < byteBuf.Length; i++)
                 byteBuf[i] = new GhostGenBuffer_ByteBuffer {Value = (byte) (i+10),};
-
 
             if (gameObject.name == "ParentGhost")
             {
@@ -180,7 +180,6 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(43, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientChildEnt).NetworkId);
             }
         }
-
         [Test]
         public void CanHaveManyGhostGroupGhostTypes([Values]bool preSerialize)
         {
@@ -314,7 +313,7 @@ namespace Unity.NetCode.Tests
 
                 serverEntities[i] = serverEnt;
                 serverEntities[32+i] = serverChildEnt;
-
+                
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
                 testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
@@ -333,7 +332,7 @@ namespace Unity.NetCode.Tests
             var groupQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroup));
             Assert.AreEqual(64, ghostQuery.CalculateEntityCount());
             Assert.AreEqual(32, groupQuery.CalculateEntityCount());
-
+            
             // Ensure GhostGroup values are correct:
             VerifyClientsBufferValues(testWorld, serverEntities);
 
@@ -350,7 +349,6 @@ namespace Unity.NetCode.Tests
         [NUnit.Framework.Description("Test an edge case of ghost serialization, where we are unable to serializea group," +
                                      " therefore we reset the state and try again. The test is only meant to verify that exceptions aren't throwns and that data are serialized." +
                                      " We are not currently testing another issue that arise with large ghost, that is handled somewhat correctly, but that has not nice user error reported.")]
-        [DisableSingleWorldHostTest]
         public void GroupLargerThan1MTU_WorkCorrectly()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -419,9 +417,10 @@ namespace Unity.NetCode.Tests
                 }
 
 #if NETCODE_DEBUG
-                LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
+                var clientNetID = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
+                LogAssert.Expect(LogType.Warning, new Regex($@"PERFORMANCE(.*)NID\[{clientNetID}\](.*)fit even one ghost"));
 #endif
-}
+            }
         }
 
         [Test]
@@ -534,7 +533,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void GhostGroup_WorksWithRelevancy_AndStaticOptimization([Values]NetCodeTestLatencyProfile latencyProfile, [Values]GhostOptimizationMode rootMode, [Values]GhostOptimizationMode childMode)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -565,7 +563,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 1});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 1});
                 testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
-                testWorld.Connect(maxSteps:16);
+                testWorld.Connect(maxSteps:18);
                 testWorld.GoInGame();
 
                 // Important quirk: GhostGroup children;
@@ -592,17 +590,21 @@ namespace Unity.NetCode.Tests
                 testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
                 ExpectExist(testWorld, false, ghostGroupChildNuance, "forced irrelevant 2nd");
 
+                // Relevancy is per-connection: target the remote client we assert on (ClientWorlds[0]).
+                // Its NetworkId is 1 in binary mode and 2 under single-world-host (where id 1 is the host).
+                var remoteClientId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
+
                 // Only the root:
                 var serverEntGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt).ghostId;
                 testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
                 testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW.GhostRelevancySet.Clear();
-                testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(1, serverEntGhostId), 1);
+                testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(remoteClientId, serverEntGhostId), 1);
                 ExpectExist(testWorld, true, ghostGroupChildNuance, "only root relevant (child not)");
 
                 // Only the child:
                 var serverChildEntGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverChildEnt).ghostId;
                 testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW.GhostRelevancySet.Clear();
-                testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(1, serverChildEntGhostId), 1);
+                testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(remoteClientId, serverChildEntGhostId), 1);
                 ExpectExist(testWorld, false, ghostGroupChildNuance, "only child relevant (root not)");
             }
         }
@@ -623,5 +625,156 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(expectedCount, ghostCount.GhostCountReceivedOnClient, msg);
             Assert.AreEqual(expectedCount, ghostCount.GhostCountOnServer, msg);
         }
+
+        [Test, Description("Regression guard for SerializeGroup abort path. The abort rollback in GhostChunkSerializer.SerializeGroup previously only nulled per-entity slots for prior children; it did not revert the SnapshotWriteIndex pointer or the currentTick-tagged snapshotIndex slot for any child (prior or failing). Each aborted tick left one phantom unacked history slot per child chunk, accumulating until client sends were suppressed. Fixed by reverting snapshotIndex[writeIndex] and SetSnapshotWriteIndex for every child whose write index was bumped before the abort.")]
+        public unsafe void SerializeGroup_AbortWithOversizedChild_DoesNotLeakChildSnapshotHistorySlots()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var rootGameObject = new GameObject { name = "ParentGhost" };
+            rootGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new OversizedGroupConverter();
+            var childGameObjects = new GameObject[OversizedGroupConverter.ChildCount];
+            var ghostPrefabs = new GameObject[OversizedGroupConverter.ChildCount + 1];
+            ghostPrefabs[0] = rootGameObject;
+            for (int childIndex = 0; childIndex < OversizedGroupConverter.ChildCount; ++childIndex)
+            {
+                childGameObjects[childIndex] = new GameObject { name = $"Child{childIndex}" };
+                childGameObjects[childIndex].AddComponent<TestNetCodeAuthoring>().Converter = new OversizedGroupConverter();
+                ghostPrefabs[childIndex + 1] = childGameObjects[childIndex];
+            }
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostPrefabs));
+            testWorld.CreateWorlds(true, 1);
+
+            var serverRoot = testWorld.SpawnOnServer(rootGameObject);
+            var serverChildren = new Entity[OversizedGroupConverter.ChildCount];
+            for (int childIndex = 0; childIndex < OversizedGroupConverter.ChildCount; ++childIndex)
+                serverChildren[childIndex] = testWorld.SpawnOnServer(childGameObjects[childIndex]);
+
+            var groupBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverRoot);
+            for (int childIndex = 0; childIndex < OversizedGroupConverter.ChildCount; ++childIndex)
+                groupBuffer.Add(new GhostGroup { Value = serverChildren[childIndex] });
+
+            ref var ghostSendSystemData = ref testWorld.GetSingletonRW<GhostSendSystemData>(testWorld.ServerWorld).ValueRW;
+            ghostSendSystemData.DefaultSnapshotPacketSize = (int)GhostSystemConstants.MinSnapshotPacketSize;
+            ghostSendSystemData.TempStreamInitialSize *= 32;
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            for (int warmupTick = 0; warmupTick < 8; ++warmupTick)
+                testWorld.Tick();
+
+            var clientRootQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroupRoot));
+            int clientReceivedRootCountAfterWarmup = clientRootQuery.CalculateEntityCount();
+
+            const int forcedAbortTickCount = 48;
+            var rng = new Unity.Mathematics.Random(0xC0FFEE);
+            for (int abortTick = 0; abortTick < forcedAbortTickCount; ++abortTick)
+            {
+                foreach (var serverChild in serverChildren)
+                {
+                    var childBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverChild);
+                    for (int byteIndex = 0; byteIndex < childBuffer.Length; ++byteIndex)
+                        childBuffer.ElementAt(byteIndex).Value = (byte)rng.NextUInt();
+                }
+                testWorld.Tick();
+            }
+
+            var serverConnection = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
+            Assert.AreNotEqual(Entity.Null, serverConnection);
+
+            var ghostSendSystemHandle = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
+            var ghostSendSystem = testWorld.ServerWorld.Unmanaged.GetUnsafeSystemRef<GhostSendSystem>(ghostSendSystemHandle);
+            var (jobHandle, connectionStateData) = ghostSendSystem.GetConnectionStateData(serverConnection);
+            jobHandle.Complete();
+
+            var ackFromConnection = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkSnapshotAck>(serverConnection);
+            var lastAckedByRemote = ackFromConnection.LastReceivedSnapshotByRemote;
+
+            int worstUnackedSlotCount = 0;
+            int childChunksInspected = 0;
+            using var childArchetypeQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostChildEntity>());
+            using var childChunks = childArchetypeQuery.ToArchetypeChunkArray(Allocator.Temp);
+            foreach (var childChunk in childChunks)
+            {
+                if (!connectionStateData.SerializationState->TryGetValue(childChunk, out var childChunkState))
+                    continue;
+                childChunksInspected++;
+                uint* snapshotIndex = childChunkState.GetSnapshotIndex();
+                int unackedSlotCount = 0;
+                for (int slot = 0; slot < GhostSystemConstants.SnapshotHistorySize; ++slot)
+                {
+                    var slotTick = new NetworkTick { SerializedData = snapshotIndex[slot] };
+                    if (!slotTick.IsValid) continue;
+                    if (childChunkState.HasAckFlag(slot)) continue;
+                    if (lastAckedByRemote.IsValid && !slotTick.IsNewerThan(lastAckedByRemote)) continue;
+                    unackedSlotCount++;
+                }
+                if (unackedSlotCount > worstUnackedSlotCount)
+                    worstUnackedSlotCount = unackedSlotCount;
+            }
+
+            Assert.Greater(childChunksInspected, 0, "No child chunks were inspected; harness setup is wrong.");
+            Assert.AreEqual(0, clientRootQuery.CalculateEntityCount() - clientReceivedRootCountAfterWarmup,
+                "Sanity: the client must NOT receive any new GhostGroupRoot during the forced-abort phase.");
+
+            const int reasonableUnackedSlotsForHealthyClient = 4;
+            Assert.LessOrEqual(worstUnackedSlotCount, reasonableUnackedSlotsForHealthyClient,
+                $"At least one GhostGroup child chunk has {worstUnackedSlotCount} unacked snapshot-history slots " +
+                $"newer than lastAckedByRemote={lastAckedByRemote.ToFixedString()}. The client received no group " +
+                $"payload during the abort phase, so phantom slots can only accumulate via the SerializeGroup abort " +
+                $"path failing to revert SnapshotWriteIndex + snapshotIndex[writeIndex] for each child. " +
+                $"forcedAbortTickCount={forcedAbortTickCount}, childChunksInspected={childChunksInspected}.");
+        }
+
+        /// <summary>Test-only converter for the SerializeGroup abort regression test.</summary>
+        /// <remarks>
+        /// The root gets a <see cref="GhostGroup"/> buffer plus a small <see cref="GhostGenBuffer_ByteBuffer"/>.
+        /// Each child gets <see cref="GhostChildEntity"/> plus a much larger buffer, so the group as a whole
+        /// overshoots the maximum doubled snapshot packet and every snapshot tick aborts inside
+        /// <c>SerializeGroup</c>. Each child also gets a distinct enableable marker so the children are placed
+        /// in separate chunks.
+        /// </remarks>
+        internal class OversizedGroupConverter : TestNetCodeAuthoring.IConverter
+        {
+            internal const int RootBufferSize = 64;
+            /// <summary>Per-child buffer size. 5000 bytes × 4 children = 20 KB raw, above the 12.8 KB doubled budget.</summary>
+            internal const int ChildBufferSize = 5000;
+            internal const int ChildCount = 4;
+
+            /// <summary>Bake the root (with <see cref="GhostGroup"/> plus a small buffer) or a child (with <see cref="GhostChildEntity"/>, a large buffer, and a unique enableable marker).</summary>
+            public void Bake(GameObject gameObject, IBaker baker)
+            {
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostOwner());
+                baker.DependsOn(gameObject);
+                if (gameObject.name == "ParentGhost")
+                {
+                    baker.AddBuffer<GhostGroup>(entity);
+                    baker.AddComponent(entity, default(GhostGroupRoot));
+                    var rootBuffer = baker.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
+                    rootBuffer.Length = RootBufferSize;
+                    for (int i = 0; i < rootBuffer.Length; ++i)
+                        rootBuffer[i] = new GhostGenBuffer_ByteBuffer { Value = (byte)i };
+                    return;
+                }
+                baker.AddComponent(entity, default(GhostChildEntity));
+                switch (gameObject.name)
+                {
+                    case "Child0": baker.AddComponent(entity, default(EnableableComponent_0)); break;
+                    case "Child1": baker.AddComponent(entity, default(EnableableComponent_1)); break;
+                    case "Child2": baker.AddComponent(entity, default(EnableableComponent_2)); break;
+                    case "Child3": baker.AddComponent(entity, default(EnableableComponent_3)); break;
+                }
+                var childBuffer = baker.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
+                childBuffer.Length = ChildBufferSize;
+                for (int i = 0; i < childBuffer.Length; ++i)
+                    childBuffer[i] = new GhostGenBuffer_ByteBuffer { Value = (byte)i };
+            }
+        }
+
     }
 }

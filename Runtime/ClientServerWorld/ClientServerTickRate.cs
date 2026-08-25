@@ -50,9 +50,10 @@ namespace Unity.NetCode
     ///            if(world.IsServer())
     ///            {
     ///               //In this case we only create on the server, but we can do the same also for the client world
-    ///               var tickRateEntity = world.EntityManager.CreateSingleton(new ClientServerTickRate
+    ///               var ent = world.EntityManager.CreateEntityQuery(typeof(ClientServerTickRate)).GetSingletonEntity();
+    ///               world.EntityManager.SetComponentData(ent, new ClientServerTickRate
     ///               {
-    ///                   SimulationTickRate = 30;
+    ///                   SimulationTickRate = 30
     ///               });
     ///            }
     ///        }
@@ -263,7 +264,10 @@ namespace Unity.NetCode
         /// -1 is 'turn clamping off', 0 is 'use default'.
         /// Max value is 50 (i.e. 50% each way, leading to full clamping, as it's applied in both directions).
         /// </summary>
-        /// <remarks>High values will lead to more aggressive alignment, which may be perceivable (as we'll need to shift time further).</remarks>
+        /// <remarks>
+        /// High values will lead to more aggressive alignment, which may be perceivable (as we'll need to shift time further).
+        /// When using Single World Host, this value is currently ignored.
+        /// </remarks>
         public int ClampPartialTicksThreshold
         {
             readonly get => m_ClampPartialTicksThreshold;
@@ -639,6 +643,27 @@ In other words: If no user-code classification system is written for a predicted
         [Tooltip("The client can batch simulation steps in the prediction loop. This setting controls how many simulation steps the simulation can batch, <b>for ticks which are being predicted for the first time</b>.\n\nWhen 0, defaults to 1 at runtime.\n\nSetting this to a value larger than 1 will save performance at the cost of simulation accuracy. Gameplay systems needs to be adapted.")]
         [Range(0, 16)]
         public int MaxPredictionStepBatchSizeFirstTimeTick;
+        /// <summary>
+        /// <para>
+        /// Any time ANY predicted ghost must rollback, this setting forces ALL predicted ghosts to rollback to the same tick,
+        /// eliminating "partial rollbacks" caused by snapshots that omit some predicted ghosts (e.g. excluded by <see cref="BaseGhostSettings.Importance"/>,
+        /// <see cref="BaseGhostSettings.MaxSendRate"/>, relevancy, or per-packet size limits).
+        /// When off (the default), only the ghosts present in a given snapshot rollback to that snapshot tick;
+        /// other predicted ghosts keep predicting from <c>lastPredictedTick</c>, which can cause inter-ghost interactions
+        /// (collisions, AI reading another ghost's state, etc.) to mispredict, as the corrected and uncorrected ghosts now
+        /// occupy inconsistent timelines. With this flag on, all predicted ghosts rollback to a single global tick and
+        /// re-simulate together, eliminating this class of misprediction.
+        /// </para>
+        /// <para>
+        /// <b>Cost:</b> CPU and memory increase. Re-simulating every predicted ghost on every rollback grows
+        /// CPU cost roughly linearly with predicted ghost count. To support restoring ghosts that have no snapshot at
+        /// the global rollback tick, <see cref="GhostPredictionHistorySystem"/> retains a multi-tick ring of backups
+        /// per chunk (sized to the worst-case rollback distance), which can multiply prediction-history memory usage
+        /// by an order of magnitude or more.
+        /// </para>
+        /// </summary>
+        [Tooltip("Any time ANY predicted ghost must rollback, this setting forces ALL predicted ghosts to rollback to the same tick, eliminating \"partial rollbacks\" caused by snapshots that omit some predicted ghosts (e.g. excluded by <b>Importance</b>, <b>MaxSendRate</b>, relevancy, or per-packet size limits).\n\n<b>CPU and memory cost</b> - re-simulates every predicted ghost on every rollback, and prediction-history memory grows because a multi-tick ring of backups is retained per chunk.")]
+        public bool AlwaysRollbackAllPredictedGhosts;
         /// <summary>
         /// Configure how the client should run the prediction loop systems. By default, the client runs the systems inside the <see cref="PredictedSimulationSystemGroup"/> (and consequently also the ones in <see cref="PredictedFixedStepSimulationSystemGroup"/>)
         /// only if there are predicted ghosts in the world. This is a good behaviour in general, as it saves some CPU cycles. However, it can be unintuitive, as there are situations where you would like to have these systems always run. For example:

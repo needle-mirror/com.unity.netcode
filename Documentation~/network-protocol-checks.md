@@ -1,7 +1,7 @@
 # Network protocol checks
 
 When a client connects to a server, they exchange a
-protocol ([NetworkProtocolVersion](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkProtocolVersion.html))
+protocol ([NetworkProtocolVersion](xref:Unity.NetCode.NetworkProtocolVersion))
 that contains the netcode version, game version, RPC collection, and serialized component collections. This is a
 preventative measure to stop incompatible versions of games from connecting to each other, which can lead to undefined behavior.
 
@@ -27,7 +27,7 @@ the ones raised on the remote peer to troubleshoot type mismatches.
 
 ## Disabling the check
 
-To disable the check, set [`RpcCollection.DynamicAssemblyList`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCollection.html#Unity_NetCode_RpcCollection_DynamicAssemblyList)
+To disable the check, set [`RpcCollection.DynamicAssemblyList`](xref:Unity.NetCode.RpcCollection.DynamicAssemblyList)
 to true like this:
 
 [!code-csharp[blobs](../Tests/Editor/DocCodeSamples/network-protocol-checks.cs#DisablingProtocolChecks)]
@@ -39,4 +39,4 @@ Because this modifies the `RpcCollection` (which is itself instantiated by the `
 
 ## Additional resources
 
-- [`NetworkProtocolVersion` API documentation](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkProtocolVersion.html)
+- [`NetworkProtocolVersion` API documentation](xref:Unity.NetCode.NetworkProtocolVersion)

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Burst;
+using Unity.NetCode.EntitiesInternalAccess;
 namespace Unity.NetCode
 {
     /// <summary>
@@ -32,7 +33,8 @@ namespace Unity.NetCode
             m_ComponentTypeNameLookupData = new NativeHashMap<int, FixedString128Bytes>(1024, Allocator.Persistent);
             netDebug.ComponentTypeNameLookup = m_ComponentTypeNameLookupData.AsReadOnly();
 #endif
-            state.EntityManager.CreateSingleton(netDebug);
+            var netDebugEntity = state.EntityManager.CreateSingleton(netDebug);
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, netDebugEntity);
         }
 
         internal static NetDebug GetDefaultNetDebug()

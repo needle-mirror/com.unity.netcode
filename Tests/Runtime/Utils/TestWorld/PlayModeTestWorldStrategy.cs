@@ -1,4 +1,3 @@
-#if UNITY_6000_0_OR_NEWER
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -56,19 +55,19 @@ namespace Unity.NetCode.Tests
         }
 
         #region world management
-        public World CreateClientWorld(string name, bool thinClient, World world = null)
+        public NetcodeWorld CreateClientWorld(string name, bool thinClient, NetcodeWorld world = null)
         {
             if (world == null)
             {
                 if (thinClient)
                 {
                     TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_ThinClientSystems); // Ensure CreationOrder is respected.
-                    world = ClientServerBootstrap.CreateThinClientWorld(ListToNativeList(NetCodeTestWorld.m_ThinClientSystems), name);
+                    world = (NetcodeWorld)ClientServerBootstrap.CreateThinClientWorld(NetCodeTestWorld.m_ThinClientSystems, name);
                 }
                 else
                 {
                     TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_ClientSystems); // Ensure CreationOrder is respected.
-                    world = ClientServerBootstrap.CreateClientWorld(name, ListToNativeList(NetCodeTestWorld.m_ClientSystems));
+                    world = (NetcodeWorld)ClientServerBootstrap.CreateClientWorld(name, NetCodeTestWorld.m_ClientSystems);
                 }
             }
             world.GetExistingSystemManaged<UpdateWorldTimeSystem>().Enabled = false;
@@ -79,48 +78,38 @@ namespace Unity.NetCode.Tests
                 AutomaticThinClientWorldsUtility.AutomaticallyManagedWorlds.Add(world); // this makes the thin client world known to the automatic management system so it won't create an extra one
             }
 #endif
-            return world;
+            return (NetcodeWorld)world;
         }
 
-        public World CreateServerWorld(string name, World world = null)
+        public NetcodeWorld CreateServerWorld(string name, NetcodeWorld world = null)
         {
             if (world == null)
             {
                 TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_ServerSystems); // Ensure CreationOrder is respected.
-                world = ClientServerBootstrap.CreateServerWorld(name, ListToNativeList(NetCodeTestWorld.m_ServerSystems));
+                world = (NetcodeWorld)ClientServerBootstrap.CreateServerWorld(name, NetCodeTestWorld.m_ServerSystems);
             }
             world.GetExistingSystemManaged<UpdateWorldTimeSystem>().Enabled = false;
-            return world;
+            return (NetcodeWorld)world;
         }
 
-        public World CreateHostWorld(string name, World world = null)
+        public NetcodeWorld CreateHostWorld(string name, NetcodeWorld world = null)
         {
             if (world == null)
             {
                 TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_HostSystems); // Ensure CreationOrder is respected.
-                world = ClientServerBootstrap.CreateSingleWorldHost(name, ListToNativeList(NetCodeTestWorld.m_HostSystems));
+                world = (NetcodeWorld)ClientServerBootstrap.CreateSingleWorldHost(name, NetCodeTestWorld.m_HostSystems);
             }
             world.GetExistingSystemManaged<UpdateWorldTimeSystem>().Enabled = false;
-            return world;
-        }
-        NativeList<SystemTypeIndex> ListToNativeList(List<Type> list)
-        {
-
-            var nativeList = new NativeList<SystemTypeIndex>(list.Count, Allocator.Temp);
-            foreach (var type in list)
-            {
-                nativeList.Add(TypeManager.GetSystemTypeIndex(type));
-            }
-            return nativeList;
+            return (NetcodeWorld)world;
         }
 
-        public void DisposeClientWorld(World world)
+        public void DisposeClientWorld(NetcodeWorld world)
         {
             if (m_TestWorld.AlwaysDispose || world.IsCreated)
                 world.Dispose();
         }
 
-        public void DisposeServerWorld(World world)
+        public void DisposeServerWorld(NetcodeWorld world)
         {
             if (m_TestWorld.AlwaysDispose || world.IsCreated)
                 world.Dispose();
@@ -133,7 +122,7 @@ namespace Unity.NetCode.Tests
             throw new NotSupportedException("Must yield in playmode");
         }
 
-        public async Task TickAsync(float dt, NetcodeAwaitable awaitInstruction = null, bool skipSanityCheck = false)
+        public async Task TickAsync(float dt, Awaitable awaitInstruction = null, bool skipSanityCheck = false)
         {
             DeltaTime = dt;
             if (awaitInstruction == null)
@@ -142,12 +131,12 @@ namespace Unity.NetCode.Tests
                 // await Awaitable.EndOfFrameAsync(); // TODO this hangs forever when in batchmode, so hacking this for now with yield in tests that need it
             }
             else
-                await awaitInstruction.awaitable; // Unity depends on the type of the awaitable, rather than the actual functionality. So we can't return an
+                await awaitInstruction; // Unity depends on the type of the awaitable, rather than the actual functionality. So we can't return an
                                                   // awaitable that "acts" as the specified awaitable (WaitForEndOfFrame for example), we need to return the
                                                   // actual WaitForEndOfFrame awaitable
         }
 
-        public void TickClientWorld(float dt)
+        public void TickClientWorld(float dt, bool clientOnly)
         {
             throw new NotImplementedException();
         }
@@ -175,4 +164,3 @@ namespace Unity.NetCode.Tests
         }
     }
 }
-#endif

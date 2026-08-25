@@ -239,7 +239,6 @@ namespace Unity.NetCode.Tests
         Any,
     }
 
-    [DisableSingleWorldHostTest]
     internal class ExtrapolationTests
     {
         public static NetcodeSetupMode TMode;
@@ -285,7 +284,7 @@ namespace Unity.NetCode.Tests
         /// <param name="mode"></param>
         /// <exception cref="ArgumentOutOfRangeException"></exception>
         [Test]
-        public void NetcodeProducesSmoothValues([Values]NetcodeSetupMode mode)
+        public void NetcodeProducesSmoothValues([Values] bool alwaysRollbackAllGhosts, [Values]NetcodeSetupMode mode)
         {
             // Setup:
             TMode = mode;
@@ -328,7 +327,8 @@ namespace Unity.NetCode.Tests
             // Prevent batched ticks!
             var tickRate = new ClientServerTickRate {MaxSimulationStepBatchSize = 1, MaxSimulationStepsPerFrame = 1};
             tickRate.ResolveDefaults();
-            testWorld.ServerWorld.EntityManager.CreateSingleton(tickRate);
+            var rateEntity = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+            testWorld.ServerWorld.EntityManager.SetComponentData(rateEntity, tickRate);
 
             // Disable interpolation time to make sure extrapolation is used
             var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
@@ -342,7 +342,9 @@ namespace Unity.NetCode.Tests
             clientTickRate.InterpolationTimeNetTicks = 0;
             clientTickRate.InterpolationTimeMS = interpMs;
             clientTickRate.MaxExtrapolationTimeSimTicks = (uint) (extrapMs / 1000f * tickRate.SimulationTickRate);
-            testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+            clientTickRate.AlwaysRollbackAllPredictedGhosts = alwaysRollbackAllGhosts;
+            var ent = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[0]);
+            testWorld.ClientWorlds[0].EntityManager.SetComponentData(ent, clientTickRate);
 
             // Calculate various tick windows for this test
             ExpectedTicksBetweenSnapshots = tickRate.SimulationTickRate / maxSendRate;
@@ -350,18 +352,22 @@ namespace Unity.NetCode.Tests
             ExpectedInterpolationTicks = math.max((int) (interpMs / 1000f * tickRate.SimulationTickRate), 1);
             ExpectedExtrapolationTicks = (int) clientTickRate.MaxExtrapolationTimeSimTicks;
 
-            // Spawn & set owner (for owner predicted):
+            // Spawn (owner assigned after Connect, once we know the remote client's real NetworkId):
             var serverEntitites = new FixedList4096Bytes<Entity>();
             foreach (var ghostPrefab in authoringGhostPrefabs)
             {
                 var serverEnt = testWorld.SpawnOnServer(ghostPrefab);
                 serverEntitites.Add(serverEnt);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{ NetworkId = 1, });
             }
 
             // Let the simulation run for a bit since we're testing the stability of the connection (and start-up is turbulent):
             testWorld.Connect();
             testWorld.GoInGame();
+
+            var clientNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
+            foreach (var serverEnt in serverEntitites)
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{ NetworkId = clientNetworkId, });
+
             for (int i = 0; i < 300; ++i)
                 testWorld.Tick();
 

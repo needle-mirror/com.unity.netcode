@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using JetBrains.Annotations;
 using Unity.Entities;
 using UnityEngine;
@@ -12,7 +11,7 @@ namespace Unity.NetCode.Editor
     class BakedResult
     {
         public Dictionary<GameObject, BakedGameObjectResult> GameObjectResults;
-        public GhostAuthoringComponent GhostAuthoring;
+        public BaseGhostSettings GhostAuthoring;
 
         public BakedGameObjectResult GetInspectionResult(GhostAuthoringInspectionComponent inspection)
         {
@@ -30,7 +29,7 @@ namespace Unity.NetCode.Editor
         public BakedResult AuthoringRoot;
         public GameObject SourceGameObject;
         [CanBeNull] public GhostAuthoringInspectionComponent SourceInspection;
-        public GhostAuthoringComponent RootAuthoring => AuthoringRoot.GhostAuthoring;
+        public BaseGhostSettings RootAuthoring => AuthoringRoot.GhostAuthoring;
         public string SourcePrefabPath;
         public List<BakedEntityResult> BakedEntities;
         public int NumComponents;
@@ -78,6 +77,16 @@ namespace Unity.NetCode.Editor
         /// the same time as <see cref="BakerContributedOverrides"/>. Used by the inspector dropdown to display the
         /// baker's variant choice when no inspection override exists.</summary>
         public ulong BakerContributedVariantHash;
+
+        /// <summary>Variant hash the GameObject layer applies as a per-prefab default at registration time (see
+        /// GhostObjectVariantDefaults / PrefabRegistry), e.g. the 3D scale variant for PostTransformMatrix on
+        /// GhostObject prefabs. 0 when none. Populated by <see cref="EntityPrefabComponentsPreview"/> for
+        /// GhostObject roots only. Inspection and baker overrides take precedence.</summary>
+        public ulong GhostObjectContributedVariantHash;
+
+        /// <summary>The variant hash the authoring context contributes as the effective default, independently of any
+        /// inspection override: baker override first, else the GameObject-layer default, else 0 (system default).</summary>
+        public ulong ContextDefaultVariantHash => BakerContributedVariantHash != 0 ? BakerContributedVariantHash : GhostObjectContributedVariantHash;
 
         /// <summary>PrefabType from the first baker override that sets one (not <see cref="GhostVariantBakedOverride.NoPrefabTypeOverride"/>),
         /// else <see cref="GhostVariantBakedOverride.NoPrefabTypeOverride"/>. Cached so the PrefabType buttons
@@ -150,7 +159,18 @@ namespace Unity.NetCode.Editor
         /// <summary>I.e. Implicitly supports prefab overrides.</summary>
         internal bool HasMultipleVariants => availableSerializationStrategies.Length > 1;
 
-        internal bool HasMultipleVariantsExcludingDontSerializeVariant => HasMultipleVariants && availableSerializationStrategies.Count(x => !x.IsDontSerializeVariant) > 1;
+        internal bool HasMultipleVariantsExcludingDontSerializeVariant
+        {
+            get
+            {
+                var count = 0;
+                foreach (var strategy in availableSerializationStrategies)
+                {
+                    if (!strategy.IsDontSerializeVariant && ++count > 1) { return true; }
+                }
+                return false;
+            }
+        }
 
         /// <summary>Returns by ref. Throws if not found. Use <see cref="HasPrefabOverride"/>.</summary>
         public ref GhostAuthoringInspectionComponent.ComponentOverride GetPrefabOverride()

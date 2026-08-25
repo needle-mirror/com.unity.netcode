@@ -14,6 +14,7 @@ namespace Unity.NetCode
     ///     Also note: This will not work if you use your own bootstrapper, unless you call
     ///     <see cref="ClientServerBootstrap.DetermineIfBootstrappingEnabled" /> early, and return false if false.
     /// </remarks>
+    [AddComponentMenu("Multiplayer/Override Automatic Netcode Bootstrap", 3)]
     public sealed class OverrideAutomaticNetcodeBootstrap : MonoBehaviour, IComparable<OverrideAutomaticNetcodeBootstrap>
     {
         /// <inheritdoc cref="NetCodeConfig.AutomaticBootstrapSetting" />
@@ -37,7 +38,7 @@ namespace Unity.NetCode
             if (ReferenceEquals(null, other)) return 1;
             var nameSort = string.Compare(name, other.name, StringComparison.Ordinal);
             if (nameSort != 0) return nameSort;
-            return GetInstanceID().CompareTo(other.GetInstanceID());
+            return GetEntityId().CompareTo(other.GetEntityId());
         }
     }
 }

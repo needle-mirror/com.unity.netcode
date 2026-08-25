@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using NUnit.Framework;
 
 namespace Unity.NetCode.Tests
@@ -59,10 +58,21 @@ namespace Unity.NetCode.Tests
             if (testType != null)
                 return testType;
 
-            // Try all loaded assemblies as last resort
-            return AppDomain.CurrentDomain.GetAssemblies()
-                .SelectMany(a => GetTypesFromAssembly(a))
-                .FirstOrDefault(t => t.FullName == className);
+            // Try all loaded assemblies as last resort.
+            // TypeCache doesn't support finding types by full qualified name, so we fall back to
+            // AppDomain enumeration. Suppress UAC0005 since there is no direct Unity API replacement
+            // for this lookup pattern.
+#pragma warning disable UAC0005
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+#pragma warning restore UAC0005
+            {
+                foreach (var type in GetTypesFromAssembly(assembly))
+                {
+                    if (type.FullName == className)
+                        return type;
+                }
+            }
+            return null;
         }
 
         private static IEnumerable<Type> GetTypesFromAssembly(System.Reflection.Assembly assembly)
@@ -74,7 +84,7 @@ namespace Unity.NetCode.Tests
             catch
             {
                 // Some assemblies might not be accessible or might throw exceptions
-                return Enumerable.Empty<Type>();
+                return new Type[0];
             }
         }
 

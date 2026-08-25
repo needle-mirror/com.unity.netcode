@@ -72,7 +72,6 @@ namespace Unity.NetCode.Tests
         /// for 10 ticks.
         /// </summary>
         [Test]
-        [DisableSingleWorldHostTest]
         public void WhenRollbackPredictionErrorWillBeDisplayed()
         {
             // const int rollback = 10;
@@ -89,7 +88,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick(1.0f / 60.0f); // First time both curServerTick and previousServerTick are valid
                 for (int i = 0; i < 20; i++)
                 {
-                    testWorld.TickClientWorld();
+                    testWorld.TickClientWorld(clientOnly: true);
                 }
 
                 for (int i = 0; i < 10; i++)

@@ -11,6 +11,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using UnityEngine;
@@ -585,11 +586,7 @@ namespace Unity.NetCode
             m_DestroyedPrespawnsQueue = new NativeQueue<int>(Allocator.Persistent);
             m_OldestPendingDespawnTickByAll = new NativeReference<NetworkTick>(Allocator.Persistent);
 #if UNITY_EDITOR
-#if UNITY_2022_2_14F1_OR_NEWER
             int maxThreadCount = JobsUtility.ThreadIndexCount;
-#else
-            int maxThreadCount = JobsUtility.MaxJobThreadCount;
-#endif
             m_UpdateLen = new NativeArray<uint>(maxThreadCount, Allocator.Persistent);
             m_UpdateCounts = new NativeArray<uint>(maxThreadCount, Allocator.Persistent);
 #endif
@@ -609,6 +606,7 @@ namespace Unity.NetCode
             m_ConnectionsToProcess = new NativeList<ConnectionStateData>(16, Allocator.Persistent);
             var relevancySingleton = state.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostRelevancy>());
             state.EntityManager.SetName(relevancySingleton, "GhostRelevancy-Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, relevancySingleton);
             SystemAPI.SetSingleton(new GhostRelevancy(m_GhostRelevancySet));
 
             m_GhostMap = new NativeParallelHashMap<SpawnedGhost, Entity>(1024, Allocator.Persistent);
@@ -616,7 +614,7 @@ namespace Unity.NetCode
 
             var spawnedGhostMap = state.EntityManager.CreateEntity(ComponentType.ReadWrite<SpawnedGhostEntityMap>());
             state.EntityManager.SetName(spawnedGhostMap, "SpawnedGhostEntityMapSingleton");
-
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, spawnedGhostMap);
             SystemAPI.SetSingleton(new SpawnedGhostEntityMap{Value = m_GhostMap.AsReadOnly(), SpawnedGhostMapRW = m_GhostMap, ServerDestroyedPrespawns = m_DestroyedPrespawns, m_ServerAllocatedGhostIds = m_AllocatedGhostIds, m_ServerFreeGhostIds = m_FreeGhostIds });
 
 #if NETCODE_DEBUG
@@ -624,12 +622,6 @@ namespace Unity.NetCode
 #endif
 
             m_GhostPreSerializer = new GhostPreSerializer(state.GetEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GhostType>(), ComponentType.ReadOnly<PreSerializedGhost>()));
-
-            var dataSingleton = state.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostSendSystemData>());
-            state.EntityManager.SetName(dataSingleton, "GhostSystemData-Singleton");
-            var data = new GhostSendSystemData();
-            data.Initialize();
-            SystemAPI.SetSingleton(data);
 
 #if UNITY_EDITOR
             SetupAnalyticsSingleton(state.EntityManager);
@@ -678,6 +670,7 @@ namespace Unity.NetCode
         {
             var analyticsSingleton = entityManager.CreateEntity(ComponentType.ReadWrite<GhostSendSystemAnalyticsData>());
             entityManager.SetName(analyticsSingleton, "GhostSystemAnalyticsData-Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(entityManager, analyticsSingleton);
             var analyticsData = new GhostSendSystemAnalyticsData
             {
                 UpdateLenSums = m_UpdateLen,
@@ -1153,7 +1146,6 @@ namespace Unity.NetCode
                 uint returnTime = snapshotAckCopy.CalculateReturnTime(localTime);
                 dataStream.WriteUInt(returnTime);
                 dataStream.WriteInt(snapshotAckCopy.ServerCommandAge);
-                dataStream.WriteByte(snapshotAckCopy.CurrentSnapshotSequenceId);
                 dataStream.WriteUInt(currentTick.SerializedData);
 
                 // Write the list of ghost snapshots the client has not acked yet
@@ -1579,10 +1571,17 @@ namespace Unity.NetCode
                     var ticksSinceLastSent = currentTick.TicksSince(chunkState.GetLastUpdate());
                     var allIrrelevant = chunkState.GetAllIrrelevant();
                     var maxSendRate = math.select(chunkState.maxSendRateAsSimTickInterval, chunkState.maxSendRateAsSimTickInterval * systemData.IrrelevantImportanceDownScale, allIrrelevant);
+
+                    // MaxSendRate is ignored when order (i.e. structural) changes take place. I.e. Entities created, destroyed, or moved in/out.
                     if (ticksSinceLastSent < maxSendRate)
                     {
-                        PacketDumpSkippedMaxSendRate(ghostChunk, ticksSinceLastSent, maxSendRate);
-                        continue;
+                        var orderVersion = chunkState.GetOrderChangeVersion();
+                        if(!ghostChunk.DidOrderChange(orderVersion))
+                        {
+                            PacketDumpSkippedMaxSendRate(ghostChunk, ticksSinceLastSent, maxSendRate);
+                            continue;
+                        }
+                        PacketDumpIgnoredMaxSendRateDueToStructuralChange(ghostChunk, ticksSinceLastSent, maxSendRate);
                     }
 
                     //Prespawn ghost chunk should be considered only if the subscene wich they belong to as been loaded (acked) by the client.
@@ -1728,6 +1727,14 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
                 if(netDebugPacket.IsCreated)
                     netDebugPacket.Log($"\tSkipping {ghostChunk.SequenceNumber} as {ticksSinceLastSent}<MSR:{maxSendRate}");
+#endif
+            }
+            [Conditional("NETCODE_DEBUG")]
+            private void PacketDumpIgnoredMaxSendRateDueToStructuralChange(in ArchetypeChunk ghostChunk, int ticksSinceLastSent, int maxSendRate)
+            {
+#if NETCODE_DEBUG
+                if(netDebugPacket.IsCreated)
+                    netDebugPacket.Log($"\tIgnoring {ticksSinceLastSent}<MSR:{maxSendRate} for {ghostChunk.SequenceNumber} as DidOrderChange!");
 #endif
             }
             [Conditional("NETCODE_DEBUG")]
@@ -2115,7 +2122,7 @@ namespace Unity.NetCode
             var flushHandle = networkStreamDriver.DriverStore.ScheduleFlushSendAllDrivers(serializeHandle);
             k_Scheduling.End();
             state.Dependency = JobHandle.CombineDependencies(flushHandle, cleanupHandle);
-#if NETCODE_DEBUG && !USING_UNITY_LOGGING
+#if NETCODE_DEBUG
             state.Dependency = new FlushNetDebugPacket
             {
                 EnablePacketLogging = m_EnablePacketLoggingFromEntity,
@@ -2225,7 +2232,7 @@ namespace Unity.NetCode
             }
         }
 
-#if NETCODE_DEBUG && !USING_UNITY_LOGGING
+#if NETCODE_DEBUG
         struct FlushNetDebugPacket : IJobParallelForDefer
         {
             [ReadOnly] public ComponentLookup<EnablePacketLogging> EnablePacketLogging;

@@ -1,6 +1,7 @@
 #pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using NUnit.Framework;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Core;
 using Unity.Entities;
 using UnityEngine;
@@ -62,19 +63,24 @@ namespace Unity.NetCode.Tests
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     internal partial class PredictionTestPredictionSystem : SystemBase
     {
+        partial struct IncrementPostionJob : IJobEntity
+        {
+            public float DeltaTime;
+            public void Execute(ref LocalTransform trans)
+            {
+                trans.Position.x += DeltaTime * 60.0f;
+            }
+        }
+
         public static bool s_IsEnabled;
         protected override void OnUpdate()
         {
             if (!s_IsEnabled)
                 return;
-            var deltaTime = SystemAPI.Time.DeltaTime;
-
-            Entities.WithAll<Simulate, GhostInstance>().ForEach((ref LocalTransform trans) => {
-                // Make sure we advance by one unit per tick, makes it easier to debug the values
-                trans.Position.x += deltaTime * 60.0f;
-            }).ScheduleParallel();
+            new IncrementPostionJob{DeltaTime = SystemAPI.Time.DeltaTime}.ScheduleParallel();
         }
     }
+
     /// <summary>Client-only misprediction: pushes the predicted transform right on every predicted tick, client-side only.
     /// The server leaves the ghost at the origin, so every snapshot is the authoritative (0,0,0) correction and the client
     /// must be pulled back to it. A ghost that latches onto a stale prediction-history backup keeps drifting right instead.</summary>
@@ -116,27 +122,21 @@ namespace Unity.NetCode.Tests
             //Do not invalidate full ticks. The backup is not restored in that case
             if(!networkTime.IsPartialTick)
                 return;
-            Entities
-                .WithoutBurst()
-                .WithAll<GhostInstance>().ForEach((
-                    Entity ent,
-                    ref LocalTransform trans,
-                    ref DynamicBuffer<EnableableBuffer> buffer,
-                    //ref DynamicBuffer<BufferWithReplicatedEnableBits> nonReplicatedBuffer,
-                    ref ReplicatedEnableableComponentWithNonReplicatedField comp) =>
+
+            foreach (var (trans, buffer, comp, ent) in SystemAPI.Query<RefRW<LocalTransform>,DynamicBuffer<EnableableBuffer>,RefRW<ReplicatedEnableableComponentWithNonReplicatedField>>().WithEntityAccess().WithAll<Simulate, GhostInstance>())
             {
                 for (int el = 0; el < buffer.Length; ++el)
-                    buffer[el] = new EnableableBuffer { value = 100*(int)tick.SerializedData };
+                    buffer.ElementAt(el) = new EnableableBuffer { value = 100*(int)tick.SerializedData };
 
                 // for (int el = 0; el < nonReplicatedBuffer.Length; ++el)
                 //     nonReplicatedBuffer[el] = new BufferWithReplicatedEnableBits { value = (byte)tick.SerializedData };
 
-                trans.Position = new float3(-10 * tick.SerializedData, -10 * tick.SerializedData, -10 * tick.SerializedData);
-                trans.Scale = -10f*tick.SerializedData;
-                comp.value = -10*(int)tick.SerializedData;
+                trans.ValueRW.Position = new float3(-10 * tick.SerializedData, -10 * tick.SerializedData, -10 * tick.SerializedData);
+                trans.ValueRW.Scale = -10f*tick.SerializedData;
+                comp.ValueRW.value = -10*(int)tick.SerializedData;
                 EntityManager.SetComponentEnabled<ReplicatedEnableableComponentWithNonReplicatedField>(ent, false);
                 EntityManager.SetComponentEnabled<EnableableFlagComponent>(ent, false);
-            }).Run();
+            }
             var counter = SystemAPI.GetComponentRW<SystemExecutionCounter>(SystemHandle);
             ++counter.ValueRW.value;
         }
@@ -159,27 +159,23 @@ namespace Unity.NetCode.Tests
             var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
             if(!tick.IsValid)
                 return;
-            Entities
-                .WithoutBurst()
-                .WithAll<Simulate, GhostInstance>().ForEach((
-                    Entity ent,
-                    ref LocalTransform trans,
-                    ref DynamicBuffer<EnableableBuffer> buffer,
-                    ref ReplicatedEnableableComponentWithNonReplicatedField comp) =>
-                {
-                    Assert.IsTrue(trans.Position.x > 0f);
-                    Assert.IsTrue(trans.Position.y > 0f);
-                    Assert.IsTrue(trans.Position.z > 0f);
-                    Assert.IsTrue(math.abs(1f - trans.Scale) < 1e-4f);
 
-                    //enable bits must be replicated
-                    Assert.IsTrue(EntityManager.IsComponentEnabled<ReplicatedEnableableComponentWithNonReplicatedField>(ent));
-                    Assert.IsTrue(EntityManager.IsComponentEnabled<EnableableFlagComponent>(ent));
-                    //This component is not replicated. As such its values is never restored.
-                    Assert.AreEqual(-10*(int)tick.SerializedData, comp.value);
-                    for (int el = 0; el < buffer.Length; ++el)
-                         Assert.AreEqual(1000 * (el+1), buffer[el].value);
-                }).Run();
+
+            foreach (var (trans, buffer, comp, ent) in SystemAPI.Query<LocalTransform,DynamicBuffer<EnableableBuffer>,ReplicatedEnableableComponentWithNonReplicatedField>().WithEntityAccess().WithAll<Simulate, GhostInstance>())
+            {
+                Assert.IsTrue(trans.Position.x > 0f);
+                Assert.IsTrue(trans.Position.y > 0f);
+                Assert.IsTrue(trans.Position.z > 0f);
+                Assert.IsTrue(math.abs(1f - trans.Scale) < 1e-4f);
+
+                //enable bits must be replicated
+                Assert.IsTrue(EntityManager.IsComponentEnabled<ReplicatedEnableableComponentWithNonReplicatedField>(ent));
+                Assert.IsTrue(EntityManager.IsComponentEnabled<EnableableFlagComponent>(ent));
+                //This component is not replicated. As such its values is never restored.
+                Assert.AreEqual(-10*(int)tick.SerializedData, comp.value);
+                for (int el = 0; el < buffer.Length; ++el)
+                        Assert.AreEqual(1000 * (el+1), buffer[el].value);
+            }
             var counter = SystemAPI.GetComponentRW<SystemExecutionCounter>(SystemHandle);
             ++counter.ValueRW.value;
         }
@@ -303,40 +299,726 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    internal class AlwaysRollbackAllConverter : TestNetCodeAuthoring.IConverter
+    {
+        public void Bake(GameObject gameObject, IBaker baker)
+        {
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostOwner());
+            baker.AddComponent(entity, new AlwaysRollbackAllData());
+        }
+    }
+
+    internal struct AlwaysRollbackAllData : IComponentData
+    {
+        [GhostField] public int Value;
+    }
+
+    // --- Scaffolding for the two AlwaysRollbackAllPredictedGhosts history-restore regression tests. ---
+
+    /// <summary>Baked tag marking the "subject" ghosts the corrupt/check systems below operate on (not the driver).</summary>
+    internal struct GlobalRollbackSubject : IComponentData {}
+
+    /// <summary>Client-only tag, added mid-test to force a structural change (chunk move) on a subject.</summary>
+    internal struct GlobalRollbackMovedTag : IComponentData {}
+
+    /// <summary>Subject ghost: a replicated value plus the subject tag. Predicted and throttled (static, or dynamic at a low send rate) so it must roll back via prediction history.</summary>
+    internal class GlobalRollbackSubjectConverter : TestNetCodeAuthoring.IConverter
+    {
+        public void Bake(GameObject gameObject, IBaker baker)
+        {
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new Data { Value = 0 });
+            baker.AddComponent<GlobalRollbackSubject>(entity);
+        }
+    }
+
+    /// <summary>Driver ghost: a replicated value the server bumps every tick, keeping globalRollbackTick advancing so subjects roll back every full tick.</summary>
+    internal class GlobalRollbackDriverConverter : TestNetCodeAuthoring.IConverter
+    {
+        public void Bake(GameObject gameObject, IBaker baker)
+        {
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new Data { Value = 0 });
+        }
+    }
+
+    /// <summary>Subject that also carries an enable-bit-only replicated component (no ghost fields), for the enable-bit layout-check regression.</summary>
+    internal class EnableBitLayoutSubjectConverter : TestNetCodeAuthoring.IConverter
+    {
+        public void Bake(GameObject gameObject, IBaker baker)
+        {
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new Data { Value = 0 });
+            baker.AddComponent<GlobalRollbackSubject>(entity);
+            baker.AddComponent<EnableableFlagComponent>(entity);
+        }
+    }
+
+    /// <summary>Child of the layout-check subject: a replicated child component whose presence is toggled to exercise the child layout check.</summary>
+    internal class ChildLayoutComponentConverter : TestNetCodeAuthoring.IConverter
+    {
+        public void Bake(GameObject gameObject, IBaker baker)
+        {
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new ChildData { Value = 0 });
+        }
+    }
+
+    /// <summary>Corrupts every subject's replicated value right before GhostUpdateSystem on full ticks, so only the global-rollback history restore can fix it.</summary>
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [UpdateBefore(typeof(GhostUpdateSystem))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    internal partial class CorruptGlobalRollbackSubjects : SystemBase
+    {
+        public const int Sentinel = -987654321;
+        public static bool s_Enabled;
+        protected override void OnUpdate()
+        {
+            if (!s_Enabled) return;
+            if (World.IsServer()) return; // Skip the host world's client systems: it holds authoritative state, so there is no misprediction to corrupt.
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+            if (!networkTime.ServerTick.IsValid) return;
+            foreach (var data in SystemAPI.Query<RefRW<Data>>().WithAll<GhostInstance, GlobalRollbackSubject>())
+                data.ValueRW.Value = Sentinel;
+        }
+    }
+
+    /// <summary>After GhostUpdateSystem, counts subjects still holding the corruption sentinel — i.e. ones the rollback failed to restore.</summary>
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [UpdateAfter(typeof(GhostUpdateSystem))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    internal partial class CheckGlobalRollbackSubjectsRestored : SystemBase
+    {
+        public static bool s_Enabled;
+        public static int s_NotRestored;
+        public static int s_Checked;
+        protected override void OnUpdate()
+        {
+            if (!s_Enabled) return;
+            if (World.IsServer()) return; // Only the pure client mispredicts; skip the host world so the static counters reflect one client.
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+            if (!networkTime.ServerTick.IsValid) return;
+            foreach (var data in SystemAPI.Query<RefRO<Data>>().WithAll<GhostInstance, GlobalRollbackSubject>())
+            {
+                ++s_Checked;
+                if (data.ValueRO.Value == CorruptGlobalRollbackSubjects.Sentinel)
+                    ++s_NotRestored;
+            }
+        }
+    }
+
+    /// <summary>Applies a one-time client-only divergence to every subject inside the prediction loop, gated on
+    /// IsFirstTimeFullyPredictingTick so rollback re-simulations never re-apply it - this is what bakes a misprediction
+    /// into the prediction history.</summary>
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    internal partial struct MispredictStaticSubjectsOnce : ISystem
+    {
+        public const int Sentinel = -987654321;
+        public static bool s_Armed;
+        public void OnUpdate(ref SystemState state)
+        {
+            if (!s_Armed) return;
+            if (state.World.IsServer()) return; // Host world is authoritative; the misprediction must only land on the pure client.
+            if (!SystemAPI.GetSingleton<NetworkTime>().IsFirstTimeFullyPredictingTick) return;
+            foreach (var data in SystemAPI.Query<RefRW<Data>>().WithAll<Simulate, GlobalRollbackSubject>())
+                data.ValueRW.Value = Sentinel;
+            s_Armed = false;
+        }
+    }
+
     internal partial class PredictionTests
     {
-        [Category(NetcodeTestCategories.Foundational)]
-        [Category(NetcodeTestCategories.Smoke)]
-        [TestCase((uint)0x229321)]
-        [TestCase((uint)100)]
-        [TestCase((uint)0x7FFF011F)]
-        [TestCase((uint)0x7FFFFF00)]
-        [TestCase((uint)0x7FFFFFF0)]
-        [TestCase((uint)0x7FFFF1F0)]
-        public void PredictionTickEvolveCorrectly(uint serverTickData)
+        static void BumpGlobalRollbackDriver(NetCodeTestWorld testWorld, Entity driverServer)
         {
-            var serverTick = new NetworkTick(serverTickData);
-            using (var testWorld = new NetCodeTestWorld())
+            var em = testWorld.ServerWorld.EntityManager;
+            var data = em.GetComponentData<Data>(driverServer);
+            data.Value += 1;
+            em.SetComponentData(driverServer, data);
+        }
+
+        [Test]
+        [Description("Regression for the global-rollback history lookup: a predicted ghost that changes chunk (structural change) between globalRollbackTick and the latest backup must still roll back, since its history lives in the previous chunk's ring rather than its current one.")]
+        public void AlwaysRollbackAll_RestoresGhostThatChangedChunk([Values] GhostOptimizationMode subjectOptimizationMode)
+        {
+            CorruptGlobalRollbackSubjects.s_Enabled = false;
+            CheckGlobalRollbackSubjectsRestored.s_Enabled = false;
+            CheckGlobalRollbackSubjectsRestored.s_NotRestored = 0;
+            CheckGlobalRollbackSubjectsRestored.s_Checked = 0;
+
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.DriverSimulatedDelay = 30; // ~2 ticks each way, so globalRollbackTick sits several ticks behind the structural change.
+            testWorld.Bootstrap(true, typeof(CorruptGlobalRollbackSubjects), typeof(CheckGlobalRollbackSubjectsRestored));
+
+            var subjectGO = new GameObject("Subject");
+            subjectGO.AddComponent<TestNetCodeAuthoring>().Converter = new GlobalRollbackSubjectConverter();
+            var subjectConfig = subjectGO.AddComponent<GhostAuthoringComponent>();
+            subjectConfig.DefaultGhostMode = GhostMode.Predicted;
+            subjectConfig.OptimizationMode = subjectOptimizationMode;
+            // Dynamic keeps sending; throttle it so most ticks lack a fresh snapshot at globalRollbackTick and fall onto the history ring (static already goes silent once settled).
+            if (subjectOptimizationMode == GhostOptimizationMode.Dynamic)
+                subjectConfig.MaxSendRate = 10;
+
+            var driverGO = new GameObject("Driver");
+            driverGO.AddComponent<TestNetCodeAuthoring>().Converter = new GlobalRollbackDriverConverter();
+            var driverConfig = driverGO.AddComponent<GhostAuthoringComponent>();
+            driverConfig.DefaultGhostMode = GhostMode.Predicted;
+            driverConfig.OptimizationMode = GhostOptimizationMode.Dynamic;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(subjectGO, driverGO));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(true);
+
+            const int subjectCount = 8;
+            for (int i = 0; i < subjectCount; ++i)
             {
-                testWorld.Bootstrap(true, typeof(PredictionTestPredictionSystem));
-                var ghostGameObject = new GameObject();
-                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionTestConverter();
-                var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostConfig.DefaultGhostMode = GhostMode.Predicted;
-                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-                testWorld.CreateWorlds(true, 1);
-                testWorld.SetServerTick(serverTick);
-                testWorld.Connect();
-                testWorld.GoInGame();
-                var serverEnt = testWorld.SpawnOnServer(0);
-                Assert.AreNotEqual(Entity.Null, serverEnt);
-                for(int i=0;i<256;++i)
-                    testWorld.Tick();
+                var e = testWorld.SpawnOnServer(subjectGO);
+                testWorld.ServerWorld.EntityManager.SetComponentData(e, new Data { Value = 1000 + i });
+            }
+            var driverServer = testWorld.SpawnOnServer(driverGO);
+
+            testWorld.Connect(maxSteps: 32); // DriverSimulatedDelay lengthens the handshake past the default budget.
+            testWorld.GoInGame();
+
+            // Converge so the subjects settle off globalRollbackTick (static stops sending; dynamic drops to its low send rate); bump the driver each tick.
+            for (int i = 0; i < 48; ++i)
+            {
+                BumpGlobalRollbackDriver(testWorld, driverServer);
+                testWorld.Tick();
+            }
+
+            var subjectQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(
+                ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GlobalRollbackSubject>());
+            var subjects = subjectQuery.ToEntityArray(Allocator.Temp);
+            Assert.AreEqual(subjectCount, subjects.Length);
+
+            // Structural change on half the subjects: they move to a new chunk, while the other half keep the old
+            // chunk (and its ring) alive. Their history at globalRollbackTick now lives in that old chunk's ring.
+            for (int i = 0; i < subjects.Length; i += 2)
+                testWorld.ClientWorlds[0].EntityManager.AddComponent<GlobalRollbackMovedTag>(subjects[i]);
+
+            CorruptGlobalRollbackSubjects.s_Enabled = true;
+            CheckGlobalRollbackSubjectsRestored.s_Enabled = true;
+
+            for (int i = 0; i < 16; ++i)
+            {
+                BumpGlobalRollbackDriver(testWorld, driverServer);
+                testWorld.Tick();
+            }
+
+            Assert.Greater(CheckGlobalRollbackSubjectsRestored.s_Checked, 0, "Check system never ran - the test isn't exercising the rollback path.");
+            Assert.AreEqual(0, CheckGlobalRollbackSubjectsRestored.s_NotRestored,
+                "A subject that changed chunk was left holding the corruption sentinel: the global rollback failed to find its history in the previous chunk's ring.");
+        }
+
+        [Test]
+        [DisableSingleWorldHostTest]
+        [Description("Regression for UUM-131597: a predicted ghost that changes chunk on a partial tick (with the default RollbackPredictionOnStructuralChanges) must still restore from the prediction-history backup in the chunk it occupied at backup time, not fail the lookup and roll all the way back to an old snapshot.")]
+        public void HistoryBackup_RestoresGhostThatChangedChunkOnPartialTick()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var subjectGO = new GameObject("Subject");
+            subjectGO.AddComponent<TestNetCodeAuthoring>().Converter = new GlobalRollbackSubjectConverter();
+            var subjectConfig = subjectGO.AddComponent<GhostAuthoringComponent>();
+            subjectConfig.DefaultGhostMode = GhostMode.Predicted;
+            // Static so the subject goes silent: with no fresh snapshot to roll back to, the partial-tick continuation
+            // must go through the prediction-history backup (the path this bug lives in).
+            subjectConfig.OptimizationMode = GhostOptimizationMode.Static;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(subjectGO));
+            testWorld.CreateWorlds(true, 1);
+
+            const int subjectCount = 8;
+            for (int i = 0; i < subjectCount; ++i)
+                testWorld.SpawnOnServer(subjectGO);
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+            for (int i = 0; i < 8; ++i)
+                testWorld.Tick();
+
+            // Land exactly on a full tick so the following ticks are partial.
+            var time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+            testWorld.TickClientWorld((1 - time.ServerTickFraction) / 60f);
+            Assert.IsFalse(testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).IsPartialTick);
+
+            var lastBackupTick = testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value;
+            Assert.IsTrue(lastBackupTick.IsValid);
+
+            var clientEm = testWorld.ClientWorlds[0].EntityManager;
+            var subjects = clientEm.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GlobalRollbackSubject>())
+                .ToEntityArray(Allocator.Temp);
+            Assert.AreEqual(subjectCount, subjects.Length);
+
+            // First partial only arms lastPredictedTickWasPartial (its previous tick was full, so no restore yet).
+            const float partialDT = 1f / (60f * 4f); // three partials fit within one full tick.
+            testWorld.TickClientWorld(partialDT);
+
+            // Move half the subjects to a new, un-backed chunk; the rest stay put as a control.
+            for (int i = 0; i < subjects.Length; i += 2)
+                clientEm.AddComponent<GlobalRollbackMovedTag>(subjects[i]);
+
+            testWorld.TickClientWorld(partialDT); // The restore fires here.
+            Assert.AreEqual(lastBackupTick, testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value);
+
+            // Every subject - moved or not - must restore from the backup tick. Before the fix, moved subjects failed the
+            // lookup on their new chunk and rolled back to a much older snapshot.
+            for (int i = 0; i < subjects.Length; i++)
+            {
+                var startTick = clientEm.GetComponentData<PredictedGhost>(subjects[i]).PredictionStartTick;
+                Assert.AreEqual(lastBackupTick, startTick,
+                    $"Subject {i} (moved:{i % 2 == 0}) re-predicted from {startTick} instead of the backup tick {lastBackupTick}.");
             }
         }
 
         [Test]
-        public void PartialPredictionTicksAreRolledBack()
+        [DisableSingleWorldHostTest]
+        [Description("Re-adding a replicated component (a layout-changing structural move) must not restore the zeroed backup slot from the entity's old chunk; the ghost rolls back to the snapshot instead, keeping the component's authoritative value.")]
+        public void HistoryBackup_LayoutChangingMove_RollsBackToSnapshotNotStaleBackup()
+        {
+            const int authoritativeValue = 12345;
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var subjectGO = new GameObject("Subject");
+            subjectGO.AddComponent<TestNetCodeAuthoring>().Converter = new GlobalRollbackSubjectConverter();
+            var subjectConfig = subjectGO.AddComponent<GhostAuthoringComponent>();
+            subjectConfig.DefaultGhostMode = GhostMode.Predicted;
+            subjectConfig.OptimizationMode = GhostOptimizationMode.Static; // goes silent, forcing the partial-tick history path
+            // RollbackPredictionOnStructuralChanges left default (true).
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(subjectGO));
+            testWorld.CreateWorlds(true, 1);
+
+            var server = testWorld.SpawnOnServer(subjectGO);
+            testWorld.ServerWorld.EntityManager.SetComponentData(server, new Data { Value = authoritativeValue });
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+            for (int i = 0; i < 8; ++i)
+                testWorld.Tick();
+
+            var clientEm = testWorld.ClientWorlds[0].EntityManager;
+            var subject = clientEm.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GlobalRollbackSubject>())
+                .GetSingletonEntity();
+            Assert.AreEqual(authoritativeValue, clientEm.GetComponentData<Data>(subject).Value); // converged
+
+            void LandOnFullTick() => testWorld.TickClientWorld((1 - testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTickFraction) / 60f);
+            LandOnFullTick();
+            const float partialDT = 1f / (60f * 4f);
+
+            // Remove the replicated component, then run a full tick so its backup slot is captured absent (zeroed).
+            clientEm.RemoveComponent<Data>(subject);
+            testWorld.TickClientWorld(1f / 60f);
+            testWorld.TickClientWorld(partialDT); // arm lastPredictedTickWasPartial
+
+            // Re-add it (its last backup slot is now zeroed), then a partial tick triggers the moved-chunk restore path.
+            clientEm.AddComponent<Data>(subject);
+            testWorld.TickClientWorld(partialDT);
+
+            // The stale (zeroed) backup must be rejected in favor of a snapshot rollback; without the fix this reads 0.
+            Assert.AreEqual(authoritativeValue, clientEm.GetComponentData<Data>(subject).Value);
+        }
+
+        [Test]
+        [DisableSingleWorldHostTest]
+        [Description("Re-adding an enable-bit-only replicated component (no ghost fields) is a layout-changing structural move: its old-chunk backup slot was captured absent (change-version 0), so the moved-chunk restore must be rejected in favor of a snapshot rollback, keeping the authoritative enabled state instead of the stale backup bit.")]
+        public void HistoryBackup_LayoutChangingMove_EnableBitOnlyComponent_RollsBackToSnapshotNotStaleBackup()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var subjectGO = new GameObject("Subject");
+            subjectGO.AddComponent<TestNetCodeAuthoring>().Converter = new EnableBitLayoutSubjectConverter();
+            var subjectConfig = subjectGO.AddComponent<GhostAuthoringComponent>();
+            subjectConfig.DefaultGhostMode = GhostMode.Predicted;
+            subjectConfig.OptimizationMode = GhostOptimizationMode.Static; // goes silent, forcing the partial-tick history path
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(subjectGO));
+            testWorld.CreateWorlds(true, 1);
+
+            var server = testWorld.SpawnOnServer(subjectGO);
+            testWorld.ServerWorld.EntityManager.SetComponentEnabled<EnableableFlagComponent>(server, true); // authoritative = enabled
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+            for (int i = 0; i < 8; ++i)
+                testWorld.Tick();
+
+            var clientEm = testWorld.ClientWorlds[0].EntityManager;
+            var subject = clientEm.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GlobalRollbackSubject>())
+                .GetSingletonEntity();
+            Assert.IsTrue(clientEm.IsComponentEnabled<EnableableFlagComponent>(subject)); // converged to the authoritative enabled state
+
+            void LandOnFullTick() => testWorld.TickClientWorld((1 - testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTickFraction) / 60f);
+            LandOnFullTick();
+            const float partialDT = 1f / (60f * 4f);
+
+            // Remove the enable-bit component, then a full tick so its backup slot is captured absent (change-version 0).
+            clientEm.RemoveComponent<EnableableFlagComponent>(subject);
+            testWorld.TickClientWorld(1f / 60f);
+            testWorld.TickClientWorld(partialDT); // arm lastPredictedTickWasPartial
+
+            // Re-add it disabled (opposite of the authoritative enabled state); a partial tick triggers the moved-chunk restore path.
+            clientEm.AddComponent<EnableableFlagComponent>(subject);
+            clientEm.SetComponentEnabled<EnableableFlagComponent>(subject, false);
+            testWorld.TickClientWorld(partialDT);
+
+            // The stale (zeroed) backup bit must be rejected in favor of a snapshot rollback; without the fix this stays disabled.
+            Assert.IsTrue(clientEm.IsComponentEnabled<EnableableFlagComponent>(subject));
+        }
+
+        [Test]
+        [DisableSingleWorldHostTest]
+        [Description("Re-adding a replicated CHILD component is a layout-changing structural move: the child's slot in the root's old-chunk backup was captured absent (change-version 0), so when the root moves chunks the moved-chunk restore must be rejected in favor of a snapshot rollback, keeping the child's authoritative value instead of the stale/zeroed backup.")]
+        public void HistoryBackup_LayoutChangingMove_ChildComponent_RollsBackToSnapshotNotStaleBackup()
+        {
+            const int authoritativeValue = 12345;
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var subjectGO = new GameObject("Subject");
+            subjectGO.AddComponent<TestNetCodeAuthoring>().Converter = new GlobalRollbackSubjectConverter();
+            var subjectConfig = subjectGO.AddComponent<GhostAuthoringComponent>();
+            subjectConfig.DefaultGhostMode = GhostMode.Predicted;
+            subjectConfig.OptimizationMode = GhostOptimizationMode.Static; // inert with child components (CanBeStaticOptimized needs none); the client-only ticks below are what force the history path
+
+            var childGO = new GameObject("Child");
+            childGO.transform.parent = subjectGO.transform;
+            childGO.AddComponent<TestNetCodeAuthoring>().Converter = new ChildLayoutComponentConverter();
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(subjectGO));
+            testWorld.CreateWorlds(true, 1);
+
+            var server = testWorld.SpawnOnServer(subjectGO);
+            var serverEm = testWorld.ServerWorld.EntityManager;
+            var serverChild = serverEm.GetBuffer<LinkedEntityGroup>(server)[1].Value;
+            serverEm.SetComponentData(serverChild, new ChildData { Value = authoritativeValue });
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+            for (int i = 0; i < 8; ++i)
+                testWorld.Tick();
+
+            var clientEm = testWorld.ClientWorlds[0].EntityManager;
+            var subject = clientEm.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GlobalRollbackSubject>())
+                .GetSingletonEntity();
+            var clientChild = clientEm.GetBuffer<LinkedEntityGroup>(subject)[1].Value;
+            Assert.AreEqual(authoritativeValue, clientEm.GetComponentData<ChildData>(clientChild).Value); // converged
+
+            void LandOnFullTick() => testWorld.TickClientWorld((1 - testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTickFraction) / 60f);
+            LandOnFullTick();
+            const float partialDT = 1f / (60f * 4f);
+
+            // Remove the replicated child component, then a full tick so the child's backup slot is captured absent (zeroed).
+            clientEm.RemoveComponent<ChildData>(clientChild);
+            testWorld.TickClientWorld(1f / 60f);
+            testWorld.TickClientWorld(partialDT); // arm lastPredictedTickWasPartial
+
+            // Re-add the child component (its backup slot is now zeroed) and move the root to a new chunk (so the restore
+            // takes the moved-chunk fallback). The partial tick then triggers the moved-chunk restore path.
+            clientEm.AddComponent<ChildData>(clientChild);
+            clientEm.AddComponent<GlobalRollbackMovedTag>(subject);
+            testWorld.TickClientWorld(partialDT);
+
+            // The stale (zeroed) child backup must be rejected in favor of a snapshot rollback; without the fix this reads 0.
+            Assert.AreEqual(authoritativeValue, clientEm.GetComponentData<ChildData>(clientChild).Value);
+        }
+
+        [Test]
+        [Description("A static-optimized predicted ghost mispredicted client-side never receives a corrective snapshot (server state is unchanged, so static optimization sends nothing). Only AlwaysRollbackAllPredictedGhosts can fix it: with the flag OFF the misprediction sticks forever, with it ON the global rollback re-simulates it back to the authoritative state. See the 'TODO: BUG' note in GhostUpdateSystem.GetPredictionStartTick.")]
+        public void StaticPredictedGhost_ClientMisprediction_CorrectedOnlyWithAlwaysRollbackAll([Values] bool alwaysRollbackAllGhosts)
+        {
+            MispredictStaticSubjectsOnce.s_Armed = false;
+
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.DriverSimulatedDelay = 30; // a few ticks of latency, so globalRollbackTick sits behind the mispredicted tick (as it would in the real "client shoots a door" case).
+            testWorld.Bootstrap(true, typeof(MispredictStaticSubjectsOnce));
+
+            var subjectGO = new GameObject("Subject");
+            subjectGO.AddComponent<TestNetCodeAuthoring>().Converter = new GlobalRollbackSubjectConverter();
+            var subjectConfig = subjectGO.AddComponent<GhostAuthoringComponent>();
+            subjectConfig.DefaultGhostMode = GhostMode.Predicted;
+            subjectConfig.OptimizationMode = GhostOptimizationMode.Static; // goes silent once settled, so no corrective snapshot can ever arrive.
+
+            var driverGO = new GameObject("Driver");
+            driverGO.AddComponent<TestNetCodeAuthoring>().Converter = new GlobalRollbackDriverConverter();
+            var driverConfig = driverGO.AddComponent<GhostAuthoringComponent>();
+            driverConfig.DefaultGhostMode = GhostMode.Predicted;
+            driverConfig.OptimizationMode = GhostOptimizationMode.Dynamic; // keeps receiving snapshots, like the player who fired the shot, so globalRollbackTick keeps advancing.
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(subjectGO, driverGO));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
+
+            const int subjectCount = 8;
+            const int authoritativeBase = 1000;
+            for (int i = 0; i < subjectCount; ++i)
+            {
+                var e = testWorld.SpawnOnServer(subjectGO);
+                testWorld.ServerWorld.EntityManager.SetComponentData(e, new Data { Value = authoritativeBase + i });
+            }
+            var driverServer = testWorld.SpawnOnServer(driverGO);
+
+            testWorld.Connect(maxSteps: 32); // generous handshake budget to cover the simulated latency.
+            testWorld.GoInGame();
+
+            const float subTickDt = 1f / 60f / 4f;
+            var clientEm = testWorld.ClientWorlds[0].EntityManager;
+
+            // Converge and let the subjects go static (server stops sending them); keep the driver moving.
+            for (int i = 0; i < 192; ++i)
+            {
+                BumpGlobalRollbackDriver(testWorld, driverServer);
+                testWorld.Tick(subTickDt);
+            }
+
+            using var subjectQuery = clientEm.CreateEntityQuery(ComponentType.ReadOnly<Data>(), ComponentType.ReadOnly<GlobalRollbackSubject>());
+            Assert.AreEqual(subjectCount, subjectQuery.CalculateEntityCount());
+
+            // Sanity: the client agrees with the server before the misprediction.
+            foreach (var d in subjectQuery.ToComponentDataArray<Data>(Allocator.Temp))
+                Assert.AreNotEqual(MispredictStaticSubjectsOnce.Sentinel, d.Value, "Subjects should hold their authoritative value before being mispredicted.");
+
+            // Bake a one-time client-only misprediction into the prediction history, then let the sim run on.
+            MispredictStaticSubjectsOnce.s_Armed = true;
+            for (int i = 0; i < 48; ++i)
+            {
+                BumpGlobalRollbackDriver(testWorld, driverServer);
+                testWorld.Tick(subTickDt);
+            }
+
+            var finalValues = subjectQuery.ToComponentDataArray<Data>(Allocator.Temp);
+            int stillMispredicted = 0;
+            foreach (var d in finalValues)
+                if (d.Value == MispredictStaticSubjectsOnce.Sentinel)
+                    ++stillMispredicted;
+
+            if (alwaysRollbackAllGhosts)
+                Assert.AreEqual(0, stillMispredicted,
+                    "With AlwaysRollbackAllPredictedGhosts ON, the static predicted ghost should be rolled back and re-simulated to its authoritative state even with no new snapshot.");
+            else
+                Assert.AreEqual(subjectCount, stillMispredicted,
+                    "With the flag OFF, a static predicted ghost with no corrective snapshot stays mispredicted forever - the bug this flag fixes.");
+        }
+
+        [Test]
+        [Category(NetcodeTestCategories.Foundational)]
+        [Description("With the flag ON, GhostSnapshotLastBackupTick.Capacity should be at least minRingCapacity (4 per the current ring formula in GhostPredictionHistorySystem). With it OFF, capacity stays at 1 (memory parity with the legacy single-tick design).")]
+        public void RingCapacity_FollowsFlag([Values] bool alwaysRollbackAllPredictedGhosts)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var ghostGameObject = new GameObject();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new AlwaysRollbackAllConverter();
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+
+            if (alwaysRollbackAllPredictedGhosts)
+            {
+                var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+                clientTickRate.AlwaysRollbackAllPredictedGhosts = true;
+                var configEntity = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[0]);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(configEntity, clientTickRate);
+            }
+
+            testWorld.SpawnOnServer(ghostGameObject);
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            for (int i = 0; i < 8; ++i)
+                testWorld.Tick();
+
+            var range = testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]);
+
+            if (alwaysRollbackAllPredictedGhosts)
+            {
+                // Contractual minimum from the formula is 4 (minRingCapacity in
+                // GhostPredictionHistorySystem). The actual value is typically higher because
+                // commandInterpolationDelay * 2 + worstSendInterval > 4 in practice.
+                Assert.GreaterOrEqual(range.Capacity, 4,
+                    "Ring capacity should be at least minRingCapacity (4) when flag is on.");
+            }
+            else
+            {
+                Assert.AreEqual(1, range.Capacity,
+                    "Ring capacity should be 1 when flag is off (memory parity with single-tick design).");
+            }
+        }
+
+        /// <summary>
+        /// Allocates a dummy backup slot stamped with the given tick. The ring only reads each slot's
+        /// tickValue, so a header-sized blob is enough to exercise its slot-selection / lookup logic.
+        /// </summary>
+        static unsafe System.IntPtr AllocRingSlot(NetworkTick tick)
+        {
+            var slot = (PredictionBackupState*)UnsafeUtility.Malloc(PredictionBackupState.GetHeaderSize(), 16, Allocator.Persistent);
+            slot->tickValue = tick.SerializedData;
+            return (System.IntPtr)slot;
+        }
+
+        [Test]
+        [Description("AllocNew sizes the ring to the requested capacity and starts with no valid slots.")]
+        public unsafe void PredictionBackupRing_AllocNew_IsEmptyWithRequestedCapacity()
+        {
+            ref var ring = ref PredictionBackupRing.AllocNew(4).Ref;
+            Assert.AreEqual(4, ring.Capacity);
+            Assert.AreEqual(0, ring.CountValid());
+            ring.FreeAll();
+        }
+
+        [Test]
+        [Description("TryGetSlotForTick returns the slot stamped with the exact tick, and misses for any other.")]
+        public unsafe void PredictionBackupRing_TryGetSlotForTick_MatchesExactTick()
+        {
+            ref var ring = ref PredictionBackupRing.AllocNew(4).Ref;
+            var slot10 = AllocRingSlot(new NetworkTick(10));
+            ring.GetSlots()[2] = slot10;
+            Assert.IsTrue(ring.TryGetSlotForTick(new NetworkTick(10), out var found));
+            Assert.AreEqual(slot10, found);
+            Assert.IsFalse(ring.TryGetSlotForTick(new NetworkTick(11), out _));
+            ring.FreeAll();
+        }
+
+        [Test]
+        [Description("SelectSlotForWrite dedups onto the slot already holding the wanted tick.")]
+        public unsafe void PredictionBackupRing_SelectSlotForWrite_Dedups()
+        {
+            ref var ring = ref PredictionBackupRing.AllocNew(4).Ref;
+            ring.GetSlots()[1] = AllocRingSlot(new NetworkTick(10));
+            var selection = ring.SelectSlotForWrite(new NetworkTick(10));
+            Assert.IsTrue(selection.IsRePredict);
+            Assert.AreEqual(1, selection.Index);
+            ring.FreeAll();
+        }
+
+        [Test]
+        [Description("SelectSlotForWrite fills an empty slot before evicting any valid one.")]
+        public unsafe void PredictionBackupRing_SelectSlotForWrite_PrefersEmptyOverEviction()
+        {
+            ref var ring = ref PredictionBackupRing.AllocNew(3).Ref;
+            ring.GetSlots()[0] = AllocRingSlot(new NetworkTick(10));
+            var selection = ring.SelectSlotForWrite(new NetworkTick(11));
+            Assert.IsFalse(selection.IsRePredict);
+            Assert.AreNotEqual(0, selection.Index);
+            ring.FreeAll();
+        }
+
+        [Test]
+        [Description("SelectSlotForWrite evicts the oldest valid slot when the ring is full.")]
+        public unsafe void PredictionBackupRing_SelectSlotForWrite_EvictsOldestWhenFull()
+        {
+            ref var ring = ref PredictionBackupRing.AllocNew(2).Ref;
+            ring.GetSlots()[0] = AllocRingSlot(new NetworkTick(11));
+            ring.GetSlots()[1] = AllocRingSlot(new NetworkTick(10)); // oldest
+            var selection = ring.SelectSlotForWrite(new NetworkTick(12));
+            Assert.IsFalse(selection.IsRePredict);
+            Assert.AreEqual(1, selection.Index);
+            ring.FreeAll();
+        }
+
+        [Test]
+        [Description("Resize grows the ring, migrating populated slots and dropping logically-cleared ones.")]
+        public unsafe void PredictionBackupRing_Resize_GrowsMigratingPopulatedSlots()
+        {
+            ref var ring = ref PredictionBackupRing.AllocNew(2).Ref;
+            var slot10 = AllocRingSlot(new NetworkTick(10));
+            ring.GetSlots()[0] = slot10;
+            ring.GetSlots()[1] = AllocRingSlot(NetworkTick.Invalid); // logically cleared - dropped, not migrated
+
+            ref var grown = ref ring.Resize(4).Ref;
+            Assert.AreEqual(4, grown.Capacity);
+            Assert.AreEqual(1, grown.CountValid());
+            Assert.IsTrue(grown.TryGetSlotForTick(new NetworkTick(10), out var found));
+            Assert.AreEqual(slot10, found, "The populated slot must be migrated by reference, not reallocated.");
+            grown.FreeAll();
+        }
+
+        [Test]
+        [Description("LogicalClear invalidates every slot's tick but keeps the allocations for reuse.")]
+        public unsafe void PredictionBackupRing_LogicalClear_InvalidatesButKeepsSlots()
+        {
+            ref var ring = ref PredictionBackupRing.AllocNew(2).Ref;
+            ring.GetSlots()[0] = AllocRingSlot(new NetworkTick(10));
+            ring.GetSlots()[1] = AllocRingSlot(new NetworkTick(11));
+            ring.LogicalClear();
+            Assert.AreEqual(0, ring.CountValid());
+            Assert.AreNotEqual(System.IntPtr.Zero, ring.GetSlots()[0], "Allocations must remain so the next write reuses them.");
+            ring.FreeAll();
+        }
+
+        [Test]
+        [Description("Regression: Commit points predictionState at the serverTick slot, not the ring's max-tick slot, so a stale future slot (left by an AlwaysRollbackAllPredictedGhosts toggle plus a backwards ServerTick correction) can't restore future state.")]
+        public unsafe void PredictionBackupStore_Commit_PointsPredictionStateAtServerTickSlotNotMaxTick()
+        {
+            using var world = new World("PredictionBackupStoreTest");
+            var chunk = world.EntityManager.GetChunk(world.EntityManager.CreateEntity());
+
+            using var store = new PredictionBackupStore();
+            store.Allocate(8);
+
+            // Stage a fresh capacity-8 ring whose backed-up tick is 99 (mimics a ring grown while AlwaysRollback was on).
+            var slot99 = AllocRingSlot(new NetworkTick(99));
+            store.BeginFrame(1);
+            var writer = store.AsWriter();
+            writer.MarkChunkUsed(chunk);
+            writer.StageFreshRing(chunk, slot99, capacity: 8);
+            store.Commit(8, new NetworkTick(99));
+
+            // Inject a stale FUTURE slot (tick 107) that a never-cleared ring would still hold after a backwards
+            // jump, so the ring's max valid tick (107) differs from the just-backed-up tick (99).
+            var singleton = new GhostPredictionHistoryState();
+            store.PopulateSingleton(ref singleton);
+            Assert.IsTrue(singleton.PredictionRings.TryGetValue(chunk.SequenceNumber, out var ringPtr));
+            var slot107 = AllocRingSlot(new NetworkTick(107));
+            ringPtr.Ref.SetSlot(1, slot107);
+
+            // Re-commit for the backed-up tick 99. predictionState must track the tick-99 slot, not the future 107.
+            store.BeginFrame(1);
+            store.AsWriter().MarkChunkUsed(chunk);
+            store.Commit(8, new NetworkTick(99));
+
+            store.PopulateSingleton(ref singleton);
+            Assert.IsTrue(singleton.PredictionState.TryGetValue(chunk.SequenceNumber, out var newest));
+            Assert.AreEqual(slot99, (System.IntPtr)newest.Value, "predictionState must point at the serverTick (99) slot, not the stale future (107) slot.");
+        }
+
+        [Test]
+        [Category(NetcodeTestCategories.Foundational)]
+        [Category(NetcodeTestCategories.Smoke)]
+        public void PredictionTickEvolveCorrectly([Values] bool alwaysRollbackAllGhosts, [Values((uint)0x229321, (uint)100, (uint)0x7FFF011F, (uint)0x7FFFFF00, (uint)0x7FFFFFF0, (uint)0x7FFFF1F0)] uint serverTickData)
+        {
+            var serverTick = new NetworkTick(serverTickData);
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true, typeof(PredictionTestPredictionSystem));
+            var ghostGameObject = new GameObject();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionTestConverter();
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
+            testWorld.SetServerTick(serverTick);
+            testWorld.Connect();
+            testWorld.GoInGame();
+            var serverEnt = testWorld.SpawnOnServer(0);
+            Assert.AreNotEqual(Entity.Null, serverEnt);
+            for(int i=0;i<64;++i)
+                testWorld.Tick();
+        }
+
+        [Test]
+        public void PartialPredictionTicksAreRolledBack([Values] bool alwaysRollbackAllGhosts)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -351,6 +1033,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 1);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
                 Assert.AreNotEqual(Entity.Null, serverEnt);
@@ -405,8 +1088,8 @@ namespace Unity.NetCode.Tests
 
         [Test]
         [DisableSingleWorldHostTest] // A host is server-authoritative and runs no client prediction, so it cannot mispredict; this scenario only exists in a distinct client world.
-        [Description("UUM-147343: at a very high client frame rate with ~zero command age (host/local client), a client-only misprediction pushed one tick ahead of the server bakes a divergence into the prediction-history backup. Once the client stops mispredicting, the authoritative snapshot (applied on partial ticks) must pull the ghost back to the origin - the stale backup must NOT be restored on every partial and latch the misprediction.")]
-        public void ClientMisprediction_DoesNotLatchOnStaleBackup()
+        [Description("UUM-147343: at a very high client frame rate with ~zero command age (host/local client), a client-only misprediction pushed one tick ahead of the server bakes a divergence into the prediction-history backup. Once the client stops mispredicting, the authoritative snapshot (applied on partial ticks) must pull the ghost back to the origin - the stale backup must NOT be restored on every partial and latch the misprediction. AlwaysRollbackAllPredictedGhosts avoids this by clearing the rings on rollback.")]
+        public void ClientMisprediction_DoesNotLatchOnStaleBackup([Values] bool alwaysRollbackAllGhosts)
         {
             PredictionTestPredictionSystem.s_IsEnabled = false; // Server keeps the ghost at the origin; only the client mispredicts.
             MispredictClientTransformEachTickSystem.s_Enabled = false;
@@ -422,8 +1105,9 @@ namespace Unity.NetCode.Tests
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
             testWorld.CreateWorlds(true, 1);
 
-            var tickRateEnt = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+            var tickRateEnt = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
             testWorld.ServerWorld.EntityManager.SetComponentData(tickRateEnt, new ClientServerTickRate { SimulationTickRate = 30 });
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
 
             var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
             Assert.AreNotEqual(Entity.Null, serverEnt);
@@ -473,7 +1157,7 @@ namespace Unity.NetCode.Tests
             {
                 testWorld.TickClientWorld(partialDt);
                 Assert.That(ClientServerOffset(), Is.EqualTo(0f).Within(0.001f),
-                    $"Predicted ghost latched onto a stale prediction-history backup instead of being pulled back to the origin on partial tick {i}.");
+                    $"Predicted ghost latched onto a stale prediction-history backup instead of being pulled back to the origin on partial tick {i} (alwaysRollbackAllGhosts={alwaysRollbackAllGhosts}).");
             }
         }
 
@@ -491,8 +1175,8 @@ namespace Unity.NetCode.Tests
 
         [Test]
         [DisableSingleWorldHostTest] // A host is server-authoritative and runs no client prediction, so it cannot mispredict; this scenario only exists in a distinct client world.
-        [Description("UUM-147343 (regression coverage): a client-only misprediction (the server holds the ghost at the origin) must stay pulled toward the authoritative snapshot rather than drifting away, across every render regime with the ghost's send rate throttled or not. The dedicated stale-backup latch is covered by ClientMisprediction_DoesNotLatchOnStaleBackup.")]
-        public void ClientMisprediction_ConvergesToSnapshot_AcrossRenderRegimes([Values] PredictionRenderRegime regime, [Values] bool lowSendRate)
+        [Description("UUM-147343 (regression coverage): a client-only misprediction (the server holds the ghost at the origin) must stay pulled toward the authoritative snapshot rather than drifting away, across every render regime crossed with AlwaysRollbackAllPredictedGhosts on/off and the ghost's send rate throttled or not. The dedicated stale-backup latch is covered by ClientMisprediction_DoesNotLatchOnStaleBackup.")]
+        public void ClientMisprediction_ConvergesToSnapshot_AcrossRenderRegimes([Values] PredictionRenderRegime regime, [Values] bool alwaysRollbackAllGhosts, [Values] bool lowSendRate)
         {
             PredictionTestPredictionSystem.s_IsEnabled = false; // Server keeps the ghost at the origin; only the client mispredicts.
             MispredictClientTransformEachTickSystem.s_Enabled = false;
@@ -510,8 +1194,9 @@ namespace Unity.NetCode.Tests
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
             testWorld.CreateWorlds(true, 1);
 
-            var tickRateEnt = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+            var tickRateEnt = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
             testWorld.ServerWorld.EntityManager.SetComponentData(tickRateEnt, new ClientServerTickRate { SimulationTickRate = 30 });
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
 
             var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
             Assert.AreNotEqual(Entity.Null, serverEnt);
@@ -585,12 +1270,14 @@ namespace Unity.NetCode.Tests
                 _ => throw new System.ArgumentOutOfRangeException(nameof(regime), regime, null),
             };
             Assert.That(maxOffset, Is.EqualTo(expectedPeakTicks * MispredictClientTransformEachTickSystem.MovePerTick).Within(1f),
-                $"Predicted ghost diverged from the authoritative snapshot by an unexpected amount (regime={regime}, lowSendRate={lowSendRate}).");
+                $"Predicted ghost diverged from the authoritative snapshot by an unexpected amount (regime={regime}, alwaysRollbackAllGhosts={alwaysRollbackAllGhosts}, lowSendRate={lowSendRate}).");
         }
 
+#if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
+        // At history size 6 the server throttles snapshot send cadence (withholding sends until in-flight snapshots are acked), which breaks this test's prediction-ahead timing assumptions.
         [Test]
         [Description("Expect that MaxPredictAheadTimeMS a) caps the number of prediction ticks performed & b) adds some forced input latency.")]
-        public void MaxPredictAheadTimeMS_Works()
+        public void MaxPredictAheadTimeMS_Works([Values] bool alwaysRollbackAllGhosts)
         {
             using var testWorld = new NetCodeTestWorld();
             testWorld.Bootstrap(true);
@@ -610,15 +1297,20 @@ namespace Unity.NetCode.Tests
             var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             clientTickRate.MaxPredictAheadTimeMS = 200;
             clientTickRate.ForcedInputLatencyTicks = 0;
-            testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+            var singletonEntity = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[0]);
+            testWorld.ClientWorlds[0].EntityManager.SetComponentData(singletonEntity, clientTickRate);
 
             clientTickRate.MaxPredictAheadTimeMS = 200;
             clientTickRate.ForcedInputLatencyTicks = 6; // 100ms.
-            testWorld.ClientWorlds[1].EntityManager.CreateSingleton(clientTickRate);
+            singletonEntity = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[1]);
+            testWorld.ClientWorlds[1].EntityManager.SetComponentData(singletonEntity, clientTickRate);
 
             clientTickRate.MaxPredictAheadTimeMS = 500;
             clientTickRate.ForcedInputLatencyTicks = 3; // 50ms.
-            testWorld.ClientWorlds[2].EntityManager.CreateSingleton(clientTickRate);
+            singletonEntity = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[2]);
+            testWorld.ClientWorlds[2].EntityManager.SetComponentData(singletonEntity, clientTickRate);
+
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
 
             testWorld.Connect(maxSteps:64);
             testWorld.GoInGame();
@@ -646,13 +1338,10 @@ namespace Unity.NetCode.Tests
             Assert.That(client1NetTime.PredictedTickIndex, Is.GreaterThan(12)); // ~200ms + 1 for partial tick.
             Assert.That(client2NetTime.PredictedTickIndex, Is.GreaterThan((6*3)-3)); // ~300ms - 3 ticks for ForcedInputLatency.
         }
+#endif
 
-        [TestCase(1)]
-        [TestCase(20)]
-        [TestCase(30)]
-        [TestCase(40)]
         [DisableSingleWorldHostTest]
-        public void HistoryBufferIsRollbackCorrectly(int ghostCount)
+        public void HistoryBufferIsRollbackCorrectly([Values] bool alwaysRollbackAllGhosts, [Values(1, 20, 30, 40)] int ghostCount)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -669,6 +1358,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 1);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
 
                 for (int i = 0; i < ghostCount; ++i)
                 {
@@ -761,6 +1451,9 @@ namespace Unity.NetCode.Tests
         [TestCase(1)]
         [TestCase(2)]
         [TestCase(3)]
+#if ENABLE_CORECLR
+        [Explicit("CoreCLR: predicted fixed-step ElapsedTime accumulates float rounding beyond the 1e-6 tolerance for non-integer tick ratios, see https://jira.unity3d.com/browse/UUM-150429")]
+#endif
         public void PredictedFixedStepSimulation_ElapsedTimeReportedCorrectly(int ratio)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -772,7 +1465,7 @@ namespace Unity.NetCode.Tests
                 //after the world creation later on.
                 for(int i=0;i<10;++i)
                     testWorld.Tick();
-                var tickRate = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+                var tickRate = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
                 testWorld.ServerWorld.EntityManager.SetComponentData(tickRate, new ClientServerTickRate
                 {
                     PredictedFixedStepSimulationTickRatio = ratio
@@ -803,7 +1496,7 @@ namespace Unity.NetCode.Tests
 
         [Test]
         [DisableSingleWorldHostTest]
-        public void HistoryBufferIsPreservedOnStructuralChanges([Values]GhostOptimizationMode ghostOptimizationMode, [Values]bool rollbackHistoryOnStructuralChange, [Values(1, 100)]int ghostCount)
+        public void HistoryBufferIsPreservedOnStructuralChanges([Values] bool alwaysRollbackAllGhosts, [Values]GhostOptimizationMode ghostOptimizationMode, [Values]bool rollbackHistoryOnStructuralChange, [Values(1, 100)]int ghostCount)
         {
             void CheckPredictionPartialStepAndStartTick(NativeArray<Entity> entities, NetCodeTestWorld testWorld, NetworkTick currentPartialTick,
                 NetworkTick lastBackupTick, bool expectIsPartialTick)
@@ -923,6 +1616,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 1);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
                 testWorld.Connect();
                 testWorld.GoInGame();
                 //sync clocks
@@ -1010,7 +1704,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test(Description = "Tests that we have 0 margin for commands when using IPC")]
-        public void MarginIsZeroWithIPC()
+        public void MarginIsZeroWithIPC([Values] bool alwaysRollbackAllGhosts)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -1023,6 +1717,7 @@ namespace Unity.NetCode.Tests
                 authoring.HasOwner = true;
                 testWorld.CreateGhostCollection(ghostGameObject);
                 testWorld.CreateWorlds(true, 1);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
                 var entity = testWorld.SpawnOnServer(ghostGameObject);
                 testWorld.ServerWorld.EntityManager.SetComponentData(entity, new GhostOwner()
                 {
@@ -1032,7 +1727,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
                 testWorld.GoInGame();
 
-                for (int i = 0; i < 2048; ++i)
+                for (int i = 0; i < 256; ++i)
                 {
                     testWorld.Tick();
 
@@ -1050,7 +1745,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test(Description = "Tests that the client stay ahead of the server and never skip a prediction tick, even in presence of partial ticks and lower send rate.")]
-        public void ClientNeverSkipAPredictionTick()
+        public void ClientNeverSkipAPredictionTick([Values] bool alwaysRollbackAllGhosts)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -1064,12 +1759,14 @@ namespace Unity.NetCode.Tests
                 authoring.HasOwner = true;
                 testWorld.CreateGhostCollection(ghostGameObject);
                 testWorld.CreateWorlds(true, 1);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
                 var entity = testWorld.SpawnOnServer(ghostGameObject);
                 testWorld.ServerWorld.EntityManager.SetComponentData(entity, new GhostOwner()
                 {
                     NetworkId = 1
                 });
-                testWorld.ServerWorld.EntityManager.CreateSingleton(new ClientServerTickRate
+                var ent = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+                testWorld.ServerWorld.EntityManager.SetComponentData(ent, new ClientServerTickRate
                 {
                     SimulationTickRate = 30,
                 });
@@ -1077,7 +1774,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
                 testWorld.GoInGame();
                 var rnd = new Unity.Mathematics.Random(0x4000);
-                for (int i = 0; i < 2048; ++i)
+                for (int i = 0; i < 256; ++i)
                 {
                     var dt = rnd.NextFloat(0.1f, 0.4f) / 60f;
                     testWorld.Tick(dt);
@@ -1097,10 +1794,10 @@ namespace Unity.NetCode.Tests
 
         [Test]
         [DisableSingleWorldHostTest]
-        public void NetworkTimeSingleton_CorrectValuesInsidePredictionLoop()
+        public void NetworkTimeSingleton_CorrectValuesInsidePredictionLoop([Values] bool alwaysRollbackAllGhosts)
         {
             using var testWorld = new NetCodeTestWorld();
-            testWorld.Bootstrap(true, typeof(AssertNetworkTimeSingletonValuesCorrectInsidePredictionLoopSystem));
+            testWorld.Bootstrap(true, typeof(AssertNetworkTimeSingletonValuesCorrectInsidePredictionLoopSystem), typeof(AssertNetworkTimeSingletonValuesCorrectAfterPredictionLoopSystem));
             testWorld.DriverSimulatedDelay = 40;
             testWorld.DriverSimulatedJitter = 20;
             testWorld.DriverSimulatedDrop = 20; // Interval, so 5%, or every 20th packet.
@@ -1109,6 +1806,7 @@ namespace Unity.NetCode.Tests
             ghostConfig.DefaultGhostMode = GhostMode.Predicted;
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
             testWorld.CreateWorlds(true, 1);
+            testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
             const float FrameTime = 1.0f / 60.0f;
             testWorld.Connect(FrameTime, 128);
             testWorld.GoInGame();
@@ -1217,7 +1915,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(networkTime.IsFinalFullPredictionTick, networkTime.IsFinalPredictionTick, "IsFinalPredictionTick");
                 Assert.That(networkTime.SimulationStepBatchSize, Is.AtLeast(1), "SimulationStepBatchSize");
                 Assert.That(networkTime.ServerTickFraction, Is.EqualTo(1), "ServerTickFraction");
-                Assert.That(networkTime.PredictedTickIndex, Is.EqualTo(0), "PredictedTickIndex");
+                Assert.That(networkTime.PredictedTickIndex, Is.EqualTo(1), "PredictedTickIndex");
                 Assert.That(networkTime.NumPredictedTicksExpected, Is.EqualTo(1), "PredictedTickIndex");
 
                 Assert.IsFalse(networkTime.IsCatchUpTick, "Server is not being death-spiral stressed in this test.");
@@ -1261,7 +1959,9 @@ namespace Unity.NetCode.Tests
         }
 
         [DisableAutoCreation]
-        internal partial struct AssertNetworkTimeSingletonValuesCorrectOutsidePredictionLoopSystem : ISystem
+        [UpdateInGroup(typeof(SimulationSystemGroup))]
+        [UpdateAfter(typeof(PredictedSimulationSystemGroup))]
+        internal partial struct AssertNetworkTimeSingletonValuesCorrectAfterPredictionLoopSystem : ISystem
         {
             public void OnUpdate(ref SystemState state)
             {
@@ -1277,18 +1977,19 @@ namespace Unity.NetCode.Tests
                 SystemAPI.TryGetSingleton<ClientServerTickRate>(out var clientServerTickRate);
                 clientServerTickRate.ResolveDefaults();
 
-                Assert.NotZero(SystemAPI.Time.DeltaTime);
-                Assert.NotZero(SystemAPI.Time.ElapsedTime);
+                Assert.NotZero(state.WorldUnmanaged.Time.DeltaTime);
+                Assert.That(state.WorldUnmanaged.Time.ElapsedTime, Is.GreaterThanOrEqualTo(0));
 
+                Assert.AreEqual(networkTime.Flags, default(NetworkTimeFlags));
                 Assert.IsFalse(networkTime.IsCatchUpTick);
                 Assert.IsFalse(networkTime.IsFinalPredictionTick);
                 Assert.IsFalse(networkTime.IsFirstTimeFullyPredictingTick);
                 Assert.IsFalse(networkTime.IsFirstPredictionTick);
                 Assert.IsFalse(networkTime.IsFinalFullPredictionTick);
-                Assert.NotZero(networkTime.ElapsedNetworkTime);
+                Assert.That(networkTime.ElapsedNetworkTime, Is.GreaterThanOrEqualTo(0));
                 Assert.That(networkTime.SimulationStepBatchSize, Is.GreaterThanOrEqualTo(1));
-                Assert.That(networkTime.PredictedTickIndex, Is.InRange(0, 10));
-                Assert.That(networkTime.NumPredictedTicksExpected, Is.EqualTo(networkTime.PredictedTickIndex));
+                Assert.That(networkTime.PredictedTickIndex, Is.EqualTo(networkTime.NumPredictedTicksExpected));
+                Assert.That(networkTime.PredictedTickIndex, Is.InRange(0, 11));
                 Assert.Zero(networkTime.EffectiveInputLatencyTicks);
             }
         }

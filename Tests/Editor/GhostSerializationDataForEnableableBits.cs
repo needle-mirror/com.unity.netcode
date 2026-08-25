@@ -21,6 +21,11 @@ namespace Unity.NetCode.Tests
 
         // TODO - Tests for ClientOnlyVariant.
 
+        public struct TestGhost : IComponentData
+        {
+
+        }
+
         GhostTypes _type;
         private EnabledBitBakedValue _enabledBitBakedValue;
         public GhostTypeConverter(GhostTypes ghostType, EnabledBitBakedValue enabledBitBakedValue)
@@ -31,6 +36,8 @@ namespace Unity.NetCode.Tests
         public void Bake(GameObject gameObject, IBaker baker)
         {
             var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<TestGhost>(entity);
+
             switch (_type)
             {
                 case GhostTypes.EnableableComponents:

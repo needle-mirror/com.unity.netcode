@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
-using System.Linq;
 using System.Reflection;
+using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
@@ -51,6 +51,7 @@ namespace Unity.NetCode.Generators
                 SupportsQuantization = entry.Quantized,
                 Composite = entry.Composite,
                 SupportCommand = entry.SupportCommand,
+                IsOptInTemplate = entry.IsOptIn,
                 TemplatePath = entry.Template,
                 TemplateOverridePath = entry.TemplateOverride
             };
@@ -64,10 +65,22 @@ namespace Unity.NetCode.Generators
 
         public string FormatAllKnownSubTypes()
         {
-            var aggregate = string.Join(",", TypeTemplates
-                .Where(x => x.Key.Attribute.subtype != 0)
-                .Select(x => $"[{x.Key.Attribute.subtype}: {x.Key} at {x.Value.TemplatePath}]"));
+            var aggregate = string.Join(",", AllKnownSubTypes());
             return $"[{TypeTemplates.Count}:{aggregate}]";
+        }
+
+        public List<string> AllKnownSubTypes()
+        {
+            var res = new List<string>();
+            foreach (var x in TypeTemplates)
+            {
+                if (x.Key.Attribute.subtype != 0)
+                {
+                    res.Add($"[{x.Key.Attribute.subtype}: {x.Key} at {x.Value.TemplatePath}]");
+                }
+            }
+
+            return res;
         }
 
         /// <summary>
@@ -131,11 +144,17 @@ namespace Unity.NetCode.Generators
             // Ensure all of the `TypeRegistryEntry`s are linked to additional files templates
             foreach (var typeRegistryEntry in typeRegistryEntries)
             {
+                var additionalFilePaths = new List<string>();
+                foreach (var additionalFile in additionalFiles)
+                {
+                    additionalFilePaths.Add(additionalFile.Path);
+                }
+
                 if (!string.IsNullOrEmpty(typeRegistryEntry.Template))
                 {
                     if(!templateIds.TryGetValue(typeRegistryEntry.Template, out var file))
                     {
-                        diagnostic.LogError($"Unable to find the `Template` associated with '{typeRegistryEntry}'. There are {additionalFiles.Length} additionalFiles:[{string.Join(",", additionalFiles.Select(x => x.Path))}]!");
+                        diagnostic.LogError($"Unable to find the `Template` associated with '{typeRegistryEntry}'. There are {additionalFiles.Length} additionalFiles:[{string.Join(",", additionalFilePaths)}]!");
                     }
                     else
                     {
@@ -148,7 +167,7 @@ namespace Unity.NetCode.Generators
                 {
                     if(!templateIds.TryGetValue(typeRegistryEntry.TemplateOverride, out var file))
                     {
-                        diagnostic.LogError($"Unable to find the `TemplateOverride` associated with '{typeRegistryEntry}'. There are {additionalFiles.Length} additionalFiles:[{string.Join(",", additionalFiles.Select(x => x.Path))}]!");
+                        diagnostic.LogError($"Unable to find the `TemplateOverride` associated with '{typeRegistryEntry}'. There are {additionalFiles.Length} additionalFiles:[{string.Join(",", additionalFilePaths)}]!");
                     }
                     else
                     {
@@ -164,7 +183,16 @@ namespace Unity.NetCode.Generators
 
             string GetKnownCustomUserTemplates()
             {
-                return string.Join(",", typeRegistryEntries.Select(x => $"{x.Type}[{x.Template}]"));
+                var sb = new StringBuilder();
+                foreach (var x in typeRegistryEntries)
+                {
+                    if (sb.Length > 0)
+                    {
+                        sb.Append(",");
+                    }
+                    sb.Append($"{x.Type}[{x.Template}]");
+                }
+                return sb.ToString();
             }
         }
 

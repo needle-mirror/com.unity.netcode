@@ -1,4 +1,3 @@
-#if UNITY_EDITOR
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -14,7 +13,7 @@ namespace Unity.NetCode.Tests
         {
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("GatherInput", autoRegister: false).GetComponent<GhostAdapter>();
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("GatherInput", autoRegister: false).GetComponent<GhostObject>();
             prefab.HasOwner = true;
             prefab.SupportedGhostModes = testInterpolated ? GhostModeMask.Interpolated : GhostModeMask.Predicted;
             prefab.SupportAutoCommandTarget = true;
@@ -27,14 +26,15 @@ namespace Unity.NetCode.Tests
             await testWorld.TickMultipleAsync(32); // stabilize ticks
             var serverGo = Object.Instantiate(prefab).gameObject;
             NetworkId clientId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
-            serverGo.GetComponent<GhostAdapter>().OwnerNetworkId = clientId;
+            serverGo.GetComponent<GhostObject>().OwnerNetworkId = clientId;
+
 
             NetworkId hostId = NetworkId.Invalid;
             if (NetCodeTestWorld.OverrideUseSingleWorldHost)
             {
                 hostId = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId), typeof(LocalConnection)).GetSingleton<NetworkId>();
                 var singleWorldOwnedGhost = Object.Instantiate(prefab).gameObject;
-                singleWorldOwnedGhost.GetComponent<GhostAdapter>().OwnerNetworkId = hostId;
+                singleWorldOwnedGhost.GetComponent<GhostObject>().OwnerNetworkId = hostId;
             }
 
             // Wait for the client side spawn
@@ -75,7 +75,7 @@ namespace Unity.NetCode.Tests
         {
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("PredictedCube", autoRegister: false).GetComponent<GhostAdapter>();
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("PredictedCube", autoRegister: false).GetComponent<GhostObject>();
             prefab.SupportedGhostModes = GhostModeMask.Predicted;
             prefab.HasOwner = true;
             prefab.SupportAutoCommandTarget = true;
@@ -91,7 +91,7 @@ namespace Unity.NetCode.Tests
             var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
             Assert.AreEqual(4, clientTick.TicksSince(serverTick));
             var serverGo = Object.Instantiate(prefab);
-            serverGo.GetComponent<GhostAdapter>().OwnerNetworkId = new NetworkId() { Value = 1 };
+            serverGo.GetComponent<GhostObject>().OwnerNetworkId = new NetworkId() { Value = 1 };
             //do some ticks and yield to start all the GhostBehaviours.
             for (int i = 0; i < 16; ++i)
             {
@@ -106,7 +106,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
 
             await testWorld.SetupGameObjectTest(clientCount: 2); // one client that owns the ghost, the other that doesn't
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("PredictedCube", autoRegister: false).GetComponent<GhostAdapter>();
+            var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("PredictedCube", autoRegister: false).GetComponent<GhostObject>();
             prefab.HasOwner = true;
             prefab.DefaultGhostMode = GhostMode.Predicted; // both client 0 and 1 predict the ghost, but since only client 0 owns it, only it has input authority
             prefab.SupportAutoCommandTarget = true;
@@ -132,7 +132,7 @@ namespace Unity.NetCode.Tests
             int validInputCount = 0;
             client0Ghost.OnInputEvent += o =>
             {
-                Assert.AreEqual(testWorld.ClientWorlds[0], o.GetComponent<GhostAdapter>().World);
+                Assert.AreEqual(testWorld.ClientWorlds[0], o.GetComponent<GhostObject>().World);
                 validInputCount += 1;
             };
 
@@ -160,4 +160,3 @@ namespace Unity.NetCode.Tests
         }
     }
 }
-#endif

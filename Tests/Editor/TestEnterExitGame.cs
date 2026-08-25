@@ -16,7 +16,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public unsafe void PrespawnSystemResetWhenExitGame()
         {
             const int numClients = 2;
@@ -138,7 +137,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(0, testWorld.ServerWorld.EntityManager.GetComponentData<SpawnedGhostEntityMap>(sendGhostMapSingleton).Value.Count(), "server ghost map must be empty");
                 Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<SubScenePrespawnBaselineResolved>(testWorld.ServerWorld));
                 Assert.AreEqual(0, testWorld.ServerWorld.EntityManager.GetComponentData<SpawnedGhostEntityMap>(sendGhostMapSingleton).ServerDestroyedPrespawns.Length, "server prespawn despawn list must be empty");
-                var serverConnections = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>()).ToEntityArray(Allocator.Temp);
+                var serverConnections = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.ReadOnly<PrespawnSectionAck>()).ToEntityArray(Allocator.Temp);
                 Assert.AreEqual(0, testWorld.ServerWorld.EntityManager.GetBuffer<PrespawnSectionAck>(serverConnections[0]).Length);
                 Assert.AreEqual(0, testWorld.ServerWorld.EntityManager.GetBuffer<PrespawnSectionAck>(serverConnections[1]).Length);
                 //Re-enter the game and check that all the objects are received again. Same tick counts too

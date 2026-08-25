@@ -3,6 +3,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Burst;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
@@ -336,6 +337,7 @@ namespace Unity.NetCode
             var netTimeStatEntity = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(types));
             FixedString64Bytes singletonName = "NetworkTimeSystemData";
             state.EntityManager.SetName(netTimeStatEntity, singletonName);
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, netTimeStatEntity);
             state.RequireForUpdate<NetworkSnapshotAck>();
         }
 
@@ -404,7 +406,6 @@ namespace Unity.NetCode
             // We can probably force the InterpolationFrames to be constants but we preferred to have all the code path
             // shared, instead of preferential logic, as much as possible.
             // This can be a further optimasation that can be added later.
-
             var driverType = SystemAPI.GetSingleton<NetworkStreamDriver>().DriverStore.GetDriverType(NetworkDriverStore.FirstDriverId);
             if (driverType == TransportType.IPC)
             {

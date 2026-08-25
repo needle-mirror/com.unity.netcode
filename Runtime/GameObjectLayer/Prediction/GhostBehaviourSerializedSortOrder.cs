@@ -1,5 +1,3 @@
-#if !UNITY_DISABLE_MANAGED_COMPONENTS
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,9 +8,7 @@ using UnityEngine;
 using UnityEngine.Assertions;
 using Debug = UnityEngine.Debug;
 #if UNITY_EDITOR
-using System.IO;
 using UnityEditor.Build.Reporting;
-using System.Linq;
 using UnityEditor.Compilation;
 using System.Text;
 using UnityEditor;
@@ -44,7 +40,6 @@ namespace Unity.NetCode
 
 #if UNITY_EDITOR
         private static ProfilerMarker s_IniProfiletMarker = new ProfilerMarker("Netcode-InitializeSortOrderFromScriptSortOrder");
-
 #endif
         //This must be loaded before scene load, otherwise the runtime stuff aren't ready yet. Netcode initialize this lazily at
         //runtime in player build
@@ -76,7 +71,6 @@ namespace Unity.NetCode
                     assemblyNames.Add(assembly.name);
                 }
             }
-
 
             foreach (var monoScript in MonoImporter.GetAllRuntimeMonoScripts())
             {
@@ -160,7 +154,7 @@ namespace Unity.NetCode
                     sortOrder.HasInputUpdate = HasMethod(nameof(GhostBehaviour.GatherInput), new Type[] { typeof(float) });
                 }
                 {
-                    sortOrder.HasNetworkedFixedUpdate = HasMethod("TODO_NetworkedFixedUpdate", new Type[] { typeof(float) });
+                    sortOrder.HasNetworkedFixedUpdate = HasMethod(nameof(GhostBehaviour.PredictedPhysicsUpdate), new Type[] { typeof(float) });
                 }
                 {
                     sortOrder.HasStart = HasMethod("Start", new Type[] { }, includeNonPublic: true);
@@ -264,5 +258,3 @@ namespace Unity.NetCode
     }
 #endif
 }
-#endif
-#endif

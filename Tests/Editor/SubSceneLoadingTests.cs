@@ -50,15 +50,19 @@ namespace Unity.NetCode.Tests
             RequireForUpdate<SubScenePrespawnBaselineResolved>();
         }
 
+        [WithAll(typeof(PreSpawnedGhostIndex))]
+        partial struct UpdateTransformJob : IJobEntity
+        {
+            public float DeltaTime;
+            public void Execute( ref LocalTransform transform )
+            {
+                transform.Position = new float3(transform.Position.x, transform.Position.y + DeltaTime*60.0f, transform.Position.z);
+            }
+        }
+
         protected override void OnUpdate()
         {
-            float deltaTime = SystemAPI.Time.DeltaTime;
-            Entities
-                .WithAll<PreSpawnedGhostIndex>()
-                .ForEach((ref LocalTransform transform) =>
-                {
-                    transform.Position = new float3(transform.Position.x, transform.Position.y + deltaTime*60.0f, transform.Position.z);
-                }).Schedule();
+            new UpdateTransformJob{DeltaTime=SystemAPI.Time.DeltaTime}.Schedule();
         }
     }
 
@@ -642,6 +646,142 @@ namespace Unity.NetCode.Tests
 
                 LogAssert.Expect(LogType.Warning, new Regex(@"Ack desync at(.*)sent baseline\(s\) we do not have!"));
                 LogAssert.Expect(LogType.Warning, new Regex(@"NetworkConnection(.*) reported recoverable snapshot read errors"));
+            }
+        }
+
+        /// <summary>
+        /// Create two subscenes and two ghost prefabs. One prefab is shared, and referenced by both subscenes.
+        /// The other is only placed in one subscene. Each prefab instance is spawned (so the shared one spawned twice)
+        /// and then we'll cycle the subscenes (unload and load again) followed by spawning again. The ghosts need
+        /// to be instantiated/spawned to make all the routines for prefab handling execute fully.
+        /// </summary>
+        [Test]
+        public void SharedPrefabSpawnedFromMultipleSubscenes([Values] bool unloadSequentialOrdering)
+        {
+            var sharedPrefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "Shared", typeof(GhostAuthoringComponent),
+                typeof(SomeDataAuthoring));
+            var prefab0 = SubSceneHelper.CreateSimplePrefab(ScenePath, "Prefab0", typeof(GhostAuthoringComponent),
+                typeof(SomeDataElementAuthoring));
+
+            // Create a spawner with a reference to the ghost prefabs (optionally the non-shared prefab)
+            GameObject CreateSpawner(bool includeSecondPrefab)
+            {
+                var go = new GameObject("SharedGhostSpawner");
+                var authoring = go.AddComponent<GhostSpawnerAuthoring>();
+                authoring.Prefab = sharedPrefab;
+                if (includeSecondPrefab)
+                    authoring.SecondPrefab = prefab0;
+                return go;
+            }
+
+            var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "SharedPrefabsTest");
+            var sub0 = SubSceneHelper.CreateSubSceneWithGameObjects(parentScene, ScenePath, "SubScene0", new[]
+            {
+                CreateSpawner(true)
+            });
+            var sub1 = SubSceneHelper.CreateSubSceneWithGameObjects(parentScene, ScenePath, "SubScene1", new[]
+            {
+                CreateSpawner(false)
+            });
+
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, 1);
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld, sub0, sub1);
+                testWorld.Connect();
+                testWorld.GoInGame();
+                // Run some frames so the subscenes are initialized and the referenced prefabs registered in the ghost collection.
+                testWorld.TickMultiple(4);
+
+                var serverEm = testWorld.ServerWorld.EntityManager;
+                using var spawnerQuery = serverEm.CreateEntityQuery(ComponentType.ReadOnly<SubSceneGhostSpawner>());
+                using var spawners = spawnerQuery.ToComponentDataArray<SubSceneGhostSpawner>(Allocator.Temp);
+                Assert.AreEqual(2, spawners.Length, "Expected one spawner per subscene");
+                var instances = new List<Entity>();
+                foreach (var spawner in spawners)
+                {
+                    instances.Add(serverEm.Instantiate(spawner.Prefab));
+                    if (spawner.SecondPrefab != Entity.Null)
+                        instances.Add(serverEm.Instantiate(spawner.SecondPrefab));
+                }
+
+                // Run some frames so the ghosts are assigned an id and replicated to the client.
+                testWorld.TickMultiple(4);
+                foreach (var instance in instances)
+                    Assert.IsTrue(serverEm.Exists(instance), "The runtime spawned ghost should exist");
+
+                // Unload the subscenes, which deletes the referenced ghost prefabs and the instances spawned from them.
+                // Do them one at a time so each one gets handled explicitly by the ghost collection system
+                if (unloadSequentialOrdering)
+                {
+                    // Unload scenes one at a time in load order
+                    SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, sub0.SceneGUID,
+                        SceneSystem.UnloadParameters.DestroyMetaEntities);
+                    testWorld.Tick();
+                    SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, sub1.SceneGUID,
+                        SceneSystem.UnloadParameters.DestroyMetaEntities);
+                    testWorld.Tick();
+                    SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged, sub0.SceneGUID,
+                        SceneSystem.UnloadParameters.DestroyMetaEntities);
+                    testWorld.Tick();
+                    SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged, sub1.SceneGUID,
+                        SceneSystem.UnloadParameters.DestroyMetaEntities);
+                    testWorld.TickMultiple(2);
+                }
+                else
+                {
+                    // Unload scenes together and in reversed order wrt loading
+                    SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, sub1.SceneGUID,
+                        SceneSystem.UnloadParameters.DestroyMetaEntities);
+                    SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, sub0.SceneGUID,
+                        SceneSystem.UnloadParameters.DestroyMetaEntities);
+                    testWorld.TickMultiple(2);
+                    SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged, sub1.SceneGUID,
+                        SceneSystem.UnloadParameters.DestroyMetaEntities);
+                    SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged, sub0.SceneGUID,
+                        SceneSystem.UnloadParameters.DestroyMetaEntities);
+                    testWorld.TickMultiple(2);
+                }
+
+                // Validate the all the GhostPrefab references are now Entity.Null everywhere and not left dangling with a stale entity ID
+                var clientCollectionEntity = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ClientWorlds[0]);
+                var clientCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefab>(clientCollectionEntity);
+                for (int i = 0; i < clientCollection.Length; ++i)
+                    Assert.AreEqual(Entity.Null, clientCollection[i].GhostPrefab, $"GhostCollectionPrefab[{i}].GhostPrefab should be Entity.Null");
+                var serverCollectionEntity = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
+                var serverCollection = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionPrefab>(serverCollectionEntity);
+                for (int i = 0; i < serverCollection.Length; ++i)
+                    Assert.AreEqual(Entity.Null, serverCollection[i].GhostPrefab, $"GhostCollectionPrefab[{i}].GhostPrefab should be Entity.Null");
+
+                foreach (var instance in instances)
+                    Assert.IsFalse(serverEm.Exists(instance), "The runtime spawned ghost should be destroyed when its subscene is unloaded");
+
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld, sub0, sub1);
+                testWorld.TickMultiple(2);
+
+                var newSpawners = spawnerQuery.ToComponentDataArray<SubSceneGhostSpawner>(Allocator.Temp);
+                Assert.AreEqual(2, newSpawners.Length);
+                foreach (var spawner in newSpawners)
+                {
+                    serverEm.Instantiate(spawner.Prefab);
+                    if (spawner.SecondPrefab != Entity.Null)
+                        serverEm.Instantiate(spawner.SecondPrefab);
+                }
+
+                // Ensure nothing went wrong in finding the entity prefabs and spawning them on the client (no exceptions)
+                testWorld.TickMultiple(4);
+
+                // Verify the ghost collection on the server has up to date ghost prefab entities (client side is covered by the spawns)
+                var collectionEntity = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
+                var collection = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionPrefab>(collectionEntity);
+                for (int i = 0; i < collection.Length; ++i)
+                {
+                    var prefab = collection[i].GhostPrefab;
+                    if (prefab != Entity.Null)
+                        Assert.IsTrue(testWorld.ServerWorld.EntityManager.Exists(prefab),
+                            $"GhostCollectionPrefab[{i}] references a stale ghost prefab entity");
+                }
             }
         }
     }

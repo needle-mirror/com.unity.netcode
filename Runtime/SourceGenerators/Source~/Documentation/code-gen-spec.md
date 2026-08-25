@@ -796,14 +796,14 @@ the `ORIGINAL_TYPE` type and should not be used for other purposes.
 
 ### REQUIREMENT
 - must be a struct
-- must be declared as public
+- must be declared as public or internal
 - must present `GhostComponentVariation` attribute
 - must declare the type for which the variant should be generated for (the `ORIGINAL_TYPE`)
 - cannot have fields that are not declared in the original `ORIGINAL_TYPE` declaration.
 
 The `ORIGINAL_TYPE` type must be either:
-- a public struct implementing an `IComponentData` or `IBufferElementData` interface.
-- a public [Hybrid Component](#hybrid-components)
+- a public or internal struct implementing an `IComponentData` or `IBufferElementData` interface.
+- a public or internal [Hybrid Component](#hybrid-components)
 
 It is **not mandatory** for the variant to declare all original `ORIGINAL_TYPE` fields in the following cases:
 - the `ORIGINAL_TYPE` implements the IComponentData interface
@@ -811,7 +811,7 @@ It is **not mandatory** for the variant to declare all original `ORIGINAL_TYPE` 
 
 A compiler error is raised in case:
 - a `GhostComponentVariation` declares a member (property or field) that is not present in the original type declaration.
-- the `ORIGINAL_TYPE` is not public
+- the `ORIGINAL_TYPE` is not public or internal
 - a `DontSupportPrefabOverridesAttribute` attribute is present in the `ORIGINAL_TYPE` declaration
 ```c#
 [DontSupportPrefabOverridesAttribute]

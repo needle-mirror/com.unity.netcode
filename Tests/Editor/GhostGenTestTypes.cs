@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -15,7 +16,6 @@ namespace Unity.NetCode.Tests
         // Tests that all supported ghost values are replicated from Server->Client on IComponentData via ghost fields
         [Test]
         [Category(NetcodeTestCategories.Foundational)]
-        [DisableSingleWorldHostTest]
         public void GhostValuesAreSerialized_IComponentData()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -91,7 +91,6 @@ namespace Unity.NetCode.Tests
         // This uses multiple test cases, because there is a size limit on ICommandData, so we split the struct into multiple values
         [Test]
         [Category(NetcodeTestCategories.Foundational)]
-        [DisableSingleWorldHostTest]
         public void ValuesAreSerialized_ICommandData_Values()
         {
             Func<NetworkTick, int, Entity, GhostGenTestUtils.GhostGenTestType_ICommandData_Values> creator =
@@ -102,7 +101,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void ValuesAreSerialized_ICommandData_Strings()
         {
             Func<NetworkTick, int, Entity, GhostGenTestUtils.GhostGenTestType_ICommandData_Strings> creator =
@@ -145,7 +143,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
 
                 // Add and set server command target
-                var serverConnection = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnection = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, serverConnection);
                 testWorld.ServerWorld.EntityManager.AddBuffer<T>(serverConnection);
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandTarget>(serverConnection);
@@ -333,7 +331,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void CommandTooBig()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -354,7 +351,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
 
                 // Add and set server command target
-                var serverConnection = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnection = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, serverConnection);
                 testWorld.ServerWorld.EntityManager.AddBuffer<GhostGenTestUtils.GhostGenTestType_ICommandData_Strings>(serverConnection);
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandTarget>(serverConnection);
@@ -437,6 +434,8 @@ namespace Unity.NetCode.Tests
             [GhostField] public int field048;
             [GhostField] public int field049;
             [GhostField] public int field050;
+            [GhostField(SubType = GhostFieldSubType.PostTransformMatrixScale)] public float4x4 matrixField1;
+            [GhostField] public float4x4 matrixField2;
             [GhostField] public int field051;
             [GhostField] public int field052;
             [GhostField] public int field053;
@@ -624,11 +623,22 @@ namespace Unity.NetCode.Tests
                 unsafe
                 {
                     var values = (int*)UnsafeUtility.AddressOf(ref data);
-                    for (int i = 0; i < 100; ++i)
+                    for (int i = 0; i < UnsafeUtility.SizeOf<GhostGenBigStruct>() / 4; ++i)
                     {
                         values[i] = i;
                     }
                 }
+
+                // setting real float here as the above byte by byte write would be wrong for matrices.
+                data.matrixField1 = default;
+                data.matrixField1.c0.x = 1.5f;
+                data.matrixField1.c1.y = -2f;
+                data.matrixField1.c2.z = 3f;
+                data.matrixField2 = new float4x4(
+                    1f, 2f, 3f, 4f,
+                    5f, 6f, 7f, 8f,
+                    9f, 10f, 11f, 12f,
+                    13f, 14f, 15f, 16f);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, data);
 
                 // Connect and make sure the connection could be established

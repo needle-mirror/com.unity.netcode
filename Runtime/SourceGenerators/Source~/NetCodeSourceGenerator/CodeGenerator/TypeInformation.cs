@@ -77,6 +77,7 @@ namespace Unity.NetCode.Generators
         //The path to field starting from the root
         public string FieldPath;
         public ITypeSymbol Symbol;
+        public IMethodSymbol MethodSymbol;
 #pragma warning restore 649
         //The syntax tree and text span location of the type
         public Location Location;
@@ -90,6 +91,11 @@ namespace Unity.NetCode.Generators
         public bool CanBatchPredict;
         //for fixed buffers and fixed list, the number of elements
         public int ElementCount;
+
+        public bool IsRemote;
+        public bool IsAutoInvokeRemote;
+        public bool IsGhostBehaviourMethod;
+
         public TypeDescription Description
         {
             get

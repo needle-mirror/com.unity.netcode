@@ -13,6 +13,7 @@ using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Physics;
 using Unity.Physics.Extensions;
+using Unity.Physics.Systems;
 using BoxCollider = Unity.Physics.BoxCollider;
 using Collider = Unity.Physics.Collider;
 using RaycastHit = Unity.Physics.RaycastHit;
@@ -93,7 +94,8 @@ namespace Unity.NetCode.Physics.Tests
             bool isServer = World.IsServer();
             var playerPrefab = m_PlayerPrefabQuery.ToEntityArray(Allocator.Temp)[0];
             var colliderPrefabs = m_ColliderPrefabQuery.ToEntityArray(Allocator.TempJob);
-            Entities.WithNone<NetworkStreamInGame>().WithoutBurst().WithReadOnly(colliderPrefabs).ForEach((int entityInQueryIndex, Entity ent, in NetworkId id) =>
+            int entityInQueryIndex = 0;
+            foreach ( var ( id, ent ) in SystemAPI.Query<NetworkId>().WithEntityAccess().WithNone<NetworkStreamInGame>() )
             {
                 commandBuffer.AddComponent(entityInQueryIndex, ent, new NetworkStreamInGame());
                 if (isServer)
@@ -106,7 +108,8 @@ namespace Unity.NetCode.Physics.Tests
                     commandBuffer.SetComponent(entityInQueryIndex, player, new GhostOwner{NetworkId = id.Value});
                     commandBuffer.SetComponent(entityInQueryIndex, ent, new CommandTarget{targetEntity = player});
                 }
-            }).Run();
+                entityInQueryIndex++;
+            }
             colliderPrefabs.Dispose();
             m_BeginSimulationCommandBufferSystem.AddJobHandleForProducer(Dependency);
         }
@@ -245,19 +248,17 @@ namespace Unity.NetCode.Physics.Tests
         public static bool BothHitsRegistered => ServerRayCastHit != null && ClientRayCastHit != null;
         public static byte ForcedInputLatencyTicks;
 
-        protected override void OnUpdate()
+        [WithAll(typeof(LagCompensationTestPlayer))]
+        partial struct LagCompensationUpdateJob : IJobEntity
         {
-            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-            var collisionHistory = SystemAPI.GetSingleton<PhysicsWorldHistorySingleton>();
-            var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
-            var isServer = World.IsServer();
+            public NetworkTime networkTime;
+            [ReadOnly] public PhysicsWorld physicsWorld;
+            public bool isServer;
+            public PhysicsWorldHistorySingleton collisionHistory;
+            [ReadOnly] public EntityStorageInfoLookup entityLookup;
 
-            Entities
-                .WithoutBurst()
-                .WithReadOnly(physicsWorld)
-                .WithAll<LagCompensationTestPlayer>()
-                .ForEach((ref LocalTransform characterTrans, in DynamicBuffer<LagCompensationTestCommand> commands, in CommandDataInterpolationDelay delay) =>
-                {
+            public void Execute(ref LocalTransform characterTrans, in DynamicBuffer<LagCompensationTestCommand> commands, in CommandDataInterpolationDelay delay)
+            {
                     Assert.AreEqual(1, networkTime.SimulationStepBatchSize, "Must not be batching ticks!");
                     Assert.IsFalse(networkTime.IsCatchUpTick, "Must not be catching up!");
 
@@ -327,7 +328,7 @@ namespace Unity.NetCode.Physics.Tests
                         Debug.DrawLine(cmd.origin, cmd.origin + cmd.direction, black, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
                     }
 
-                    var victimIsAlive = EntityManager.Exists(raycastHit.Entity);
+                    var victimIsAlive = entityLookup.Exists(raycastHit.Entity);
                     FixedString512Bytes networkTickInfo = $"\n{networkTime.ToFixedString()}";
                     string collisionInfo = hit ? $" - {collWorld.Bodies[raycastHit.RigidBodyIndex].Collider.Value.Type}!\n\traycastHit[Entity: {raycastHit.Entity} (alive: {victimIsAlive}), Position: {raycastHit.Position}, SurfaceNormal: {raycastHit.SurfaceNormal}, Fraction: {raycastHit.Fraction}, ColliderKey: {raycastHit.ColliderKey.ToString()}, RigidBodyIndex: {raycastHit.RigidBodyIndex}, Material.Friction: {raycastHit.Material.Friction}]" : "";
                     collisionInfo = $"[TickIndex:{NetCodeTestWorld.TickIndex}][ServerTick:{networkTime.ServerTick.ToFixedString()}] LagCompensationTest result on <color=green>{(isServer ? "SERVER" : "CLIENT")}</color> is {(hit ? $"<color=green>HIT</color> (index: {raycastHit.RigidBodyIndex})" : "<color=red>MISS</color>")} on ServerTick {cmd.Tick.ToFixedString()} with interpolDelay: {interpolDelay} ticks (historyBufferEntry[expectedTick:{expectedTick}, returnedTick:{returnedTick.ToFixedString()}]), and origin desync of: {positionDesyncMeters}m!\n\tRay(start: {rayInput.Start} vs cmd.origin: {cmd.origin}, end: {rayInput.End}, dir: {(rayInput.End - rayInput.Start)}, range: {math.length(cmd.direction):0.00}m)! {networkTickInfo} {collisionInfo}\n";
@@ -376,7 +377,19 @@ namespace Unity.NetCode.Physics.Tests
 
                     collisionInfo += $"\n\n{collisionHistory.GetHistoryBufferData(ref physicsWorld)}";
                     Debug.Log(collisionInfo);
-                }).Run();
+                }
+        }
+
+        protected override void OnUpdate()
+        {
+            Dependency = new LagCompensationUpdateJob
+            {
+                networkTime = SystemAPI.GetSingleton<NetworkTime>(),
+                collisionHistory = SystemAPI.GetSingleton<PhysicsWorldHistorySingleton>(),
+                physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld,
+                isServer = World.IsServer(),
+                entityLookup = GetEntityStorageInfoLookup()
+            }.Schedule( Dependency );
         }
     }
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
@@ -490,21 +503,21 @@ namespace Unity.NetCode.Physics.Tests
 
         [Test]
         [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
-        public void HitAndMissWithLagCompensation()
+        public void HitAndMissWithLagCompensation([Values] bool alwaysRollbackAllGhosts)
         {
             LagCompensationTestHitScanSystem.ForcedInputLatencyTicks = 0;
-            HitAndMissWithLagCompensationTest();
+            HitAndMissWithLagCompensationTest(alwaysRollbackAllGhosts);
         }
 
         [Test]
         [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
-        public void HitAndMissWithLagCompensation_AndForcedInputLatency_Of4()
+        public void HitAndMissWithLagCompensation_AndForcedInputLatency_Of4([Values] bool alwaysRollbackAllGhosts)
         {
             LagCompensationTestHitScanSystem.ForcedInputLatencyTicks = 4;
-            HitAndMissWithLagCompensationTest();
+            HitAndMissWithLagCompensationTest(alwaysRollbackAllGhosts);
         }
 
-        public void HitAndMissWithLagCompensationTest()
+        public void HitAndMissWithLagCompensationTest(bool alwaysRollbackAllGhosts)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -517,7 +530,9 @@ namespace Unity.NetCode.Physics.Tests
                 });
                 var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
                 clientTickRate.ForcedInputLatencyTicks = LagCompensationTestHitScanSystem.ForcedInputLatencyTicks;
-                testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+                clientTickRate.AlwaysRollbackAllPredictedGhosts = alwaysRollbackAllGhosts;
+                var ent = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[0]);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(ent, clientTickRate);
 
                 // Give the netcode some time to spawn entities and settle on a good time synchronization
                 for (int i = 0; i < 70; ++i)
@@ -601,9 +616,9 @@ namespace Unity.NetCode.Physics.Tests
         /// </summary>
         [Test]
         [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
-        public void HitWithLagCompensationWithColliderChangeBeforeShot([Values]IncrementalBroadphase incrementalBroadphase, [Values]ColliderStaticType victimColliderType, [Values]DestroyType destroyType, [Values]DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
+        public void HitWithLagCompensationWithColliderChangeBeforeShot([Values] bool alwaysRollbackAllGhosts, [Values]IncrementalBroadphase incrementalBroadphase, [Values]ColliderStaticType victimColliderType, [Values]DestroyType destroyType, [Values]DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
         {
-            RunHitWithLagCompensationWithColliderChangeTest(incrementalBroadphase, ColliderChangeTiming.ColliderChangeBeforeShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
+            RunHitWithLagCompensationWithColliderChangeTest(alwaysRollbackAllGhosts, incrementalBroadphase, ColliderChangeTiming.ColliderChangeBeforeShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
         }
 
         /// <summary>
@@ -613,12 +628,12 @@ namespace Unity.NetCode.Physics.Tests
         /// </summary>
         [Test]
         [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
-        public void HitWithLagCompensationWithColliderChangeAfterShot([Values]IncrementalBroadphase incrementalBroadphase, [Values] ColliderStaticType victimColliderType, [Values] DestroyType destroyType, [Values] DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
+        public void HitWithLagCompensationWithColliderChangeAfterShot([Values] bool alwaysRollbackAllGhosts, [Values]IncrementalBroadphase incrementalBroadphase, [Values] ColliderStaticType victimColliderType, [Values] DestroyType destroyType, [Values] DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
         {
-            RunHitWithLagCompensationWithColliderChangeTest(incrementalBroadphase, ColliderChangeTiming.ColliderChangeAfterShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
+            RunHitWithLagCompensationWithColliderChangeTest(alwaysRollbackAllGhosts, incrementalBroadphase, ColliderChangeTiming.ColliderChangeAfterShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
         }
 
-        private static void RunHitWithLagCompensationWithColliderChangeTest(IncrementalBroadphase incrementalBroadphase, ColliderChangeTiming colliderChangeTiming, ColliderStaticType victimColliderType, DestroyType destroyType, DeepCopyStrategy deepCopyStrategy, ColliderChangeType colliderChangeType)
+        private static void RunHitWithLagCompensationWithColliderChangeTest(bool alwaysRollbackAllGhosts, IncrementalBroadphase incrementalBroadphase, ColliderChangeTiming colliderChangeTiming, ColliderStaticType victimColliderType, DestroyType destroyType, DeepCopyStrategy deepCopyStrategy, ColliderChangeType colliderChangeType)
         {
             // TODO - Do a statistics based test (e.g. shooting 1k times).
             // TODO - What happens if interpolation delay changes DURING the simulation?
@@ -633,6 +648,7 @@ namespace Unity.NetCode.Physics.Tests
                     DeepCopyStaticColliders = deepCopyStrategy is DeepCopyStrategy.DeepCopyOnlyStatic or DeepCopyStrategy.DeepCopyBoth,
                 };
                 InitTest(testWorld, victimColliderType == ColliderStaticType.StaticVictimEntity, incrementalBroadphase, out var clientEm, out var serverEm, config);
+                testWorld.SetAlwaysRollbackAllPredictedGhosts(alwaysRollbackAllGhosts);
 
                 // Give the netcode some time to spawn entities and settle on a good time synchronization
                 for (int i = 0; i < 20; ++i)

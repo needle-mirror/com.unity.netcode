@@ -42,9 +42,9 @@ namespace Unity.NetCode.Tests
 
         [Test]
         [Category(NetcodeTestCategories.Smoke)]
-        [DisableSingleWorldHostTest]
         public void ConnectSingleClient()
         {
+            bool isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true, typeof(CheckConnectionSystem));
@@ -58,15 +58,15 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick();
 
-                Assert.AreEqual(1, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
+                Assert.AreEqual(isHost ? 2 : 1, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
                 Assert.AreEqual(1, testWorld.ClientWorlds[0].GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
 
                 testWorld.GoInGame();
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick();
 
-                Assert.AreEqual(1, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
-                Assert.AreEqual(1, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numInGame);
+                Assert.AreEqual(isHost ? 2 : 1, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
+                Assert.AreEqual(isHost ? 2 : 1, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numInGame);
                 Assert.AreEqual(1, testWorld.ClientWorlds[0].GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
                 Assert.AreEqual(1, testWorld.ClientWorlds[0].GetExistingSystemManaged<CheckConnectionSystem>().numInGame);
             }
@@ -74,7 +74,6 @@ namespace Unity.NetCode.Tests
 
         [TestCase(60, 60, 1)]
         [TestCase(40, 20, 2)]
-        [DisableSingleWorldHostTest]
         public void ClientTickRate_ServerAndClientsUseTheSameRateSettings(
             int simulationTickRate, int networkTickRate, int predictedFixedStepRatio)
         {
@@ -97,7 +96,8 @@ namespace Unity.NetCode.Tests
         {
             testWorld.Bootstrap(true);
             testWorld.CreateWorlds(true, 1);
-            testWorld.ServerWorld.EntityManager.CreateSingleton(tickRate);
+            var rateEntity = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+            testWorld.ServerWorld.EntityManager.SetComponentData(rateEntity, tickRate);
             tickRate.ResolveDefaults();
             tickRate.Validate();
             // Connect and make sure the connection could be established
@@ -137,9 +137,11 @@ namespace Unity.NetCode.Tests
                 var connEntity = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(worldBeingTested);
                 Assert.IsTrue(worldBeingTested.EntityManager.Exists(connEntity));
                 LogAssert.Expect(LogType.Error, new Regex($@"(has been incorrectly disposed)(.*)({worldBeingTested.Name})"));
+                var networkSnapshotAck = worldBeingTested.EntityManager.GetComponentData<NetworkSnapshotAck>(connEntity);
                 worldBeingTested.EntityManager.DestroyEntity(connEntity);
                 testWorld.Tick(); // This tick will raise the error.
                 testWorld.Tick(); // This tick should NOT raise it again.
+                networkSnapshotAck.ReceivedSnapshotByRemoteMask.Dispose(); // Prevents memory leak when testing serverWorld.
             }
         }
 
@@ -316,7 +318,7 @@ namespace Unity.NetCode.Tests
                 // Disconnect the last client, but do it via a server kick, so that we can also test the disconnect reason:
                 {
                     var conn = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkStreamConnection>(lastClientsConnectionEntity);
-                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.DriverStore.Disconnect(conn);
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Disconnect(conn);
                 }
 
                 // Next Tick: Disconnect is applied, event is raised later on the same frame (NetworkGroupCommandBufferSystem)
@@ -459,7 +461,7 @@ namespace Unity.NetCode.Tests
 
                 // Disconnect and reconnect first client
                 var firstClientConnectionQuery = firstClientWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
-                testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.DriverStore.Disconnect(firstClientConnectionQuery.GetSingleton<NetworkStreamConnection>());
+                testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.Disconnect(firstClientConnectionQuery.GetSingleton<NetworkStreamConnection>());
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
                 testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.Connect(firstClientWorld.EntityManager, ep);
@@ -513,7 +515,7 @@ namespace Unity.NetCode.Tests
                 // Disconnect and reconnect first client
                 var firstClientWorld = testWorld.ClientWorlds[0];
                 var client0ConnectionQuery = firstClientWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
-                testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.DriverStore.Disconnect(client0ConnectionQuery.GetSingleton<NetworkStreamConnection>());
+                testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.Disconnect(client0ConnectionQuery.GetSingleton<NetworkStreamConnection>());
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
                 testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.Connect(firstClientWorld.EntityManager, ep);
@@ -588,6 +590,25 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        [Test]
+        public void ProtocolVersionFromUnityVersion()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, 1);
+
+                for (int i = 0; i < 16; ++i)
+                    testWorld.Tick();
+
+                // Ensure the version is being generated from the unity version and not the hard coded fallback value
+                // Just checking it's bigger than 6000.0.0 converted to int like the NetcodeVersion
+                var serverVersion = testWorld.GetSingleton<NetworkProtocolVersion>(testWorld.ServerWorld);
+                var unity6BaseVersion = 6000 << 16;
+                Assert.IsTrue(serverVersion.NetCodeVersion > unity6BaseVersion);
+            }
+        }
+
         internal enum DifferenceType
         {
             GameVersion,
@@ -595,9 +616,11 @@ namespace Unity.NetCode.Tests
             RpcVersion,
             ComponentVersion,
         }
+
         [Test]
         public void DifferentVersions_AreDisconnnected([Values]DifferenceType differenceType)
         {
+            var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true);
@@ -606,7 +629,8 @@ namespace Unity.NetCode.Tests
                 // Setup `RequireStrictProtocolVersionValidation`:
                 var clientServerTickRate = new ClientServerTickRate();
                 clientServerTickRate.ResolveDefaults();
-                testWorld.ServerWorld.EntityManager.CreateSingleton(clientServerTickRate);
+                var ent = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+                testWorld.ServerWorld.EntityManager.SetComponentData(ent, clientServerTickRate);
 
                 // Get the default protocol version:
                 int maxTicks = 3;
@@ -639,7 +663,7 @@ namespace Unity.NetCode.Tests
                 // The ordering of the protocol version error messages can be scrambled, so we can't log.expect exact ordering
                 LogAssert.ignoreFailingMessages = true;
                 LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest(.*)\] RpcSystem received bad protocol version from NetworkConnection"));
-                LogAssert.Expect(LogType.Error, new Regex(@"\[(Server|Host)Test(.*)\] RpcSystem received bad protocol version from NetworkConnection"));
+                LogAssert.Expect(LogType.Error, new Regex(@$"\[{(isHost ? "Host" : "Server")}Test(.*)\] RpcSystem received bad protocol version from NetworkConnection"));
 
                 switch (differenceType)
                 {
@@ -667,10 +691,12 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        // Single-world-host: the host is treated as a server for logging (SetupNetDebugConfig), so its server-side
+        // protocol error follows EnableLogsOnServer and the client-side error is still verified on the standalone
+        // client world. The LogExpectProtocolError helper already uses the Host vs Server world tag accordingly.
         [Test]
         [TestCase(true)]
         [TestCase(false)]
-        [DisableSingleWorldHostTest]
         public void ProtocolVersionDebugInfoAppearsOnMismatch(bool debugServer)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -739,8 +765,9 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        // Single-world-host: the host is treated as a server for logging (SetupNetDebugConfig), so the server-side
+        // protocol error follows EnableLogsOnServer and the client-side check runs on the standalone client world.
         [Test]
-        [DisableSingleWorldHostTest]
         public void DisconnectEventAndRPCVersionErrorProcessedInSameFrame([Values] bool checkServer)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -773,7 +800,8 @@ namespace Unity.NetCode.Tests
 
         void LogExpectProtocolError(NetCodeTestWorld testWorld, World world, bool checkServer)
         {
-            LogAssert.Expect(LogType.Error, new Regex(@$"\[{(checkServer ? "Server" : "Client")}Test(.*)\] RpcSystem received bad protocol version from NetworkConnection\[id0,v1\]"
+            var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
+            LogAssert.Expect(LogType.Error, new Regex(@$"\[{(checkServer ? (isHost ? "Host" : "Server") : "Client")}Test(.*)\] RpcSystem received bad protocol version from NetworkConnection\[id0,v1\]"
                                                       + @$"\nLocal protocol: NPV\[NetCodeVersion:{NetworkProtocolVersion.DefaultNetCodeVersion}, GameVersion:{(checkServer ? "0" : "9000")}, RpcCollection:(\d+), ComponentCollection:(\d+)\]"
                                                       + @$"\nRemote protocol: NPV\[NetCodeVersion:{NetworkProtocolVersion.DefaultNetCodeVersion}, GameVersion:{(!checkServer ? "0" : "9000")}, RpcCollection:(\d+), ComponentCollection:(\d+)\]"));
             LogAssert.Expect(LogType.Error, "The Game version mismatched between remote and local. Ensure that you are using the same version of the game on both client and server.");

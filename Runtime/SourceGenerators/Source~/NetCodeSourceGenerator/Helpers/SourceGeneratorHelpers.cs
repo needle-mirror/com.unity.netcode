@@ -1,12 +1,9 @@
 using System;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
+using System.Reflection;
 
 namespace Unity.NetCode.Generators
 {
@@ -114,7 +111,7 @@ namespace Unity.NetCode.Generators
             //globalconfig
             CanWriteFiles = true;
             WriteLogToDisk = true;
-            if (executionContext.AdditionalFiles.Any() && !string.IsNullOrEmpty(executionContext.AdditionalFiles[0].Path))
+            if (executionContext.AdditionalFiles.Length > 0 && !string.IsNullOrEmpty(executionContext.AdditionalFiles[0].Path))
                 ProjectPath = executionContext.AdditionalFiles[0].GetText()?.ToString();
             //Parse global options and overrides default behaviour. They are used by both tests, and Editor (2021_OR_NEWER)
             ProjectPath = executionContext.GetOptionsString(GlobalOptions.ProjectPath, ProjectPath);
@@ -177,139 +174,8 @@ namespace Unity.NetCode.Generators
 
         public static SourceText WithInitialLineDirective(this SourceText sourceText, string generatedSourceFilePath)
         {
-            var firstLine = sourceText.Lines.FirstOrDefault();
+            var firstLine = sourceText.Lines.Count > 0 ? sourceText.Lines[0] : default;
             return sourceText.WithChanges(new TextChange(firstLine.Span, $"#line 1 \"{generatedSourceFilePath}\"" + Environment.NewLine + firstLine));
-        }
-    }
-
-    internal static class Debug
-    {
-        public static string LastErrorLog { get; set; } // used for tests. TODO have something fancier that tracks all logs
-        public static void LaunchDebugger()
-        {
-            if (Debugger.IsAttached)
-                return;
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                Debugger.Launch();
-            }
-            else
-            {
-                string text = $"Attach to {Process.GetCurrentProcess().Id} netcode generator";
-
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-                {
-                    StartProcess("/usr/bin/osascript", $"-e \"display dialog \\\"{text}\\\" with icon note buttons {{\\\"OK\\\"}}\"");
-                }
-                else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                {
-                    StartProcess("/usr/bin/zenity", $@"--info --title=""Attach Debugger"" --text=""{text}"" --no-wrap");
-                }
-            }
-        }
-
-        public static void LaunchDebugger(GeneratorExecutionContext context, string assembly)
-        {
-            if(string.IsNullOrEmpty(assembly)
-               || string.IsNullOrEmpty(context.Compilation.AssemblyName)
-               || context.Compilation.AssemblyName.Equals(assembly, StringComparison.InvariantCultureIgnoreCase))
-            {
-                LaunchDebugger();
-            }
-        }
-
-        public static void LaunchDebugger(Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax node, string[] names)
-        {
-            if(names.Contains(node.Identifier.ValueText))
-            {
-                LaunchDebugger();
-            }
-        }
-
-        private static void StartProcess(string fileName, string arguments)
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = arguments,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
-                UseShellExecute = true,
-                CreateNoWindow = false
-            };
-            var processTemp = new Process {StartInfo = startInfo, EnableRaisingEvents = true};
-            processTemp.Start();
-            processTemp.WaitForExit();
-        }
-
-        private const string LogFile = "SourceGenerator.log";
-        private static string GetLogFilePath()
-        {
-            return Path.Combine(Helpers.GetOutputPath(), LogFile);
-        }
-        private static TextWriter GetOutputStream()
-        {
-            return File.AppendText(GetLogFilePath());
-        }
-        static void LogToDebugStream(string level, string message)
-        {
-            if (!Helpers.WriteLogToDisk)
-            {
-                return;
-            }
-            try
-            {
-                using var writer = GetOutputStream();
-                writer.WriteLine($"[{level}]{message}");
-            }
-            catch (Exception flushEx)
-            {
-                Console.WriteLine($"Exception while writing to log: {flushEx.Message}");
-            }
-        }
-        public static void LogException(Exception exception)
-        {
-            LastErrorLog = exception.ToString();
-
-            if (!Helpers.WriteLogToDisk)
-            {
-                return;
-            }
-            try
-            {
-                using var writer = GetOutputStream();
-                writer.WriteLine($"[Exception] {exception.Message}\nCallstack: {exception.StackTrace}");
-            }
-            catch (Exception flushEx)
-            {
-                Console.WriteLine($"Exception while writing to log: {flushEx.Message}");
-            }
-        }
-        public static void LogDebug(string message)
-        {
-            if(Helpers.CurrentLogLevel > Helpers.LoggingLevel.Debug)
-                return;
-            LogToDebugStream("Debug", message);
-        }
-        public static void LogInfo(string message)
-        {
-            if(Helpers.CurrentLogLevel > Helpers.LoggingLevel.Info)
-                return;
-            LogToDebugStream("Info", message);
-        }
-        public static void LogWarning(string message)
-        {
-            if(Helpers.CurrentLogLevel > Helpers.LoggingLevel.Warning)
-                return;
-            LogToDebugStream("Warning", message);
-        }
-        public static void LogError(string message, string additionalInfo)
-        {
-            message += $"\n\nAdditional info:\n{additionalInfo}\n\nStacktrace:\n";
-            message += Environment.StackTrace;
-            LastErrorLog = message;
-            LogToDebugStream("Error", message);
         }
     }
 }

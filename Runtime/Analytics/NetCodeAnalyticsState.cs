@@ -1,5 +1,5 @@
 #if UNITY_EDITOR
-using System.Linq;
+using System.Collections.Generic;
 using Unity.Entities;
 using UnityEngine.Assertions;
 
@@ -25,23 +25,36 @@ namespace Unity.NetCode.Analytics
 
         static uint ComputeAverageUpdateLengths(GhostSendSystemAnalyticsData sendSystemAnalyticsData)
         {
-            var sums = sendSystemAnalyticsData.UpdateLenSums.Where(update => update != 0).ToArray();
-            var numberOfSums = (uint)sums.Length;
-            if (numberOfSums == 0)
+            var sums = new List<uint>();
+            foreach (var update in sendSystemAnalyticsData.UpdateLenSums)
+            {
+                if (update != 0)
+                {
+                    sums.Add(update);
+                }
+            }
+            if (sums.Count == 0)
             {
                 return 0;
             }
 
             uint average = 0;
-            var updates = sendSystemAnalyticsData.NumberOfUpdates.Where(update => update != 0).ToArray();
-            Assert.AreEqual(numberOfSums, updates.Length);
-            for (var index = 0; index < sums.Length; index++)
+            var updates = new List<uint>();
+            foreach (var update in sendSystemAnalyticsData.NumberOfUpdates)
+            {
+                if (update != 0)
+                {
+                    updates.Add(update);
+                }
+            }
+            Assert.AreEqual(sums.Count, updates.Count);
+            for (var index = 0; index < sums.Count; index++)
             {
                 var sum = sums[index];
                 average += sum / updates[index];
             }
 
-            return average / numberOfSums;
+            return average / (uint)sums.Count;
         }
     }
 }

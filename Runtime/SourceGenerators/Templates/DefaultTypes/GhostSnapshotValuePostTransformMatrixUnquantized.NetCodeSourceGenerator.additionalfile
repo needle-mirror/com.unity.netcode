@@ -1,0 +1,130 @@
+#templateid:NetCode.GhostSnapshotValuePostTransformMatrixUnquantized.cs
+#region __GHOST_IMPORTS__
+#endregion
+namespace Generated
+{
+    public struct GhostSnapshotData
+    {
+        public struct Snapshot
+        {
+            // The PostTransformMatrix (a float4x4) is replicated as a non-uniform scale (float3), unquantized.
+            // Only the per-axis scale extracted from the matrix is sent over the wire (3 floats),
+            // the rotation/translation parts of the matrix are intentionally NOT replicated and are
+            // preserved on the receiving side (see __GHOST_COPY_FROM_SNAPSHOT__).
+            #region __GHOST_FIELD__
+            public float __GHOST_FIELD_NAME___x;
+            public float __GHOST_FIELD_NAME___y;
+            public float __GHOST_FIELD_NAME___z;
+            #endregion
+        }
+
+        public void PredictDelta(uint tick, ref GhostSnapshotData baseline1, ref GhostSnapshotData baseline2)
+        {
+            var predictor = new GhostDeltaPredictor(tick, this.tick, baseline1.tick, baseline2.tick);
+            #region __GHOST_PREDICT__
+            #endregion
+        }
+
+        public void Serialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, uint changeMask)
+        {
+            #region __GHOST_WRITE__
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
+            {
+                writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME___x, baseline.__GHOST_FIELD_NAME___x, compressionModel);
+                writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME___y, baseline.__GHOST_FIELD_NAME___y, compressionModel);
+                writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME___z, baseline.__GHOST_FIELD_NAME___z, compressionModel);
+            }
+            #endregion
+        }
+
+        public void Deserialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamReader reader, ref StreamCompressionModel compressionModel, uint changeMask)
+        {
+            #region __GHOST_READ__
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
+            {
+                snapshot.__GHOST_FIELD_NAME___x = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME___x, compressionModel);
+                snapshot.__GHOST_FIELD_NAME___y = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME___y, compressionModel);
+                snapshot.__GHOST_FIELD_NAME___z = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME___z, compressionModel);
+            }
+            else
+            {
+                snapshot.__GHOST_FIELD_NAME___x = baseline.__GHOST_FIELD_NAME___x;
+                snapshot.__GHOST_FIELD_NAME___y = baseline.__GHOST_FIELD_NAME___y;
+                snapshot.__GHOST_FIELD_NAME___z = baseline.__GHOST_FIELD_NAME___z;
+            }
+            #endregion
+        }
+        public unsafe void CopyToSnapshot(ref Snapshot snapshot, ref IComponentData component)
+        {
+            if (true)
+            {
+                #region __GHOST_COPY_TO_SNAPSHOT__
+                // SignedScaleFromScaleOnlyMatrix (not TransformHelpers.Scale) so negative (mirrored) scale survives replication.
+                var __GHOST_FIELD_NAME___scale = Unity.NetCode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(component.__GHOST_FIELD_REFERENCE__);
+                snapshot.__GHOST_FIELD_NAME___x = __GHOST_FIELD_NAME___scale.x;
+                snapshot.__GHOST_FIELD_NAME___y = __GHOST_FIELD_NAME___scale.y;
+                snapshot.__GHOST_FIELD_NAME___z = __GHOST_FIELD_NAME___scale.z;
+                #endregion
+            }
+        }
+        public unsafe void CopyFromSnapshot(ref GhostDeserializerState deserializerState, ref Snapshot snapshotBefore, ref Snapshot snapshotAfter, float snapshotInterpolationFactor, ref IComponentData component)
+        {
+            if (true)
+            {
+                #region __GHOST_COPY_FROM_SNAPSHOT__
+                // Only the scale is replicated. We re-apply it onto the existing matrix, keeping user-authored
+                // translation/rotation - the latter up to diagonal signs, which the incoming scale owns (see MatrixScaleHelper).
+                component.__GHOST_FIELD_REFERENCE__ = Unity.NetCode.MatrixScaleHelper.SetScale(component.__GHOST_FIELD_REFERENCE__, new float3(snapshotBefore.__GHOST_FIELD_NAME___x, snapshotBefore.__GHOST_FIELD_NAME___y, snapshotBefore.__GHOST_FIELD_NAME___z));
+                #endregion
+
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP__
+                var __GHOST_FIELD_NAME___Before = new float3(snapshotBefore.__GHOST_FIELD_NAME___x, snapshotBefore.__GHOST_FIELD_NAME___y, snapshotBefore.__GHOST_FIELD_NAME___z);
+                var __GHOST_FIELD_NAME___After = new float3(snapshotAfter.__GHOST_FIELD_NAME___x, snapshotAfter.__GHOST_FIELD_NAME___y, snapshotAfter.__GHOST_FIELD_NAME___z);
+                #endregion
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ__
+                var __GHOST_FIELD_NAME___DistSq = math.distancesq(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After);
+                #endregion
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
+                component.__GHOST_FIELD_REFERENCE__ = Unity.NetCode.MatrixScaleHelper.SetScale(component.__GHOST_FIELD_REFERENCE__, math.lerp(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After, snapshotInterpolationFactor));
+                #endregion
+            }
+        }
+        public unsafe void RestoreFromBackup(ref IComponentData component, in IComponentData backup)
+        {
+            #region __GHOST_RESTORE_FROM_BACKUP__
+            component.__GHOST_FIELD_REFERENCE__ = backup.__GHOST_FIELD_REFERENCE__;
+            #endregion
+        }
+        public void CalculateChangeMask(ref Snapshot snapshot, ref Snapshot baseline, uint changeMask)
+        {
+            #region __GHOST_CALCULATE_CHANGE_MASK_ZERO__
+            changeMask = (snapshot.__GHOST_FIELD_NAME___x != baseline.__GHOST_FIELD_NAME___x ||
+                        snapshot.__GHOST_FIELD_NAME___y != baseline.__GHOST_FIELD_NAME___y ||
+                        snapshot.__GHOST_FIELD_NAME___z != baseline.__GHOST_FIELD_NAME___z) ? 1u : 0;
+            #endregion
+            #region __GHOST_CALCULATE_CHANGE_MASK__
+            changeMask |= (snapshot.__GHOST_FIELD_NAME___x != baseline.__GHOST_FIELD_NAME___x ||
+                        snapshot.__GHOST_FIELD_NAME___y != baseline.__GHOST_FIELD_NAME___y ||
+                        snapshot.__GHOST_FIELD_NAME___z != baseline.__GHOST_FIELD_NAME___z) ? (1u<<__GHOST_MASK_INDEX__) : 0;
+            #endregion
+        }
+        #if UNITY_EDITOR || NETCODE_DEBUG
+        private static void ReportPredictionErrors(ref IComponentData component, in IComponentData backup, ref UnsafeList<float> errors, ref int errorIndex)
+        {
+            #region __GHOST_REPORT_PREDICTION_ERROR__
+            errors[errorIndex] = math.max(errors[errorIndex], math.distance(Unity.NetCode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(component.__GHOST_FIELD_REFERENCE__), Unity.NetCode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(backup.__GHOST_FIELD_REFERENCE__)));
+            ++errorIndex;
+            #endregion
+        }
+        private static int GetPredictionErrorNames(ref FixedString512Bytes names, ref int nameCount)
+        {
+            #region __GHOST_GET_PREDICTION_ERROR_NAME__
+            if (nameCount != 0)
+                names.Append(new FixedString32Bytes(","));
+            names.Append((FixedString512Bytes)"__GHOST_FIELD_REFERENCE__");
+            ++nameCount;
+            #endregion
+        }
+        #endif
+    }
+}

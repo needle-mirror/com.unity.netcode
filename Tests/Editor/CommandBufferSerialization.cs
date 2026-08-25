@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Transforms;
+using Unity.Burst;
 
 namespace Unity.NetCode.Tests
 {
@@ -41,18 +42,24 @@ namespace Unity.NetCode.Tests
             base.OnCreate();
             RequireForUpdate<NetworkStreamInGame>();
         }
-        protected override void OnUpdate()
+
+        [BurstCompile]
+        [WithAll(typeof(Simulate))]
+        partial struct UpdateInputJob : IJobEntity
         {
-            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
-            Entities
-                .WithAll<Simulate>()
-                .ForEach((Entity entity, ref LocalTransform transform, in DynamicBuffer<TestInput> inputBuffer) =>
-                {
-                    if (!inputBuffer.GetDataAtTick(tick, out var input))
+            public NetworkTick Tick;
+            public void Execute( Entity entity, ref LocalTransform transform, in DynamicBuffer<TestInput> inputBuffer )
+            {
+                                    if (!inputBuffer.GetDataAtTick(Tick, out var input))
                         return;
 
                     transform.Position.y += 1.0f * input.Value;
-                }).Run();
+            }
+        }
+
+        protected override void OnUpdate()
+        {
+            new UpdateInputJob { Tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick }.Run();
         }
     }
 
@@ -63,7 +70,12 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnCreate()
         {
-            base.OnCreate();
+            if (World.IsHost())
+            {
+                // testing that a buffer gets replicated to itself is useless for a host, so not doing anything here for host worlds
+                Enabled = false;
+                return;
+            }
             RequireForUpdate<NetworkStreamInGame>();
             RequireForUpdate<GhostOwner>();
         }
@@ -82,7 +94,6 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    [DisableSingleWorldHostTest]
     internal class CommandBufferTests
     {
         [Test]
@@ -144,7 +155,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        [Test]
+        [Test(Description = "Test with two clients connected to a server, check that non-owners receive the appropriate commands")]
         [TestCase(GhostModeMask.All, GhostMode.Predicted)]
         [TestCase(GhostModeMask.Predicted, GhostMode.Predicted)]
         public void CommandDataBuffer_NonOwner_WillReceiveTheBuffer(GhostModeMask modeMask,
@@ -163,8 +174,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 2);
-                testWorld.Connect();
-                testWorld.GoInGame();
+                testWorld.Connect(enableGhostReplication: true);
 
                 var serverEnt = SpawnEntityAndAssignOwnerOnServer(testWorld, ghostGameObject, 0);
                 var clientEnt = WaitEntitySpawnedOnClientsAndAssignOwner(testWorld, 2, 0);
@@ -182,14 +192,19 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(serverBuffer[i].Value, clientBuffer0[i-4].Value);
                 var bufferCopy = new TestInput[serverBuffer.Length];
                 serverBuffer.AsNativeArray().CopyTo(bufferCopy);
-                //run some partials tick and check that the buffer is preserved correctly
+
+                // run some partials tick and check that the buffer is preserved correctly
+                // command receive happens in SimulationSystemGroup, but that system group runs differently between host and server.
+                // On a host, it runs at frame rate, on a server it runs at tick rate. A previous version of this test was comparing
+                // the server buffer length to the client one, but that's not valid on single world host and not really what we're testing anyway,
+                // so we're just saving that length before the ticks here
+                var preservedClientBufferLength = clientBuffer1.Length;
                 for (int i = 0; i < 3; ++i)
                 {
                     testWorld.Tick((1.0f / 60.0f) / 4.0f);
                     clientBuffer1 = testWorld.ClientWorlds[1].EntityManager.GetBuffer<TestInput>(clientEnt[1]);
-                    serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<TestInput>(serverEnt);
-                    Assert.AreEqual(serverBuffer.Length, clientBuffer1.Length);
-                    for (int k = 0; k < serverBuffer.Length; ++k)
+                    Assert.AreEqual(preservedClientBufferLength, clientBuffer1.Length, $"fail after {i+1} partial ticks");
+                    for (int k = 0; k < preservedClientBufferLength; ++k)
                         Assert.AreEqual(bufferCopy[k].Value, clientBuffer1[k].Value);
                 }
                 //Do last partial tick and check the buffer are again in sync
@@ -314,7 +329,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        private static Entity[] WaitEntitySpawnedOnClientsAndAssignOwner(NetCodeTestWorld testWorld, int numClients, int owner)
+        private static Entity[] WaitEntitySpawnedOnClientsAndAssignOwner(NetCodeTestWorld testWorld, int numClients, int ownerIndexInWorldList)
         {
             bool entitiesAreNotSpawned;
             var clientEnt = new Entity[numClients];
@@ -331,16 +346,16 @@ namespace Unity.NetCode.Tests
                 }
             } while (entitiesAreNotSpawned && iterations < 128);
 
-            var clientConn = testWorld.TryGetSingletonEntity<NetworkStreamInGame>(testWorld.ClientWorlds[owner]);
-            testWorld.ClientWorlds[owner].EntityManager.SetComponentData(clientConn, new CommandTarget {targetEntity = clientEnt[owner]});
+            var clientConn = testWorld.TryGetSingletonEntity<NetworkStreamInGame>(testWorld.ClientWorlds[ownerIndexInWorldList]);
+            testWorld.ClientWorlds[ownerIndexInWorldList].EntityManager.SetComponentData(clientConn, new CommandTarget {targetEntity = clientEnt[ownerIndexInWorldList]});
             return clientEnt;
         }
 
-        private static Entity SpawnEntityAndAssignOwnerOnServer(NetCodeTestWorld testWorld, GameObject ghostGameObject, int clientOwner)
+        private static Entity SpawnEntityAndAssignOwnerOnServer(NetCodeTestWorld testWorld, GameObject ghostGameObject, int clientOwnerIndexInWorldList)
         {
             var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-            var net1 = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[clientOwner]);
-            var netId1 = testWorld.ClientWorlds[clientOwner].EntityManager.GetComponentData<NetworkId>(net1);
+            var net1 = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[clientOwnerIndexInWorldList]);
+            var netId1 = testWorld.ClientWorlds[clientOwnerIndexInWorldList].EntityManager.GetComponentData<NetworkId>(net1);
 
             //TODO: dispose this
             using var entitiesQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());

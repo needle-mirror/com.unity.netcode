@@ -1,12 +1,11 @@
 #if UNITY_EDITOR
 using System;
-using System.Linq;
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.Entities.Build;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine.UIElements;
-using Hash128 = Unity.Entities.Hash128;
 
 namespace Unity.NetCode.Hybrid
 {
@@ -89,8 +88,6 @@ namespace Unity.NetCode.Hybrid
             Save(true);
             AssetDatabase.Refresh();
         }
-
-#if UNITY_2023_2_OR_NEWER
         private void OnEnable()
         {
             if (!AssetDatabase.IsAssetImportWorkerProcess())
@@ -98,12 +95,8 @@ namespace Unity.NetCode.Hybrid
                 ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
             }
         }
-#endif
         private void OnDisable()
         {
-#if !UNITY_2023_2_OR_NEWER
-            Save();
-#else
             //But the depedency is going to be update when the scriptable is re-enabled.
             if (AssetDatabase.IsAssetImportWorkerProcess())
                 return;
@@ -115,7 +108,6 @@ namespace Unity.NetCode.Hybrid
                 ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
                 AssetDatabase.Refresh();
             }
-#endif
         }
     }
 
@@ -196,12 +188,13 @@ namespace Unity.NetCode.Hybrid
 
         public override string[] GetExtraScriptingDefines()
         {
-            var extraDefines = GetSettingAsset().GetAdditionalScriptingDefines().Append("UNITY_SERVER");
+            var additionalScriptingDefines = new List<string>(GetSettingAsset().GetAdditionalScriptingDefines());
+            additionalScriptingDefines.Add("UNITY_SERVER");
 #if !NETCODE_NDEBUG
             if (EditorUserBuildSettings.development)
-                extraDefines = extraDefines.Append("NETCODE_DEBUG");
+                additionalScriptingDefines.Add("NETCODE_DEBUG");
 #endif
-            return extraDefines.ToArray();
+            return additionalScriptingDefines.ToArray();
         }
 
         public override BuildOptions GetExtraBuildOptions()

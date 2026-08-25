@@ -1,0 +1,254 @@
+.timeline {
+    width: 100%;
+    min-height: 135px;
+}
+
+.timeline--grow {
+    flex-grow: 1;
+}
+
+.timeline__loader {
+    height: 30px;
+    padding: 5px 20px;
+    width: 100%;
+}
+
+.timeline__slider-row {
+    flex-direction: row;
+    width: 100%;
+}
+
+.timeline__frame-selector {
+    height: 54px;
+    width: 100%;
+    border-width: 1px;
+    border-right-width: 5px;
+    border-left-width: 0;
+    border-bottom-width: 0;
+    border-color: var(--unity-colors-default-border);
+}
+
+.timeline__frame-selector__background {
+    width: 100%;
+    position: absolute;
+    height: 100%;
+}
+
+.timeline__frame-selector .unity-base-slider__dragger {
+    background-color: rgba(0, 0, 0, 0);
+    background-image: var(--slider-dragger-icon);
+    border-width: 0;
+    height: 54px;
+    position: absolute;
+}
+
+.timeline__frame-selector .unity-base-slider__drag-container {
+    background-color: var(--unity-colors-alternated_rows-background);
+
+}
+
+.timeline__frame-selector .unity-base-slider__tracker {
+    background-color: var(--unity-colors-default-background);
+    border-color: var(--unity-colors-default-border);
+    border-width: 1px;
+    height: 20px;
+    margin-top: 10px;
+}
+
+.timeline__frame-selector .unity-progress-bar__progress {
+    background-color: yellow;
+    height: 50px;
+    width: 20px;
+}
+
+.timeline__frame-selector__container {
+    min-height: 80px;
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    border-color: var(--unity-colors-default-border);
+    border-bottom-width: 1px;
+}
+
+.timeline__frame-selector .unity-slider-int__label {
+    -unity-paragraph-spacing: 20px;
+    -unity-text-align: middle-left;
+    align-content: center;
+    background-color: var(--unity-colors-window-background);
+    border-color: var(--unity-colors-default-border);
+    border-width: 1px;
+    justify-content: space-evenly;
+    max-width: 135px;
+    width: 100%;
+    white-space: normal;
+}
+
+.timeline__frame-selector__label--small {
+    font-size: 9px;
+}
+
+.timeline__frame-selector__slider-container {
+    flex-grow: 1;
+}
+
+.timeline__frame-selector__label-container {
+    justify-content: center;
+    max-width: 119px;
+    width: 100%;
+    padding: 4px 4px 4px 6px;
+    border-color: var(--unity-colors-default-border);
+    border-right-width: 1px;
+}
+
+.timeline__frame-selector__frame-marker {
+    background-color: var(--tick-marker);
+    height: 100%;
+    position: absolute;
+    width: 1px;
+}
+
+.timeline__frame-selector__replay-indicator {
+    background-color: var(--timeline-replay-indicator-color);
+    height: 100%;
+    margin-left: -1px;
+    position: absolute;
+    width: 3px;
+}
+
+.timeline__frame-selector__frame-marker--inactive {
+    background-color: var(--tick-marker-inactive);
+}
+
+.timeline__tick-selector__container {
+    height: 54px;
+    flex-direction: row;
+    width: 100%;
+    padding: 16px 0;
+    background-color: var(--unity-colors-default-background);
+}
+
+.timeline__tick-selector__label {
+    justify-content: center;
+    max-width: 120px;
+    padding-left: 6px;
+    padding-right: 0;
+    width: 100%;
+}
+
+.timeline__tick-selector__label .unity-label {
+    padding-top: 1px;
+    padding-bottom: 1px;
+    -unity-text-align: middle-left;
+}
+
+.timeline__tick-selector__button-group-container {
+    flex-grow: 1;
+    padding-left: 0;
+    margin-left: 0;
+}
+
+.timeline__tick-selector__button-group-button {
+    flex-grow: 1;
+    margin-left: 0;
+    /* Themed label color for ticks without a diff (the --diff rules below override it with
+       --label-on-red): grayish white on dark, near-black on light for proper contrast. */
+    color: var(--label-on-tick);
+}
+
+.timeline__tick-selector__button-group-button--diff {
+    background-image: var(--tick-background);
+    background-size: 100% 100%;
+    background-position-x: center;
+    color: var(--label-on-red);
+}
+
+.timeline__tick-selector__button-group-button--diff-partial-start {
+    background-image: var(--tick-background);
+    background-size: 50% 100%;
+    background-position-x: right;
+    color: var(--label-on-partial);
+    background-color: var(--unity-colors-button-background);
+}
+
+.timeline__tick-selector__button-group-button--diff-partial-end {
+    background-image: var(--tick-background);
+    background-size: 50% 100%;
+    background-position-x: left;
+    color: var(--label-on-partial);
+    background-color: var(--unity-colors-button-background);
+}
+
+
+.timeline__tick-selector--selected {
+    border-width: 2px;
+    border-color: var(--selected-tick);
+}
+
+.timeline__range-selector {
+    padding: 6px 0;
+}
+
+.timeline__range-selector .unity-min-max-slider__tracker {
+    background-color: var(--unity-colors-default-background);
+    border-color: var(--unity-colors-default-border);
+    border-width: 1px;
+    height: 10px;
+    display: none;
+}
+
+.timeline__range-selector .unity-min-max-slider__dragger {
+    background-color: transparent;
+    border-color: white;
+    border-width: 1px;
+    border-left-width: 0;
+    border-right-width: 0;
+    margin-top: -2px;
+    height: 12px;
+}
+
+.timeline__range-selector .unity-min-max-slider__min-thumb {
+    background-color: transparent;
+    border-radius: 0;
+    border-color: white;
+    border-width: 1px;
+    border-right-width: 0;
+    height: 12px;
+}
+
+
+.timeline__range-selector .unity-min-max-slider__max-thumb {
+    background-color: transparent;
+    border-radius: 0;
+    border-color: white;
+    border-width: 1px;
+    border-left-width: 0;
+    height: 12px;
+}
+
+.timeline__range-selector .unity-base-slider__drag-container {
+    border-width: 1px;
+    border-color: var(--unity-colors-default-border);
+    background-color: var(--unity-colors-alternated_rows-background);
+}
+
+.timeline__range-selector .unity-min-max-slider__input {
+    background-color: var(--unity-colors-default-background);
+    border-color: var(--unity-colors-default-border);
+    border-width: 1px;
+    height: 12px;
+    max-height: 10px;
+    min-height: 10px;
+}
+
+
+.timeline__loading-spinner-container {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+}
+
+.timeline__loading-spinner {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+}

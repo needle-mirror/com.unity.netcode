@@ -101,7 +101,10 @@ namespace Unity.NetCode
         {
             // Client received confirmation that they've successfully connected to the server!
             var rpcData = default(ServerApprovedConnection);
-            rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
+            if (parameters.IsPassthroughRPC)
+                rpcData = parameters.GetPassthroughActionData<ServerApprovedConnection>();
+            else
+                rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
 
             // Validate this is allowed to execute but after deserialization to prevent deserialization errors
             if (parameters.IsServer)

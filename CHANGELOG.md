@@ -1,90 +1,65 @@
 ---
 uid: changelog
 ---
+## [6.7.0] - 2026-08-25
 
-## [1.14.2] - 2026-08-19
-
-### Fixed
-
-* A ghosted FixedList - that is cleared and later repopulated with the same data (e.g. during prediction rollback) - now replicates correctly.
-* A predicted ghost divergence caused by running at very high framerates with very low SimulationTickRate, which meant that the client to not even fully predict one tick ahead of the latest snapshot arrival, causing the snapshot to be applied on a partial tick, which in turn resulted in the prediction-history backup failing to write, so it would constantly be stale.
-
-
-
-## [1.14.1] - 2026-07-20
+### Added
+* Added support for replicating non-uniform (3D) scale via the `Unity.Transforms.PostTransformMatrix` component, using the new built-in `PostTransformMatrix3DScaleVariant`. Rather than sending the full `float4x4` matrix, only the per-axis scale is extracted and replicated (as three quantized floats by default). Existing ghost prefabs will have the `DontSerializeVariant` set by default for `PostTransformMatrix` to not break existing behavior. Use the new `SubType = GhostFieldSubType.PostTransformMatrixScale` to create your own Variants.
 
 ### Changed
+* `ClientTickRate.AlwaysRollbackAllPredictedGhosts` has been introduced: whenever any predicted ghost must roll back, all predicted ghosts roll back to the same tick, eliminating misprediction from 'partial rollbacks' (caused by partial snapshots that omit some predicted ghosts due to Importance, MaxSendRate, relevancy, or per-packet size limits).
+* The `NetcodeConfig` singleton is now always generated automatically. **Breaking change**: projects that used `EntityManager.CreateSingleton<NetcodeConfig>()` should use `SystemAPI.GetSingleton<NetcodeConfig>()` instead.
+* `GhostAuthoringComponent`, `GhostAuthoringInspectionComponent`, and `GhostAdapter` now appear under a shared "Multiplayer/" heading in the Add Component menu.
+* Improved source generator logging for long log lines.
+* Increased performance by replacing reflection-based code in the Netcode package with non-reflection-based alternatives.
 
+### Removed
+* The obsolete managed `GhostPresentationGameObjectPrefab` component is now a hard error (`[Obsolete(..., true)]`) and no longer functional. Use the unmanaged `UnmanagedGhostPresentationGameObjectPrefab`, which references prefabs through `UnityObjectRef<GameObject>`.
+
+## [6.6.0] - 2026-08-04
+
+### Added
+* Added interpolation smoothing for ghost prefabs in **Single World** mode by interpolating `LocalToWorld` between the current and last tick's `LocalTransform`. When enabled, the host observes about half a tick of input latency on smoothed ghosts. Not yet supported for GameObject ghosts.
+* When using the experimental single world host, added `BroadcastTargets` to `SendRpcCommandRequest` to filter RPCs from being sent to the host world when sending server-to-all-clients RPCs.
+* Added `NetworkStreamDriver.Disconnect`, which performs checks before disconnecting and sits alongside `Connect`.
+
+### Changed
+* Made changes required for GameObject-side input management for prediction (visible once the experimental define is removed).
+* `NetworkTime.PredictedTickIndex` is now incremented on Server and Host worlds, aligning with Client worlds.
+* Added Single World Host compatibility to the Network Profiler, improved contextual messaging across networking configurations (Single World Host, Dedicated Server, Client-only), added a host-mode indicator, and renamed `ClientAndServerWorld` to `HostWorld`.
+
+### Deprecated
+* Marked `NetworkDriverStore.Disconnect` as obsolete in favor of `NetworkStreamDriver.Disconnect`.
+
+## [6.5.0] - 2026-04-21
+
+### Feature
+* Integrated the Netcode for Entities package as a core package which starts in parity with 1.12.0 version of standalone package.
+* Added support for overriding `GhostComponentVariation` defaults through baking code. Add the `GhostVariantBakedOverride` dynamic buffer, then use the `Append...` extension methods to set a new default variant for that prefab. Note: The `IBaker.AppendToBuffer` method does not support adding to the same buffer from two different bakers.
+
+### Changes/Improvements
+* The GhostUpdateSystem's predicted ghost history backup lookup failure case now only attempts to rollback to the snapshot if said rollback isn't too severe. This change marginally worsens correctness in exceptional cases, but prevents egregiously large rollbacks.
+* `MaxSendRate` is now bypassed when `ArchetypeChunk` structural changes (i.e. order changes) occur, so that ghost spawns and deletions are not delayed or rate-limited. Note that bandwidth consumption may increase marginally.
+* Source generators no longer log to Console.Out.
+* Improved the readability of byte values in the Ghost Snapshot Tab of the Netcode Profiler.
 * Removed the 'must be a serialized component' limitation from the `GhostComponentVariation` dropdown selection in the `GhostAuthoringInspectionComponent`, as non-serialized components already support things like `PrefabType` stripping, just not explicitly. Handling of invalid ComponentOverrides has also been improved.
 
-### Fixed
-
-* Switched usage of 'PlayMode' to 'Play Mode' to be more consistent with other areas of the menu.
-* Fixed a spurious "JobTempAlloc has allocations that are more than the maximum lifespan of 4 frames old" warning that appeared when baking a ghost prefab set to Owner Predicted mode without a GhostOwner component.
-* A regression in the handling of partial sends. In rare cases, the same dynamic ghost chunk hits the partial boundary at roughly the same entity index every tick. This indefinitely causes a subset of its ghosts to no longer be added to the snapshot.
-
-## [1.14.0] - 2026-06-21
-
-### Added
-
-* Support for overiding `GhostComponentVariation` defaults through baking code. Add the `GhostVariantBakedOverride` dynamic buffer, then use the `Append...` extension methods to set a new default variant for that prefab. Note: The `IBaker.AppendToBuffer` method does not support adding to the same buffer from two different bakers.
-
-### Changed
-
-* `GhostAuthoringInspectionComponent` instance methods are now `public`, allowing override entries to be authored programmatically.
-
-### Fixed
-
-* If two GhostGroup entities happened to contain children that shared the same ArchetypeChunk - and both group root entities were sent in the same snapshot, the snapshot data of the first child would be clobbered by the snapshot data of each successive child, leading to unrecoverable snapshot read errors.
-* Adding GhostFields to IInputComponentData in a nested class no longer causes a compilation error.
-* A `PrefabType` override set via `GhostAuthoringInspectionComponent` was not surfacing in the baked-prefab preview.
-
-
-
-## [1.13.2] - 2026-05-24
-
-### Changed
-
-* Source generators no longer log to Console.Out
-
-### Fixed
-
-* Fix source generator deadlock where Roslyn Analyzers were never finishing in Rider
-
-
-
-## [1.13.1] - 2026-04-26
-
-### Fixed
-
-* Obscure error messages when the RpcCollection.DynamicAssemblyList value is not configured the same way between client and server.
-* Fixed a niche null reference exception when editing the lists in Project Settings > Multiplayer > Build immediately after adding the Netcode for Entities package.
-* Add missing profiler marker for GhostReceiveSystem
-
-
-
-## [1.13.0] - 2026-03-01
-
-### Added
-
-* internal changes required for a GhostField type usable in monobehaviour to access replicated state.
-* internal changes required for GameObject side prediction update.
-* internal changes required for GameObject side input management for prediction.
-
-### Changed
-
-* **Behaviour-Breaking Change:** The GhostUpdateSystem's predicted ghost history backup lookup failure case now only attempts to rollback to the snapshot if said rollback isn't too severe. This change marginally worsens correctness in exceptional cases, but prevents egregiously large rollbacks.
-* [Potential Breaking Change] `NetcodeProtocolVersion.k_NetCodeVersion` is now private, use `NetcodeProtocolVersion.DefaultNetCodeVersion` instead to get the builtin netcode version.
-
-### Fixed
-
-* Extraordinarily rare correctness bug introduced with the static ghost early-out optimisation, where the early-out would be applied even when new snapshot data arrived, but only if said snapshot arrived so late that it was older than the `lastInterpolationTick`.
-* Issue where prediction switching a static, unchanging ghost (to predicted) would cause massive 64-tick rollbacks.
-* Issue where the GhostUpdateSystem's predicted ghost history backup lookups were failing whenever other entities within the chunk were deleted (which caused the cached `entityIndexInChunk` to be incorrect).
+### Fixes
+* Fixed obscure error messages when the RpcCollection.DynamicAssemblyList value is not configured the same way between client and server.
+* Fixed a null reference exception when editing the lists in Project Settings > Multiplayer > Build immediately after adding the Netcode for Entities package.
+* Extraordinarily rare correctness bug introduced with the static ghost early-out optimisation, where the early-out would be applied even when new snapshot data arrived, but only if said snapshot arrived so late that it was older than the lastInterpolationTick.
+* Fixed issue where prediction switching a static, unchanging ghost (to predicted) would cause massive 64-tick rollbacks.
+* Fixed issue where the GhostUpdateSystem's predicted ghost history backup lookups were failing whenever other entities within the chunk were deleted (which caused the cached entityIndexInChunk to be incorrect).
 * The GhostUpdateSystem's snapshot rollback is now constrained below 64 ticks typically, massively reducing the severity of rollbacks in some esoteric cases, at the cost of minor misprediction issues (which will get resolved by eventual consistency).
-* Interpolated static ghosts will now wait until the interpolation timeline reaches new snapshot data before applying any new snapshot. This fixes jittery movement on static interpolated ghosts when new snapshots arrive after a static ghost had stopped moving for a few frames.
-
-
+* `NetworkProtocolVersion.k_NetCodeVersion` is now private, use `NetworkProtocolVersion.DefaultNetCodeVersion` instead to get the builtin netcode version.
+* Interpolated static ghosts will now wait until the interpolation timeline reaches new snapshot data before applying any new snapshot after updates have been paused.
+* Fixed missing profiler marker for GhostReceiveSystem.
+* `GhostRelevancyMode.SetIsIrrelevant` now respects `false` values being written to `PrioChunk.isRelevant` from the batched importance function, which enables use of this relevancy fast-path when in this mode.
+* Fixed source generator deadlock where Roslyn Analyzers were never finishing in Rider.
+* Fixed an issue in the netcode profiler where tick navigation was inconsistent when capturing more than two sessions without clearing the profiler.
+* Fixed an issue in the Netcode Profiler where an incorrect prediction tick value was displayed in the Prediction and Interpolation Tab.
+* Switched usage of 'PlayMode' to 'Play Mode' to be more consistent with other areas of the menu.
+* If two GhostGroup entities happened to contain children that shared the same `ArchetypeChunk` - and both group root entities were sent in the same snapshot, the snapshot data of the first child would be clobbered by the snapshot data of each successive child, leading to unrecoverable snapshot read errors.
 
 ## [1.12.0] - 2026-02-01
 

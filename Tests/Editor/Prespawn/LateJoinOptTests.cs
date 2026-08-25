@@ -413,7 +413,7 @@ namespace Unity.NetCode.Tests.PrespawnTests
 
                 //Stream the sub scene in
                 SubSceneHelper.LoadSubSceneInWorlds(testWorld);
-                testWorld.Connect(maxSteps:16);
+                testWorld.Connect(maxSteps:18);
                 CheckPrespawnArePresent(numObjects, testWorld);
                 testWorld.GoInGame();
 

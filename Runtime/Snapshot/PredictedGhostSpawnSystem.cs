@@ -8,6 +8,7 @@ using Unity.Assertions;
 using Unity.Burst.CompilerServices;
 using Unity.Burst.Intrinsics;
 using Unity.Jobs;
+using Unity.NetCode.EntitiesInternalAccess;
 
 namespace Unity.NetCode
 {
@@ -239,7 +240,8 @@ namespace Unity.NetCode
                 return;
             }
             var ent = state.EntityManager.CreateEntity();
-            state.EntityManager.SetName(ent, (FixedString64Bytes)"PredictedGhostSpawnList");
+            state.EntityManager.SetName(ent, (FixedString64Bytes)"PredictedGhostSpawnList-Singleton");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, ent);
             state.EntityManager.AddComponentData(ent, new PredictedGhostSpawnList{});
             state.EntityManager.AddBuffer<PredictedGhostSpawn>(ent);
             var builder = new EntityQueryBuilder(Allocator.Temp)
@@ -379,9 +381,14 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateAfter(typeof(GhostDespawnSystem))]
+    [CreateAfter(typeof(GhostDespawnSystem))]
     [BurstCompile]
     public partial struct PredictedGhostDespawnSystem : ISystem
     {
+        ComponentLookup<GhostGameObjectLink> m_GameObjectLookup;
+        BufferLookup<GameObjectDespawnTracking> m_DelayedDespawnLookup;
+        Entity m_DelayedGODespawnEntity;
+
         /// <summary>
         ///     Destroy client predicted spawns which are too old.
         ///     I.e. The ones which did NOT get classified, and therefore were not already removed from this list.
@@ -392,8 +399,12 @@ namespace Unity.NetCode
             public DynamicBuffer<PredictedGhostSpawn> spawnList;
             public NetworkTick destroyTick;
             public EntityCommandBuffer commandBuffer;
+            public ComponentLookup<GhostGameObjectLink> isGOLookup;
+            [NativeDisableParallelForRestriction] public BufferLookup<GameObjectDespawnTracking> despawnTrackingLookup;
+            public Entity despawnSingleton;
             public void Execute()
             {
+                var despawnTracking = despawnTrackingLookup[despawnSingleton];
                 for (int i = 0; i < spawnList.Length; ++i)
                 {
                     var ghost = spawnList[i];
@@ -402,6 +413,8 @@ namespace Unity.NetCode
                         // Destroy entity and remove from list
                         commandBuffer.DestroyEntity(ghost.entity);
                         spawnList.RemoveAtSwapBack(i);
+                        if (isGOLookup.HasComponent(ghost.entity))
+                            despawnTracking.Add(new() { oneDespawn = new GhostDespawnSystem.DelayedDespawnGhost() { entity = ghost.entity } });
                         --i;
                     }
                 }
@@ -414,6 +427,15 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                // All spawns are authoritative on a single world host
+                state.Enabled = false;
+                return;
+            }
+            m_DelayedGODespawnEntity = SystemAPI.GetSingletonEntity<GameObjectDespawnTracking>();
+            m_DelayedDespawnLookup = state.GetBufferLookup<GameObjectDespawnTracking>();
+            m_GameObjectLookup = state.GetComponentLookup<GhostGameObjectLink>();
             state.RequireForUpdate<PredictedGhostSpawnList>();
         }
 
@@ -435,11 +457,16 @@ namespace Unity.NetCode
             if(!SystemAPI.TryGetSingleton(out ClientTickRate clientTickRate))
                 clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             destroyTick.Subtract(clientTickRate.NumAdditionalClientPredictedGhostLifetimeTicks);
+            m_GameObjectLookup.Update(ref state);
+            m_DelayedDespawnLookup.Update(ref state);
             var cleanupJob = new CleanupPredictedSpawns
             {
                 spawnList = spawnList,
                 destroyTick = destroyTick,
                 commandBuffer = commandBuffer,
+                isGOLookup = m_GameObjectLookup,
+                despawnTrackingLookup = m_DelayedDespawnLookup,
+                despawnSingleton = m_DelayedGODespawnEntity,
             };
             state.Dependency = cleanupJob.Schedule(state.Dependency);
         }

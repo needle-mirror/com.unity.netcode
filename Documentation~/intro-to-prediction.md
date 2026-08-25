@@ -56,10 +56,10 @@ Step by step:
 
 The server is authoritative, which means that it has the last say on gameplay decisions. This prevents cheating when hosted on a dedicated server, and improves consistency by having a single source of truth instead of trying to reconcile multiple authorities.
 
-The server runs the game simulation at a fixed rate, the `simulation tick rate` (see [ClientServerTickRate.SimulationTickRate](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html#Unity_NetCode_ClientServerTickRate_SimulationTickRate)).
+The server runs the game simulation at a fixed rate, the `simulation tick rate` (see [ClientServerTickRate.SimulationTickRate](xref:Unity.NetCode.ClientServerTickRate.SimulationTickRate)).
 It isn't necessary for the simulation itself to be fully deterministic, although this is something you should aim for (without achieving it) to reduce corrections. If there are discrepancies on different machines, then the client will correct itself with the successive server updates, with the client's state becoming _eventually consistent_ with the server's state.
 
-The server sends a snapshot (state) of its simulation (which can be a [partial snapshot](ghost-snapshots.md#partial-snapshots), depending on your world's size) to clients at a fixed frequency, the [network tick rate](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html#Unity_NetCode_ClientServerTickRate_NetworkTickRate).
+The server sends a snapshot (state) of its simulation (which can be a [partial snapshot](ghost-snapshots.md#partial-snapshots), depending on your world's size) to clients at a fixed frequency, the [network tick rate](xref:Unity.NetCode.ClientServerTickRate.NetworkTickRate).
 
 `SimulationTickRate` and `NetworkTickRate` can be different (by default they are both 60hz), but with the constraint that `NetworkTickRate` must be always less than the `SimulationTickRate` and a common factor of it. For example, `NetworkTickRate` is 30Hz and the `SimulationTickRate` is 60Hz.
 
@@ -71,7 +71,7 @@ For all client predicted ghosts, the client attempts to run the same simulation 
 
 To ensure that the server receives input before the next update, the client simulation needs to be ahead of the server, so that the input's tick matches the server's current simulation tick.
 This means that the client is predicting the state of the world slightly ahead of the server, using its own inputs.
-The delta between the client and the server depends on the network's round-trip time (RTT) and `slack` number of ticks (refer to [Target Command Slack](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_TargetCommandSlack)), with a default value of two ticks.
+The delta between the client and the server depends on the network's round-trip time (RTT) and `slack` number of ticks (refer to [Target Command Slack](xref:Unity.NetCode.ClientTickRate.TargetCommandSlack)), with a default value of two ticks.
 
 #### Example
 
@@ -80,7 +80,7 @@ The delta between the client and the server depends on the network's round-trip 
 - At ~00:00:00.100 (half an RTT later), the server should have progressed to tick ~16. It receives the input for tick 18 and puts it in a wait queue.
 - At 00:00:00.132, the server reaches tick 18 and consumes the input for tick 18 previously sent from the client.
 
-Using [command slack](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_TargetCommandSlack) is an effective way to mitigate a small amount of network jitter and still allow the server to receive input in time.
+Using [command slack](xref:Unity.NetCode.ClientTickRate.TargetCommandSlack) is an effective way to mitigate a small amount of network jitter and still allow the server to receive input in time.
 
 ![NetcodeForEntities Prediction Loop.jpg](images/NetcodeForEntitiesPredictionLoop.jpg)
 <!--
@@ -120,7 +120,7 @@ This loop is divided logically into:
 
 ![NetcodeForEntitiesReplayLoop.jpg](images/NetcodeForEntitiesReplayLoop.jpg)
 
-[`NetworkTime`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkTime) flags can be obtained from `var networkTime = SystemAPI.GetSingleton<NetworkTime>()`. For example `networkTime.IsFirstTimeFullyPredictingTick`.
+[`NetworkTime`](xref:Unity.NetCode.NetworkTime) flags can be obtained from `var networkTime = SystemAPI.GetSingleton<NetworkTime>()`. For example `networkTime.IsFirstTimeFullyPredictingTick`.
 
 The **PREDICT CURRENT TICK** step above sets `networkTime.ServerTick` to the latest simulated tick, both client and server side.
 
@@ -183,7 +183,7 @@ The `GhostUpdateSystem` restores the predicted ghosts' state using the backup of
 
 ### Batching and catch-up
 
-If your client or server aren't able to simulate all the required ticks at a specific rate (if they are having performance issues where real `deltaTime` is greater than target `deltaTime`), then Netcode tries to batch ticks together by running fewer ticks with higher `deltaTimes`. See [this page for how to configure this](client-server-worlds.md#configuring-the-server-fixed-update-loop).
+If your client or server aren't able to simulate all the required ticks at a specific rate (if they are having performance issues where real `deltaTime` is greater than target `deltaTime`), then Netcode tries to batch ticks together by running fewer ticks with higher `deltaTimes`. See [this page for how to configure this](client-server-worlds.md#configure-the-server-fixed-update-loop).
 
 To help preserve determinism, if your inputs change between two ticks, Netcode won't batch those two ticks. For example, if input `FOO=1` for tick 10, 11, and 12 then changes to `FOO=2` for tick 13, 14, and 15, Netcode won't try to batch tick 12 and 13 together, only 10, 11, and 12, or 13, 14, and 15.
 

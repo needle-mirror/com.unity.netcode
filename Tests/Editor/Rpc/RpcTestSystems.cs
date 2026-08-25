@@ -1,10 +1,12 @@
 #pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using System;
+using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Entities;
 using Unity.Networking.Transport;
 using Unity.Collections;
+using UnityEngine;
 using UnityEngine.Assertions;
 
 namespace Unity.NetCode.Tests
@@ -30,6 +32,33 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             RpcExecutor.ExecuteCreateRequestComponent<SimpleRpcCommand, SimpleRpcCommand>(ref parameters);
+        }
+
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+            new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+    }
+
+    [BurstCompile]
+    internal struct SimpleRpcCommandToClient : IComponentData, IRpcCommandSerializer<SimpleRpcCommandToClient>
+    {
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in SimpleRpcCommandToClient data)
+        {
+        }
+
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref SimpleRpcCommandToClient data)
+        {
+        }
+
+        public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
+        {
+            return InvokeExecuteFunctionPointer;
+        }
+
+        [BurstCompile(DisableDirectCall = true)]
+        [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
+        private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+        {
+            RpcExecutor.ExecuteCreateRequestComponent<SimpleRpcCommandToClient, SimpleRpcCommandToClient>(ref parameters);
         }
 
         static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
@@ -67,7 +96,10 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(SerializedRpcCommand);
-            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
+            if (parameters.IsPassthroughRPC)
+                serializedData = parameters.GetPassthroughActionData<SerializedRpcCommand>();
+            else
+                serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -109,7 +141,10 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(SerializedLargeRpcCommand);
-            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
+            if (parameters.IsPassthroughRPC)
+                serializedData = parameters.GetPassthroughActionData<SerializedLargeRpcCommand>();
+            else
+                serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -172,7 +207,10 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(IncorrectDeserializationCommand);
-            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
+            if (parameters.IsPassthroughRPC)
+                serializedData = parameters.GetPassthroughActionData<IncorrectDeserializationCommand>();
+            else
+                serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -209,7 +247,10 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(ClientIdRpcCommand);
-            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
+            if (parameters.IsPassthroughRPC)
+                serializedData = parameters.GetPassthroughActionData<ClientIdRpcCommand>();
+            else
+                serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -262,7 +303,10 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(VariableSizedRpc);
-            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
+            if (parameters.IsPassthroughRPC)
+                serializedData = parameters.GetPassthroughActionData<VariableSizedRpc>();
+            else
+                serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             Assert.AreEqual(serializedData.Value1, Value1Multiplier * RpcTests.VariableSizedResultCnt.Data);
             Assert.AreEqual(serializedData.Value2, Value2Multiplier * RpcTests.VariableSizedResultCnt.Data);
@@ -380,7 +424,7 @@ namespace Unity.NetCode.Tests
             if (SendCount > 0)
             {
                 var req = EntityManager.CreateEntity();
-                EntityManager.AddComponentData(req, new SimpleRpcCommand());
+                EntityManager.AddComponentData(req, new SimpleRpcCommandToClient());
                 EntityManager.AddComponentData(req,
                     new SendRpcCommandRequest {TargetConnection = Entity.Null});
                 --SendCount;
@@ -531,12 +575,12 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref ClientIdRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
+            foreach( var( cmd, req, entity) in SystemAPI.Query<ClientIdRpcCommand,ReceiveRpcCommandRequest>().WithEntityAccess() )
             {
                 PostUpdateCommands.DestroyEntity(entity);
                 if (cmd.Id >= 0 && cmd.Id < 2)
                     ReceivedCount[cmd.Id]++;
-            }).Run();
+            }
             PostUpdateCommands.Playback(EntityManager);
         }
     }
@@ -546,28 +590,33 @@ namespace Unity.NetCode.Tests
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     internal partial class MultipleClientBroadcastRpcReceiveSystem : SystemBase
     {
-        public static int[] ReceivedCount = new int[2];
-
-        private int worldId;
+        public static Dictionary<World, int> ReceivedCount = new();
 
         protected override void OnCreate()
         {
             RequireForUpdate<NetworkId>();
-            worldId = NetCodeTestWorld.CalculateWorldId(World);
         }
 
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            var currentWorldId = worldId;
-            Entities.WithoutBurst()
-                .WithAll<SimpleRpcCommand>()
-                .ForEach((Entity entity, ref ReceiveRpcCommandRequest req) =>
+            foreach( var (req, entity) in SystemAPI.Query<ReceiveRpcCommandRequest>().WithAll<SimpleRpcCommandToClient>().WithEntityAccess() )
             {
                 PostUpdateCommands.DestroyEntity(entity);
-                ++ReceivedCount[currentWorldId];
-            }).Run();
+                if (!ReceivedCount.TryGetValue(World, out int counter))
+                {
+                    counter = 0;
+                    ReceivedCount.Add(World, counter);
+                }
+
+                ReceivedCount[World] = ++counter;
+            }
             PostUpdateCommands.Playback(EntityManager);
+        }
+
+        protected override void OnDestroy()
+        {
+            ReceivedCount.Remove(World);
         }
     }
 
@@ -581,15 +630,13 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            var networkConnections = GetComponentLookup<NetworkStreamConnection>(true);
-            Entities.WithoutBurst()
-                .WithAll<SimpleRpcCommand>()
-                .ForEach((Entity entity, ref ReceiveRpcCommandRequest req) =>
+            var networkConnections = GetComponentLookup<NetworkId>(true);
+            foreach( var (req, entity) in SystemAPI.Query<ReceiveRpcCommandRequest>().WithEntityAccess().WithAll<SimpleRpcCommand>() )
             {
                 Assert.IsTrue(networkConnections.HasComponent(req.SourceConnection), "Connection has been deleted and this RPC should not have been triggered");
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
-            }).Run();
+            }
             PostUpdateCommands.Playback(EntityManager);
         }
     }
@@ -604,13 +651,12 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst()
-                .WithAll<SimpleRpcCommand>()
-                .ForEach((Entity entity, ref ReceiveRpcCommandRequest req) =>
-                {
-                    PostUpdateCommands.DestroyEntity(entity);
-                    ++ReceivedCount;
-                }).Run();
+
+            foreach( var ( req, entity ) in SystemAPI.Query<ReceiveRpcCommandRequest>().WithEntityAccess().WithAll<SimpleRpcCommandToClient>() )
+            {
+                PostUpdateCommands.DestroyEntity(entity);
+                ++ReceivedCount;
+            }
             PostUpdateCommands.Playback(EntityManager);
         }
     }
@@ -626,12 +672,12 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
+            foreach( var ( cmd, req, entity ) in SystemAPI.Query<SerializedRpcCommand, ReceiveRpcCommandRequest>().WithEntityAccess() )
             {
                 ReceivedCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
-            }).Run();
+            }
             PostUpdateCommands.Playback(EntityManager);
         }
     }
@@ -647,12 +693,12 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
+            foreach( var ( cmd, req, entity ) in SystemAPI.Query<SerializedRpcCommand, ReceiveRpcCommandRequest>().WithEntityAccess() )
             {
                 ReceivedCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
-            }).Run();
+            }
             PostUpdateCommands.Playback(EntityManager);
         }
     }
@@ -670,18 +716,18 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedLargeRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
+            foreach( var ( cmd, req, entity ) in SystemAPI.Query<SerializedLargeRpcCommand, ReceiveRpcCommandRequest>().WithEntityAccess() )
             {
                 ReceivedLargeCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedLargeCount;
-            }).Run();
-            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedSmallRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
+            }
+            foreach( var ( cmd, req, entity ) in SystemAPI.Query<SerializedSmallRpcCommand, ReceiveRpcCommandRequest>().WithEntityAccess() )
             {
                 ReceivedSmallCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedSmallCount;
-            }).Run();
+            }
             PostUpdateCommands.Playback(EntityManager);
         }
     }
@@ -805,6 +851,35 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
     [CreateAfter(typeof(RpcSystem))]
     [BurstCompile]
+    partial struct NonSerializedRpcCommandRequestSystemToClient : ISystem
+    {
+        RpcCommandRequest<SimpleRpcCommandToClient, SimpleRpcCommandToClient> m_RequestToClient;
+        [BurstCompile]
+        struct SendRpc : IJobChunk
+        {
+            public RpcCommandRequest<SimpleRpcCommandToClient, SimpleRpcCommandToClient>.SendRpcData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
+            }
+        }
+        public void OnCreate(ref SystemState state)
+        {
+            m_RequestToClient.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var sendJobToClient = new SendRpc{data = m_RequestToClient.InitJobData(ref state)};
+            state.Dependency = sendJobToClient.Schedule(m_RequestToClient.Query, state.Dependency);
+        }
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+    [CreateAfter(typeof(RpcSystem))]
+    [BurstCompile]
     partial struct MultipleClientSerializedRpcCommandRequestSystem : ISystem
     {
         RpcCommandRequest<ClientIdRpcCommand, ClientIdRpcCommand> m_Request;
@@ -904,12 +979,12 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref VeryLargeRPC cmd, ref ReceiveRpcCommandRequest req) =>
+            foreach( var ( cmd, req, entity ) in SystemAPI.Query<VeryLargeRPC, ReceiveRpcCommandRequest>().WithEntityAccess() )
             {
                 ReceivedCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
-            }).Run();
+            }
             PostUpdateCommands.Playback(EntityManager);
         }
     }
@@ -918,7 +993,7 @@ namespace Unity.NetCode.Tests
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     internal partial class VeryLargeRcpSendSystem : SystemBase
     {
-        public static int SendCount = 0;
+        public int SendCount = 0;
         public static VeryLargeRPC Cmd;
 
         protected override void OnCreate()
@@ -964,6 +1039,11 @@ internal struct FastReconnectRpc : IRpcCommand
 
         protected override void OnCreate()
         {
+            if (World.IsHost())
+            {
+                Enabled = false;
+                return;
+            }
             m_ConnectionQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
         }
 
@@ -992,6 +1072,11 @@ internal struct FastReconnectRpc : IRpcCommand
 
         protected override void OnCreate()
         {
+            if (World.IsHost())
+            {
+                Enabled = false;
+                return;
+            }
             m_ConnectionQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
         }
 
@@ -1027,7 +1112,7 @@ internal struct FastReconnectRpc : IRpcCommand
             if (DisconnectDelay-- == 0)
             {
                 var clientConnection = SystemAPI.GetSingletonRW<NetworkStreamConnection>();
-                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.DriverStore.Disconnect(clientConnection.ValueRO);
+                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Disconnect(clientConnection.ValueRO);
                 //UnityEngine.Debug.Log($"[{NetCodeTestWorld.TickIndex}]: Disconnect via {GetType().FullName}!");
             }
         }
@@ -1052,7 +1137,7 @@ internal struct FastReconnectRpc : IRpcCommand
             if (DisconnectDelay-- == 0)
             {
                 var clientConnection = SystemAPI.GetSingletonRW<NetworkStreamConnection>();
-                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.DriverStore.Disconnect(clientConnection.ValueRO);
+                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Disconnect(clientConnection.ValueRO);
                 //UnityEngine.Debug.Log($"[{NetCodeTestWorld.TickIndex}]: Disconnect via {GetType().FullName}!");
             }
         }
@@ -1068,7 +1153,7 @@ internal struct FastReconnectRpc : IRpcCommand
         protected override void OnUpdate()
         {
             var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-            foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkId>>().WithEntityAccess().WithNone<NetworkStreamInGame>())
+            foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkId>>().WithEntityAccess().WithNone<NetworkStreamInGame>().WithAll<NetworkStreamConnection>())
             {
                 commandBuffer.AddComponent<NetworkStreamInGame>(entity);
                 var req = commandBuffer.CreateEntity();

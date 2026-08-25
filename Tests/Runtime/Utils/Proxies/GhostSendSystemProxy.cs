@@ -22,7 +22,7 @@ namespace Unity.NetCode.Tests
             EntityManager.CompleteAllTrackedJobs();
 
             var systemHandle = World.GetExistingSystem<GhostSendSystem>();
-            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostSendSystem>();
+            ref var unmanagedSystem = ref World.Unmanaged.GetExistingSystemState<GhostSendSystem>();
             unmanagedSystem.Enabled = false;
 
             k_CompleteTrackedJobs.Begin();
@@ -84,7 +84,7 @@ namespace Unity.NetCode.Tests
             EntityManager.CompleteAllTrackedJobs();
 
             var systemHandle = World.GetExistingSystem<GhostSendSystem>();
-            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostSendSystem>();
+            ref var unmanagedSystem = ref World.Unmanaged.GetExistingSystemState<GhostSendSystem>();
             unmanagedSystem.Enabled = false;
 
             var markers = new[]
@@ -115,37 +115,40 @@ namespace Unity.NetCode.Tests
 
 #if UNITY_EDITOR || NETCODE_DEBUG
                             ref var snapshotStatsSingleton = ref SystemAPI.GetSingletonRW<GhostStatsSnapshotSingleton>().ValueRW;
-                            for (int worker = 1; worker < snapshotStatsSingleton.allGhostStatsParallelWrites.Length; ++worker)
+                            if (snapshotStatsSingleton.allGhostStatsParallelWrites.Length > 0)
                             {
-                                var currentWorkerStat = snapshotStatsSingleton.allGhostStatsParallelWrites.ElementAt(worker);
-                                snapshotStatsSingleton.MainStatsWrite.IncrementWith(currentWorkerStat);
-                                currentWorkerStat.ResetToDefault();
+                                for (int worker = 1; worker < snapshotStatsSingleton.allGhostStatsParallelWrites.Length; ++worker)
+                                {
+                                    var currentWorkerStat = snapshotStatsSingleton.allGhostStatsParallelWrites.ElementAt(worker);
+                                    snapshotStatsSingleton.MainStatsWrite.IncrementWith(currentWorkerStat);
+                                    currentWorkerStat.ResetToDefault();
+                                }
+
+                                uint totalCount = 0;
+                                uint totalLength = 0;
+
+                                for (int i = 0; i < numLoadedPrefabs; ++i)
+                                {
+                                    var perGhostTypeStat = snapshotStatsSingleton.MainStatsWrite.PerGhostTypeStatsListRefRW.ElementAt(i);
+                                    var count = perGhostTypeStat.EntityCount;
+                                    var length = perGhostTypeStat.SizeInBits;
+                                    uint soloLength = 0;
+                                    if (count > 0)
+                                        soloLength = length / count;
+
+                                    Measure.Custom(m_GhostSampleGroups[2 + 3 * i],
+                                        count / m_ConnectionCount); // Serialized Entities
+                                    Measure.Custom(m_GhostSampleGroups[2 + 3 * i + 1],
+                                        length / m_ConnectionCount / 8); // Total Length in Bytes
+                                    Measure.Custom(m_GhostSampleGroups[2 + 3 * i + 2], soloLength); // Bits / Entity
+
+                                    totalCount += count;
+                                    totalLength += length;
+                                }
+
+                                Measure.Custom(m_GhostSampleGroups[0], totalCount / m_ConnectionCount);
+                                Measure.Custom(m_GhostSampleGroups[1], totalLength / m_ConnectionCount / 8);
                             }
-
-                            uint totalCount = 0;
-                            uint totalLength = 0;
-
-                            for (int i = 0; i < numLoadedPrefabs; ++i)
-                            {
-                                var perGhostTypeStat = snapshotStatsSingleton.MainStatsWrite.PerGhostTypeStatsListRefRW.ElementAt(i);
-                                var count = perGhostTypeStat.EntityCount;
-                                var length = perGhostTypeStat.SizeInBits;
-                                uint soloLength = 0;
-                                if (count > 0)
-                                    soloLength = length / count;
-
-                                Measure.Custom(m_GhostSampleGroups[2 + 3 * i],
-                                    count / m_ConnectionCount); // Serialized Entities
-                                Measure.Custom(m_GhostSampleGroups[2 + 3 * i + 1],
-                                    length / m_ConnectionCount / 8); // Total Length in Bytes
-                                Measure.Custom(m_GhostSampleGroups[2 + 3 * i + 2], soloLength); // Bits / Entity
-
-                                totalCount += count;
-                                totalLength += length;
-                            }
-
-                            Measure.Custom(m_GhostSampleGroups[0], totalCount / m_ConnectionCount);
-                            Measure.Custom(m_GhostSampleGroups[1], totalLength / m_ConnectionCount / 8);
 #endif
                         }
                     }

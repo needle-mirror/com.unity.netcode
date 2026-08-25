@@ -14,6 +14,7 @@ namespace Unity.NetCode.Editor
         Label m_RttDataLabel;
         Label m_TotalSizeDataLabel;
         Label m_TotalPacketsDataLabel;
+        VisualElement m_NetworkRoleIcon;
 
         internal const string ussClassName = "metrics-header";
         const string k_MetricsHeaderLeftAlignedUssClass = ussClassName + "__left-aligned";
@@ -21,6 +22,9 @@ namespace Unity.NetCode.Editor
         const string k_MetricsHeaderLabelLargeUssClass = ussClassName + "__data-label-large";
         const string k_MetricsHeaderLabelMediumUssClass = ussClassName + "__data-label-medium";
         const string k_MetricsHeaderLabelSmallUssClass = ussClassName + "__data-label-small";
+        internal const string k_IconClientUssClass = "icon__client";
+        internal const string k_IconServerUssClass = "icon__server";
+        internal const string k_IconHostUssClass = "icon__host";
 
         internal MetricsHeader(NetworkRole networkRole)
         {
@@ -30,9 +34,9 @@ namespace Unity.NetCode.Editor
             var leftAlignedContainer = new VisualElement();
             leftAlignedContainer.AddToClassList(k_MetricsHeaderLeftAlignedUssClass);
 
-            var networkRoleIcon = new VisualElement();
-            var roleIconClass = networkRole == NetworkRole.Server ? "icon__server" : "icon__client";
-            networkRoleIcon.AddToClassList(roleIconClass);
+            m_NetworkRoleIcon = new VisualElement();
+            var roleIconClass = networkRole == NetworkRole.Server ? k_IconServerUssClass : k_IconClientUssClass;
+            m_NetworkRoleIcon.AddToClassList(roleIconClass);
 
             m_WorldNameLabel = new Label("World Name");
             SetWorldName(ProfilerUtils.GetWorldName(networkRole));
@@ -50,7 +54,7 @@ namespace Unity.NetCode.Editor
             nextTickElement.tooltip = NetcodeProfilerConstants.s_NextTickTooltip;
             correspondingTickElement.tooltip = NetcodeProfilerConstants.GetCorrespondingTickTooltip(networkRole);
 
-            leftAlignedContainer.Add(networkRoleIcon);
+            leftAlignedContainer.Add(m_NetworkRoleIcon);
             leftAlignedContainer.Add(m_WorldNameLabel);
             leftAlignedContainer.Add(m_SnapshotTickLabel);
             leftAlignedContainer.Add(correspondingTickElement);
@@ -97,6 +101,17 @@ namespace Unity.NetCode.Editor
         internal void SetWorldName(string worldName)
         {
             m_WorldNameLabel.text = worldName;
+        }
+
+        internal void SetNetworkRoleIcon(string iconClass)
+        {
+            // Remove all possible icon classes
+            m_NetworkRoleIcon.RemoveFromClassList(k_IconClientUssClass);
+            m_NetworkRoleIcon.RemoveFromClassList(k_IconServerUssClass);
+            m_NetworkRoleIcon.RemoveFromClassList(k_IconHostUssClass);
+
+            // Add the new icon class
+            m_NetworkRoleIcon.AddToClassList(iconClass);
         }
 
         internal void SetSnapshotTick(NetworkTick serverTick)

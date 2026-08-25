@@ -1,5 +1,5 @@
+using System;
 using System.Collections.Immutable;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -66,7 +66,11 @@ namespace NetCodeAnalyzer
             {
                 foreach (var attribute in attributeList.Attributes)
                 {
-                    foreach (var arg in attribute.ArgumentList?.Arguments ?? Enumerable.Empty<AttributeArgumentSyntax>())
+                    if (attribute.ArgumentList?.Arguments == null || attribute.ArgumentList.Arguments.Count == 0)
+                    {
+                        return false;
+                    }
+                    foreach (var arg in attribute.ArgumentList.Arguments)
                     {
                         if (arg.Expression is TypeOfExpressionSyntax typeOfExpr &&
                             ModelExtensions.GetSymbolInfo(context.SemanticModel, typeOfExpr.Type).Symbol is ITypeSymbol typeSymbol &&
@@ -92,8 +96,12 @@ namespace NetCodeAnalyzer
                     // Check for [WithOptions] attribute
                     if (attributeName == "WithOptions" || attributeName == "WithOptionsAttribute")
                     {
+                        if (attribute.ArgumentList?.Arguments == null || attribute.ArgumentList.Arguments.Count == 0)
+                        {
+                            return false;
+                        }
                         // Check if any of the arguments contains EntityQueryOptions.IgnoreComponentEnabledState
-                        foreach (var arg in attribute.ArgumentList?.Arguments ?? Enumerable.Empty<AttributeArgumentSyntax>())
+                        foreach (var arg in attribute.ArgumentList.Arguments)
                         {
                             if (arg.Expression.ToString().Contains("EntityQueryOptions.IgnoreComponentEnabledState"))
                             {
@@ -110,9 +118,14 @@ namespace NetCodeAnalyzer
 
         private MethodDeclarationSyntax? GetExecuteMethod(StructDeclarationSyntax structDeclaration)
         {
-            return structDeclaration.Members
-                .OfType<MethodDeclarationSyntax>()
-                .FirstOrDefault(m => m.Identifier.ValueText == "Execute");
+            foreach (var memberDeclarationSyntax in structDeclaration.Members)
+            {
+                if (memberDeclarationSyntax is MethodDeclarationSyntax { Identifier: { ValueText: "Execute" } } member)
+                {
+                    return member;
+                }
+            }
+            return null;
         }
 
         private bool HasSimulateInExecuteParameters(MethodDeclarationSyntax executeMethod, SyntaxNodeAnalysisContext context)

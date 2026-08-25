@@ -19,7 +19,7 @@ namespace Unity.NetCode.Tests
             EntityManager.CompleteAllTrackedJobs();
 
             var systemHandle = World.GetExistingSystem<NetworkStreamReceiveSystem>();
-            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<NetworkStreamReceiveSystem>();
+            ref var unmanagedSystem = ref World.Unmanaged.GetExistingSystemState<NetworkStreamReceiveSystem>();
             unmanagedSystem.Enabled = false;
 
             k_CompleteTrackedJobs.Begin();

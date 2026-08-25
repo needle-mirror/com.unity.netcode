@@ -126,6 +126,20 @@ namespace Unity.NetCode
                             // TODO: Do we need to clear the snapshot history buffer?
                             AddNewPendingDespawn(ref pending, ref state.Flags, ghostCleanup, DespawnReason.EntityDestroyed);
                         }
+                        else if (isAlreadyDespawning)
+                        {
+                            // Irrelevant-despawn entry has despawnTick=Invalid; upgrade it to the real destruction
+                            // tick so OldestPendingDespawnTick blocks ghostId reuse until the despawn is acked.
+                            for (int j = 0; j < pending.Length; ++j)
+                            {
+                                ref var entry = ref pending.ElementAt(j);
+                                if (entry.Ghost.ghostId == ghostCleanup.ghostId && entry.Ghost.spawnTick == ghostCleanup.spawnTick)
+                                {
+                                    entry.Ghost.despawnTick = ghostCleanup.despawnTick;
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -209,6 +223,7 @@ namespace Unity.NetCode
                 for (var i = 0; i < pending.Length; i++)
                 {
                     ref var pendingDespawn = ref pending.ElementAt(i);
+
                     if (pendingDespawn.CountInFlight >= k_MaxInFlight // We've reached the (sorted) entries that already have their max number in-flight.
                         || dataStream.Length + minBytesLeftForSnapshotOverhead >= maxBytesUsedForDespawns)
                     {
@@ -288,7 +303,6 @@ namespace Unity.NetCode
             if (CountInFlight == 0) return false;
             if (AckOrResetInFlightSlot(ref DespawnSlot0, ref CountInFlight, ref ack)) return true;
             if (AckOrResetInFlightSlot(ref DespawnSlot1, ref CountInFlight, ref ack)) return true;
-            //if (AckOrResetInFlightSlot(ref DespawnSlot2, ref CountInFlight, ref ack)) return true;
             return false;
 
             static bool AckOrResetInFlightSlot(ref NetworkTick slot, ref byte countInFlight, ref NetworkSnapshotAck ack)
@@ -396,12 +410,9 @@ namespace Unity.NetCode
             UnityEngine.Debug.Assert(CountInFlight <= k_MaxInFlight, "k_MaxInFlight");
             UnityEngine.Debug.Assert(CountInFlight ==
                                      (DespawnSlot0.IsValid ? 1 : 0) +
-                                     (DespawnSlot1.IsValid ? 1 : 0), "CountInFlight");// +
-                                     //(DespawnSlot2.IsValid ? 1 : 0);
+                                     (DespawnSlot1.IsValid ? 1 : 0), "CountInFlight");
             // No duplicates:
             UnityEngine.Debug.Assert(!DespawnSlot0.IsValid || DespawnSlot0 != DespawnSlot1, "NoDup0vs1");
-            // UnityEngine.Debug.Assert(!DespawnSlot0.IsValid || DespawnSlot0 != DespawnSlot2);
-            // UnityEngine.Debug.Assert(!DespawnSlot1.IsValid || DespawnSlot1 != DespawnSlot2);
 
             // Ghost is valid:
             UnityEngine.Debug.Assert(Reason != default, "Reason");
@@ -421,7 +432,6 @@ namespace Unity.NetCode
                 if (pending.CountInFlight <= 0) continue;
                 RevertIfSameTick(ref pending.DespawnSlot0, ref pending.CountInFlight, currentTick);
                 RevertIfSameTick(ref pending.DespawnSlot1, ref pending.CountInFlight, currentTick);
-                //RevertIfSameTick(ref pending.DespawnSlot2, ref pending.CountInFlight, currentTick);
                 pending.AssertValid();
             }
 

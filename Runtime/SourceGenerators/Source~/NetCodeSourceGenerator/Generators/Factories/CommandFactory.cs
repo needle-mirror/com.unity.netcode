@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
-using System.Linq;
 using System;
 
 namespace Unity.NetCode.Generators
@@ -42,9 +41,9 @@ namespace Unity.NetCode.Generators
                 if (typeInfo == null)
                     continue;
                 codeGenContext.ResetState();
-                NameUtils.UpdateNameAndNamespace(typeInfo, ref codeGenContext, candidateSymbol);
+                NameUtils.UpdateNameAndNamespace(ref typeInfo, ref codeGenContext, candidateSymbol);
                 // If the serializer type already exist we can just skip generation
-                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetCommandSerializerName(codeGenContext)).FirstOrDefault() != null)
+                if (new List<ISymbol>(codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetCommandSerializerName(codeGenContext))).Count > 0)
                 {
                     codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {codeGenContext.generatorName} because a command serializer for it already exists");
                     continue;

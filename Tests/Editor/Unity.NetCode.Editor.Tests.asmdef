@@ -9,6 +9,7 @@
         "Unity.NetCode",
         "Unity.NetCode.Editor",
         "Unity.NetCode.Profiler.Editor",
+        "Unity.Profiling.Core",
         "Unity.NetCode.TestsUtils.Runtime.Tests",
         "Unity.NetCode.Authoring.Hybrid",
         "Unity.Entities",
@@ -21,7 +22,9 @@
         "UnityEditor.TestRunner",
         "Unity.Logging",
         "Unity.Entities.Build",
-        "Unity.NetCode.Hybrid"
+        "Unity.NetCode.Hybrid",
+        "Unity.UI.TestFramework.Runtime",
+        "Unity.UI.TestFramework.Editor"
     ],
     "includePlatforms": [
         "Editor"
@@ -36,12 +39,6 @@
     "defineConstraints": [
         "UNITY_INCLUDE_TESTS"
     ],
-    "versionDefines": [
-        {
-            "name": "com.unity.logging",
-            "expression": "0.0",
-            "define": "USING_UNITY_LOGGING"
-        }
-    ],
+    "versionDefines": [],
     "noEngineReferences": false
 }

@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -22,20 +21,25 @@ namespace Unity.NetCode.Generators
         {
             var templates = new List<TypeRegistryEntry>();
             //This is only true for NetCode assembly. All the other don't have any symbols (but only metadata refs)
-            var symbol = context.Compilation.GetSymbolsWithName("UserDefinedTemplates").FirstOrDefault();
-            if (symbol != null)
+            var symbolsWithName = new List <ISymbol>(context.Compilation.GetSymbolsWithName("UserDefinedTemplates"));
+            if (symbolsWithName.Count > 0)
             {
-                foreach (var syntaxRef in symbol.DeclaringSyntaxReferences)
+                foreach (var syntaxRef in symbolsWithName[0].DeclaringSyntaxReferences)
                 {
                     context.CancellationToken.ThrowIfCancellationRequested();
-                    var method = syntaxRef.GetSyntax().DescendantNodes()
-                        .OfType<MethodDeclarationSyntax>()
-                        .FirstOrDefault(m => m.Identifier.ToString() == "RegisterTemplates");
 
-                    //Get ther right reference (the one with the body)
-                    if (method?.Body != null && method.Body.Statements.Count > 0)
+                    foreach (var node in syntaxRef.GetSyntax().DescendantNodes())
                     {
-                        ParseMethod(context, method, templates, reporter);
+                        if (node is not MethodDeclarationSyntax m || m.Identifier.ToString() != "RegisterTemplates")
+                        {
+                            continue;
+                        }
+
+                        // Get the right reference (the one with the body)
+                        if (m.Body is { Statements.Count: > 0 })
+                        {
+                            ParseMethod(context, m, templates, reporter);
+                        }
                         break;
                     }
                 }
@@ -47,26 +51,39 @@ namespace Unity.NetCode.Generators
             return templates;
         }
 
-        static private void ParseTemplatesFromMetadata(GeneratorExecutionContext context, IList<TypeRegistryEntry> templates)
+        static void ParseTemplatesFromMetadata(GeneratorExecutionContext context, IList<TypeRegistryEntry> templates)
         {
             string netCode = null;
-            netCode = context.Compilation.ExternalReferences.FirstOrDefault(r =>
+            foreach (var r in context.Compilation.ExternalReferences)
             {
-                return r.Properties.Kind == MetadataImageKind.Assembly &&
-                       r.Display != null && r.Display.EndsWith("Unity.NetCode.dll", StringComparison.Ordinal);
-            })?.Display;
+                if (r.Properties.Kind == MetadataImageKind.Assembly &&
+                    r.Display != null && r.Display.EndsWith("Unity.NetCode.dll", StringComparison.Ordinal))
+                {
+                    netCode = r.Display;
+                    break;
+                }
+            }
+
             if (netCode == null)
             {
-                var netCodeRef = context.Compilation.ExternalReferences.FirstOrDefault(r =>
+                string netCodeRef = null;
+                foreach (var r in context.Compilation.ExternalReferences)
                 {
-                    return r.Properties.Kind == MetadataImageKind.Assembly &&
-                           r.Display != null && r.Display.EndsWith("Unity.NetCode.ref.dll", StringComparison.Ordinal);
-                })?.Display;
+                    if (r.Properties.Kind == MetadataImageKind.Assembly &&
+                        r.Display != null && r.Display.EndsWith("Unity.NetCode.ref.dll", StringComparison.Ordinal))
+                    {
+                        netCodeRef = r.Display;
+                        break;
+                    }
+                }
+
                 if (netCodeRef != null)
                     netCode = Path.Combine(Path.GetDirectoryName(netCodeRef), "Unity.NetCode.dll");
             }
             if (netCode == null)
+            {
                 throw new InvalidOperationException($"Cannot find Unity.NetCode metadata reference for assembly {context.Compilation.AssemblyName}");
+            }
 
             //The dlls must be loaded in the main execution context since we need to execute the constructor code
             var bytes = File.ReadAllBytes(netCode);
@@ -96,50 +113,68 @@ namespace Unity.NetCode.Generators
             var model = context.Compilation.GetSemanticModel(method.SyntaxTree);
 
             var entryType = typeof(TypeRegistryEntry);
-            if (method.Body != null)
-                foreach (var s in method.Body.DescendantNodes().OfType<InvocationExpressionSyntax>())
-                {
-                    var templatesList = s.ArgumentList.Arguments[0].Expression
-                        .DescendantNodes()
-                        .OfType<ObjectCreationExpressionSyntax>().ToArray();
-                    foreach (var template in templatesList)
-                    {
-                        var entry = new TypeRegistryEntry();
-                        if (template.Initializer != null)
-                        {
-                            foreach (var e in template.Initializer.Expressions)
-                            {
-                                if (e is AssignmentExpressionSyntax assignment)
-                                {
-                                    var field = ((IdentifierNameSyntax) assignment.Left).Identifier;
-                                    if (assignment.Right.IsKind(SyntaxKind.InterpolatedStringExpression))
-                                    {
-                                        var text = ResolveInterpolatedString(
-                                            assignment.Right as InterpolatedStringExpressionSyntax, model);
-                                        entryType.GetField(field.Text).SetValue(entry, text);
-                                    }
-                                    else
-                                    {
-                                        var text = model.GetConstantValue(assignment.Right);
-                                        entryType.GetField(field.Text).SetValue(entry, text.Value);
-                                    }
-                                }
-                            }
-                        }
+            if (method.Body == null)
+            {
+                return;
+            }
 
-                        if (string.IsNullOrWhiteSpace(entry.Type))
-                        {
-                            reporter.LogError($"UserDefinedTemplate '{method.Identifier.SyntaxTree?.FilePath}' defines a `TypeRegistryEntry` with a missing `Type`. Cannot add it to the list of Templates. [{entry}]!");
-                            continue;
-                        }
-                        if (string.IsNullOrWhiteSpace(entry.Template))
-                        {
-                            reporter.LogError($"UserDefinedTemplate '{method.Identifier.SyntaxTree?.FilePath}' defines a `TypeRegistryEntry` (Type: {entry.Type}) with a missing `Template` path. Cannot add it to the list of Templates. [{entry}]!");
-                            continue;
-                        }
-                        templates.Add(entry);
-                    }
+            foreach (var syntaxNode in method.Body.DescendantNodes())
+            {
+                if (syntaxNode is not InvocationExpressionSyntax s)
+                {
+                    continue;
                 }
+                var templatesList = s.ArgumentList.Arguments[0].Expression.DescendantNodes();
+                foreach (var node in templatesList)
+                {
+                    if (node is not ObjectCreationExpressionSyntax template)
+                    {
+                        continue;
+                    }
+                    var entry = new TypeRegistryEntry();
+                    ParseTemplateInitializer(template, model, entryType, entry);
+
+                    if (string.IsNullOrWhiteSpace(entry.Type))
+                    {
+                        reporter.LogError($"UserDefinedTemplate '{method.Identifier.SyntaxTree?.FilePath}' defines a `TypeRegistryEntry` with a missing `Type`. Cannot add it to the list of Templates. [{entry}]!");
+                        continue;
+                    }
+                    if (string.IsNullOrWhiteSpace(entry.Template))
+                    {
+                        reporter.LogError($"UserDefinedTemplate '{method.Identifier.SyntaxTree?.FilePath}' defines a `TypeRegistryEntry` (Type: {entry.Type}) with a missing `Template` path. Cannot add it to the list of Templates. [{entry}]!");
+                        continue;
+                    }
+                    templates.Add(entry);
+                }
+            }
+        }
+
+        static void ParseTemplateInitializer(ObjectCreationExpressionSyntax template, SemanticModel model, Type entryType, TypeRegistryEntry entry)
+        {
+            if (template.Initializer == null)
+            {
+                return;
+            }
+
+            foreach (var e in template.Initializer.Expressions)
+            {
+                if (e is not AssignmentExpressionSyntax assignment)
+                {
+                    continue;
+                }
+                var field = ((IdentifierNameSyntax) assignment.Left).Identifier;
+                if (assignment.Right.IsKind(SyntaxKind.InterpolatedStringExpression))
+                {
+                    var text = ResolveInterpolatedString(
+                        assignment.Right as InterpolatedStringExpressionSyntax, model);
+                    entryType.GetField(field.Text).SetValue(entry, text);
+                }
+                else
+                {
+                    var text = model.GetConstantValue(assignment.Right);
+                    entryType.GetField(field.Text).SetValue(entry, text.Value);
+                }
+            }
         }
 
         // Resolve and return the interpolated string Don't support super complex interpolation, like with function or expression,

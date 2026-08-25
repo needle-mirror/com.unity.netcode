@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -85,10 +82,14 @@ namespace Unity.NetCode.GeneratorTests
         public const string OutputFolder = "TestOutput";
         public static Compilation CreateCompilation(params SyntaxTree[] tree)
         {
+            return CreateCompilationWithPreProcessorSymbols([], tree);
+        }
 
+        public static Compilation CreateCompilationWithPreProcessorSymbols(string [] preprocessorSymbols, params SyntaxTree[] tree)
+        {
             var metaReferences = new List<SyntaxTree>();
             metaReferences.AddRange(tree);
-            metaReferences.AddRange(GetUnityNetCodeMetaRefs());
+            metaReferences.AddRange(GetUnityNetCodeMetaRefs(preprocessorSymbols));
             var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                     optimizationLevel: OptimizationLevel.Debug, allowUnsafe: true);
 
@@ -166,6 +167,13 @@ namespace Unity.NetCode.GeneratorTests
             return driver.RunGenerators(compilation).GetRunResult().Results[0];
         }
 
+        public static GeneratorRunResult RunGeneratorsWithPreprocessorSymbols(string[] preprocessorSymbols, params SyntaxTree[] syntaxTree)
+        {
+            var compilation = CreateCompilationWithPreProcessorSymbols(preprocessorSymbols, syntaxTree);
+            var driver = CreateGeneratorDriver();
+            return driver.RunGenerators(compilation).GetRunResult().Results[0];
+        }
+
         public static GeneratorRunResult RunGeneratorsWithOptions(Dictionary<string, string>? customOptions, params SyntaxTree[] syntaxTree)
         {
             var compilation = CreateCompilation(syntaxTree);
@@ -180,7 +188,7 @@ namespace Unity.NetCode.GeneratorTests
 
         //Because we cannot have any Unity.XXX references here, let's embed our dependencies using some custom made code
         //that just suit our need for sake of testing
-        private static SyntaxTree[] GetUnityNetCodeMetaRefs()
+        private static SyntaxTree[] GetUnityNetCodeMetaRefs(string [] preprocessorSymbols)
         {
             string hackyUnityRefs = @"
 namespace Unity
@@ -286,33 +294,39 @@ namespace Unity
         }
     }
 }";
+            var parseOptions = preprocessorSymbols!=null ? new CSharpParseOptions(preprocessorSymbols: preprocessorSymbols) : new CSharpParseOptions();
+
             return new[]
             {
-                CSharpSyntaxTree.ParseText(hackyUnityRefs),
+                CSharpSyntaxTree.ParseText(hackyUnityRefs,parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Authoring/GhostFieldAttribute.cs"))),
+                    "../../Authoring/GhostFieldAttribute.cs")),parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Authoring/GhostFixedListCapacityAttribute.cs"))),
+                    "../../Authoring/GhostFixedListCapacityAttribute.cs")),parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Authoring/GhostComponentAttribute.cs"))),
+                    "../../Authoring/GhostComponentAttribute.cs")),parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Authoring/GhostModifiers.cs"))),
+                    "../../Authoring/GhostModifiers.cs")), parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Authoring/GhostComponentVariation.cs"))),
+                    "../../Authoring/GhostComponentVariation.cs")), parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Authoring/DontSupportPrefabOverridesAttribute.cs"))),
+                    "../../Authoring/DontSupportPrefabOverridesAttribute.cs")), parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Authoring/SubTypes.cs"))),
+                    "../../Authoring/SubTypes.cs")), parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Command/ICommandData.cs"))),
+                    "../../Command/ICommandData.cs")), parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Rpc/IRpcCommand.cs"))),
+                    "../../Rpc/IRpcCommand.cs")), parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Authoring/UserDefinedTemplates.cs"))),
+                    "../../GameObjectLayer/Remotes/IRemote.cs")), parseOptions),
+                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
+                    "../../Authoring/RemotesAttribute.cs")),parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../Command/IInputComponentData.cs"))),
+                    "../../Authoring/UserDefinedTemplates.cs")), parseOptions),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../PredictionTicking/NetworkTime.cs"))),
+                    "../../Command/IInputComponentData.cs")), parseOptions),
+                CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
+                    "../../PredictionTicking/NetworkTime.cs")), parseOptions),
             };
         }
     }

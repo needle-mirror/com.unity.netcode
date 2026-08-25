@@ -1,4 +1,3 @@
-#if !UNITY_DISABLE_MANAGED_COMPONENTS && UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
@@ -38,4 +37,4 @@ namespace Unity.NetCode
         }
     }
 }
-#endif
+

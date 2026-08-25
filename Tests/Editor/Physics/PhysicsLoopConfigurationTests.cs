@@ -200,10 +200,10 @@ namespace Unity.NetCode.Physics.Tests
                 testWorld.CreateWorlds(true, 1);
                 var ctr = new ClientServerTickRate();
                 ctr.PredictedFixedStepSimulationTickRatio = 2;
-                var ctrEntity = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
-                testWorld.ServerWorld.EntityManager.AddComponentData(ctrEntity, ctr);
-                ctrEntity = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(ClientServerTickRate));
-                testWorld.ClientWorlds[0].EntityManager.AddComponentData(ctrEntity, ctr);
+
+                var ent = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+                testWorld.ServerWorld.EntityManager.SetComponentData(ent, ctr);
+
                 testWorld.Connect();
                 testWorld.GoInGame();
                 for (int i = 0; i < 32; ++i)
@@ -246,7 +246,6 @@ namespace Unity.NetCode.Physics.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void EnablePhysicToRunWithoutPredictedGhosts([Values]PredictionLoopUpdateMode loopMode,
             [Values]PhysicsRunMode physicsRunMode)
         {
@@ -264,10 +263,12 @@ namespace Unity.NetCode.Physics.Tests
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(cubeGameObject));
                 testWorld.CreateWorlds(true, 1);
+                var world = testWorld.ServerWorld;
+
 
                 if (loopMode == PredictionLoopUpdateMode.AlwaysRun)
                 {
-                    var clientTickRate = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(ClientTickRate));
+                    var clientTickRate = testWorld.TryGetSingletonEntity<ClientTickRate>(testWorld.ClientWorlds[0]);
                     var tickRate = NetworkTimeSystem.DefaultClientTickRate;
                     tickRate.PredictionLoopUpdateMode = PredictionLoopUpdateMode.AlwaysRun;
                     testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientTickRate, tickRate);
@@ -309,9 +310,8 @@ namespace Unity.NetCode.Physics.Tests
                 //On the server the loopMode setting does not matter.
                 if (physicsRunMode == PhysicsRunMode.EnableLagCompensation)
                 {
-                    Assert.IsTrue(testWorld.ServerWorld.GetExistingSystemManaged<PhysicCheck>().lastTick ==
-                                  testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick);
                     Assert.IsTrue(testWorld.GetSingleton<PhysicsWorldHistorySingleton>(testWorld.ServerWorld).LatestStoredTick.IsValid, "history must be recorded on the server, even without ghost");
+                    Assert.AreEqual(testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick, testWorld.ServerWorld.GetExistingSystemManaged<PhysicCheck>().lastTick);
                 }
                 if (physicsRunMode == PhysicsRunMode.RequirePredictedGhost)
                 {
@@ -319,7 +319,7 @@ namespace Unity.NetCode.Physics.Tests
                 }
                 else
                 {
-                    Assert.IsTrue(testWorld.ServerWorld.GetExistingSystemManaged<PhysicCheck>().lastTick == testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick);
+                    Assert.AreEqual(testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick, testWorld.ServerWorld.GetExistingSystemManaged<PhysicCheck>().lastTick);
                 }
                 //On the client if the loopMode is set to RunOnlyWhenPredictedGhostArePresent, the prediction loop does not run
                 //in case no predicted ghost is present. And so, no history should be recorded, nor physics loop run, nor prediction has run

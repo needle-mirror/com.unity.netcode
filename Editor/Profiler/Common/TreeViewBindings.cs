@@ -121,6 +121,8 @@ namespace Unity.NetCode.Editor
             var formattedBytes = ProfilerUtils.FormatFractionalBytes(size);
             var isOverhead = ghostTypeData.overheadType != OverheadType.None;
             labelWithIcon.SetText(formattedBytes);
+            // We set size labels right-aligned with a fixed margin to account for icon rendering.
+            labelWithIcon.SetIsAligned(true);
             element.parent.parent.SetEnabled(isOverhead || size != 0); // Disable the row if size is 0 and not overhead
             var snapshotCount = ghostTypeData.snapshotCount;
             if (snapshotCount > 0 && maxMessageSize > 0)

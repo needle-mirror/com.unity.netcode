@@ -31,5 +31,15 @@ namespace Unity.NetCode
         /// The default value for the <see cref="GhostFieldAttribute.SubType"/>.
         /// </summary>
         public const int None = 0;
+
+        /// <summary>
+        /// Built-in subtype used to replicate a <see cref="Unity.Transforms.PostTransformMatrix"/> (a float4x4)
+        /// as a non-uniform scale (float3). Only the per-axis scale is sent over the wire; the receiving side keeps
+        /// the matrix's translation and rotation - the latter up to diagonal signs, which the incoming scale owns
+        /// (see <see cref="MatrixScaleHelper"/>).
+        /// Used by <see cref="PostTransformMatrix3DScaleVariant"/>.
+        /// </summary>
+        /// <remarks>The integer value must match the SubType registered for float4x4 in the NetCode default type registry.</remarks>
+        public const int PostTransformMatrixScale = int.MaxValue;
     }
 }

@@ -31,6 +31,7 @@ namespace Unity.NetCode
         internal const int SnapshotTickTag = 12;
         internal const int ServerTickTag = 13;
         internal const int InterpolationTickTag = 14;
+        internal const int WorldNameTag = 15;
     }
 }
 #endif

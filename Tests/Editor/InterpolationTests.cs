@@ -23,7 +23,10 @@ namespace Unity.NetCode.Tests
         {
             var deltaTime = SystemAPI.Time.DeltaTime;
             var speed = moveSpeed;
-            Entities.ForEach((Entity ent, ref LocalTransform tx) => { tx.Position += new float3(speed * deltaTime); }).Run();
+            foreach( var tx in SystemAPI.Query<RefRW<LocalTransform>>() )
+            {
+                tx.ValueRW.Position += new float3(speed * deltaTime);
+            }
         }
     }
 
@@ -37,13 +40,11 @@ namespace Unity.NetCode.Tests
         private float3 prevPos;
         protected override void OnUpdate()
         {
-            Entities
-                .WithoutBurst()
-                .ForEach((Entity ent, in LocalTransform tx) =>
+            foreach( var tx in SystemAPI.Query<RefRO<LocalTransform>>() )
             {
-                Assert.GreaterOrEqual(tx.Position.x, prevPos.x);
-                prevPos = tx.Position;
-            }).Run();
+                Assert.GreaterOrEqual(tx.ValueRO.Position.x, prevPos.x);
+                prevPos = tx.ValueRO.Position;
+            }
         }
     }
 

@@ -248,6 +248,22 @@ namespace Unity.NetCode
             DefaultVariants[componentType] = newRuleHash;
         }
 
+        /// <summary>
+        /// Editor/debug helper: the system that registered the current default variant rule for
+        /// <paramref name="componentType"/>, or null when there's no rule (or when collection checks are disabled).
+        /// Lets the inspector distinguish netcode-registered defaults from actual user rules.
+        /// </summary>
+        /// <param name="componentType">Component type to look up.</param>
+        /// <returns>The registering system, or null.</returns>
+        internal SystemBase TryGetRuleRegistrationSystem(ComponentType componentType)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS || NETCODE_DEBUG
+            if (DefaultVariantsManaged.TryGetValue(componentType, out var assignment))
+                return assignment.LastSystem;
+#endif
+            return null;
+        }
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         void ValidateVariantRule(ComponentType componentType, DefaultVariantSystemBase.Rule rule, ComponentSystemBase systemBase)
         {

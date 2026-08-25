@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -20,6 +19,9 @@ namespace Unity.NetCode.Generators
         public const string GhostFixedListContainer = "NetCode.GhostFixedListContainer.cs";
         public const string GhostFixedListCommandHelper = "NetCode.GhostFixedListCommandHelper.cs";
         public const string GhostFixedListSnapshotHelpers = "NetCode.GhostFixedListSnapshotHelpers.cs";
+        public const string RemoteSynchronization = "NetCode.RemoteStructSerializer.cs";
+        public const string RemotesRegistrationSystem = "NetCode.RemoteStructSerializerRegistrationSystem.cs";
+        const string k_GlobalPrefix = "global::";
 
         //Namespace generation can be a little tricky.
         //Given the current generated NS: AssemblyName.Generated
@@ -35,7 +37,107 @@ namespace Unity.NetCode.Generators
                 return ns;
 
             //need to use global to avoid confusion
-            return "global::" + ns;
+            return k_GlobalPrefix + ns;
+        }
+
+        /// <summary>
+        /// Qualifies a type for emission inside generated namespaces (e.g. AssemblyName.Generated),
+        /// which nest inside AssemblyName and can shadow user namespace segments.
+        /// Prefer the <see cref="ITypeSymbol"/> overload so Roslyn handles generics, arrays, and nested types.
+        /// </summary>
+        internal static string GetGlobalQualifiedTypeName(ITypeSymbol symbol)
+        {
+            return Roslyn.Extensions.GetGlobalQualifiedTypeName(symbol);
+        }
+
+        internal static string GetGlobalQualifiedTypeName(TypeInformation typeInfo)
+        {
+            return GetGlobalQualifiedComponentTypeName(typeInfo);
+        }
+
+        /// <summary>
+        /// Qualifies the ECS component type referenced by generated serializers.
+        /// For variants, <see cref="TypeInformation.TypeFullName"/> and <see cref="TypeInformation.Symbol"/> differ
+        /// (adaptee vs variant struct); this resolves the adaptee type.
+        /// </summary>
+        internal static string GetGlobalQualifiedComponentTypeName(TypeInformation typeInfo)
+        {
+            if (typeInfo == null)
+                return string.Empty;
+
+            if (typeInfo.Symbol != null)
+            {
+                var symbolTypeName = Roslyn.Extensions.GetFullTypeName(typeInfo.Symbol).Replace('+', '.');
+                var componentTypeName = typeInfo.TypeFullName?.Replace('+', '.');
+                if (componentTypeName != null && symbolTypeName != componentTypeName)
+                {
+                    var variation = Roslyn.Extensions.GetAttribute(typeInfo.Symbol, "Unity.NetCode",                        "GhostComponentVariationAttribute");
+                    if (variation?.ConstructorArguments.Length > 0
+                    && variation.ConstructorArguments[0].Value is ITypeSymbol adapteeSymbol)
+                    {
+                        return GetGlobalQualifiedTypeName(adapteeSymbol);
+                    }
+                    return GetGlobalQualifiedTypeNameFromStringFallback(typeInfo.TypeFullName);
+                }
+                return GetGlobalQualifiedTypeName(typeInfo.Symbol);
+            }
+            return GetGlobalQualifiedTypeNameFromStringFallback(typeInfo.TypeFullName);
+        }
+
+        /// <summary>
+        /// Fallback when no <see cref="ITypeSymbol"/> is available. Only qualifies a single namespace-qualified name;
+        /// does not parse generic syntax (use symbol-based overloads for generic types).
+        /// </summary>
+        internal static string GetGlobalQualifiedTypeNameFromStringFallback(string typeFullName)
+        {
+            if (string.IsNullOrWhiteSpace(typeFullName))
+            {
+                return typeFullName;
+            }
+            return QualifySingleTypeNameForGeneratedCode(typeFullName.Replace('+', '.').Trim());
+        }
+
+        static string QualifySingleTypeNameForGeneratedCode(string typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName))
+            {
+                return typeName;
+            }
+
+            typeName = typeName.Trim();
+            if (typeName.StartsWith(k_GlobalPrefix, StringComparison.Ordinal))
+            {
+                return typeName;
+            }
+
+            // Primitives and other unqualified aliases do not need global::
+            if (typeName.IndexOf('.') < 0)
+            {
+                return typeName;
+            }
+            return k_GlobalPrefix + typeName;
+        }
+
+        static string GetGlobalQualifiedTypeNameForSerializationStrategy(Context.SerializationStrategyCodeGen ss)
+        {
+            if (ss.ComponentTypeSymbol != null)
+            {
+                return GetGlobalQualifiedTypeName(ss.ComponentTypeSymbol);
+            }
+            if (ss.TypeInfo != null)
+            {
+                return GetGlobalQualifiedComponentTypeName(ss.TypeInfo);
+            }
+            return GetGlobalQualifiedTypeNameFromStringFallback(ss.ComponentTypeName);
+        }
+
+        static string GetGlobalQualifiedTypeNameForInputBuffer(Context.SerializationStrategyCodeGen ss)
+        {
+            if (ss.InputBufferComponentSymbol != null)
+            {
+                return GetGlobalQualifiedTypeName(ss.InputBufferComponentSymbol);
+            }
+            return GetGlobalQualifiedTypeNameFromStringFallback(ss.InputBufferComponentTypeName);
         }
 
         public static ReadOnlySpan<byte> Log2DeBruijn => // 32
@@ -80,6 +182,9 @@ namespace Unity.NetCode.Generators
                     // NOTE: We should really find ALL templates for a given type, then select the best, where possible.
                     foreach (var kvp in context.templateProvider.TypeTemplates)
                     {
+                        // Opt-in only templates (e.g. PostTransformMatrixScale) are never best-match candidates.
+                        if (kvp.Value.IsOptInTemplate)
+                            continue;
                         if (description.Key == kvp.Key.Key)
                         {
                             // If the `kvp` entry has the exact subtype, but our best match doesn't, prefer the other one.
@@ -120,8 +225,12 @@ namespace Unity.NetCode.Generators
 
                     if (!foundSubType)
                     {
-                        context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' with subtype:{description.Attribute.subtype}, but this subType has not been registered. Known subTypes are {context.templateProvider.FormatAllKnownSubTypes()}. Please register your SubType Template in the `UserDefinedTemplates` `TypeRegistry` via an `.additionalfile` (see docs).",
+                        context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' with subtype:{description.Attribute.subtype}, but this subType has not been registered. Known subTypes are listed in the following log. Please register your SubType Template in the `UserDefinedTemplates` `TypeRegistry` via an `.additionalfile` (see docs).",
                             typeInfo.Location);
+                        foreach (var knownSubType in context.templateProvider.AllKnownSubTypes())
+                        {
+                            context.diagnostic.LogError("|_Known subtype: "+knownSubType, typeInfo.Location);
+                        }
                         return false;
                     }
                     context.diagnostic.LogDebug($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' -- found its subtype!",
@@ -135,6 +244,8 @@ namespace Unity.NetCode.Generators
                 const int defaultQuantizationValue = 1000;
                 context.diagnostic.LogWarning($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' which matches template '{template.TemplatePath}'. However, this template requires a quantization value to be specified, but it has not been. Using {defaultQuantizationValue} for now. To remove this warning, add a quantization value to the GhostField attribute constructor.",
                     typeInfo.Location);
+
+                typeInfo.Attribute.quantization = defaultQuantizationValue;
                 description.Attribute.quantization = defaultQuantizationValue;
             }
             else if (!template.SupportsQuantization && description.Attribute.quantization > 0)
@@ -196,7 +307,7 @@ namespace Unity.NetCode.Generators
                     var isDefaultSerializer = string.IsNullOrWhiteSpace(ss.VariantTypeName) || ss.VariantTypeName == ss.ComponentTypeName;
 
                     replacements["VARIANT_TYPE"] = ss.VariantTypeName;
-                    replacements["GHOST_COMPONENT_TYPE"] = ss.ComponentTypeName;
+                    replacements["GHOST_COMPONENT_TYPE"] = GetGlobalQualifiedTypeNameForSerializationStrategy(ss);
                     replacements["GHOST_VARIANT_DISPLAY_NAME"] = displayName;
                     replacements["GHOST_VARIANT_HASH"] = ss.Hash;
                     replacements["SELF_INDEX"] = selfIndex++.ToString();
@@ -233,9 +344,10 @@ namespace Unity.NetCode.Generators
 
                     registrationSystemCodeGen.GenerateFragment("GHOST_SERIALIZATION_STRATEGY_LIST", replacements);
 
-                    if (typeInfo.ComponentType == ComponentType.Input && !String.IsNullOrEmpty(ss.InputBufferComponentTypeName))
+                    if (typeInfo.ComponentType == ComponentType.Input &&
+                        (ss.InputBufferComponentSymbol != null || !String.IsNullOrEmpty(ss.InputBufferComponentTypeName)))
                     {
-                        replacements["GHOST_INPUT_BUFFER_COMPONENT_TYPE"] = ss.InputBufferComponentTypeName;
+                        replacements["GHOST_INPUT_BUFFER_COMPONENT_TYPE"] = GetGlobalQualifiedTypeNameForInputBuffer(ss);
 
                         registrationSystemCodeGen.GenerateFragment("GHOST_INPUT_COMPONENT_LIST", replacements);
                     }
@@ -389,7 +501,7 @@ namespace Unity.NetCode.Generators
                 var userFieldName = netVarBridgeField.Name;
                 INamedTypeSymbol netVarTypeForField = netVarBridgeField.Type as INamedTypeSymbol;
                 var netVarGenericType = netVarTypeForField.TypeArguments[0];
-                var componentInnerType = netVarGenericType.ToString();
+                var componentInnerType = Roslyn.Extensions.GetGlobalQualifiedTypeName(netVarGenericType);
 
                 // generating blocks
                 initializeBlock += $"{userFieldName}.Initialize(World, Entity, withInitialValue);\n";
@@ -448,12 +560,20 @@ using UnityEngine;
                 {
                     context.ResetState();
                     context.diagnostic.LogInfo($"generating serializers for generated component {generatedComponentName}");
-                    if (compilation.GetSymbolsWithName(generatedComponentName, SymbolFilter.Type).Count() == 0)
+                    INamedTypeSymbol componentSymbol = null;
+                    foreach (var sym in compilation.GetSymbolsWithName(generatedComponentName, SymbolFilter.Type))
+                    {
+                        componentSymbol = sym as INamedTypeSymbol;
+                        break;
+                    }
+                    if (componentSymbol == null)
+                    {
                         context.diagnostic.LogError($"Type {generatedComponentName} can't be found in compilation!");
-                    var componentSymbol = compilation.GetSymbolsWithName(generatedComponentName, SymbolFilter.Type).First() as INamedTypeSymbol;
+                        continue;
+                    }
                     var ghostComponent = ComponentFactory.TryGetGhostComponent(componentSymbol);
                     var typeInfo = typeBuilder.BuildTypeInformation(componentSymbol, ghostComponent);
-                    NameUtils.UpdateNameAndNamespace(typeInfo, ref context, componentSymbol);
+                    NameUtils.UpdateNameAndNamespace(ref typeInfo, ref context, componentSymbol);
                     var variantHash = Helpers.ComputeVariantHash(typeInfo.Symbol, typeInfo.Symbol);
 
                     context.serializationStrategies.Add(new CodeGenerator.Context.SerializationStrategyCodeGen
@@ -562,7 +682,7 @@ using UnityEngine;
                     }
 
                     var tmp = context.serializationStrategies[context.serializationStrategies.Count-1];
-                    tmp.InputBufferComponentTypeName = bufferSymbol.ToDisplayString();
+                    tmp.InputBufferComponentSymbol = bufferSymbol;
                     context.serializationStrategies[context.serializationStrategies.Count-1] = tmp;
 
                     using (new Profiler.Auto("GenerateInputCommandData"))
@@ -607,6 +727,7 @@ using UnityEngine;
                                 IsSerialized = false,
                                 VariantTypeName = bufferTypeTree.TypeFullName.Replace('+', '.'),
                                 ComponentTypeName = bufferTypeTree.TypeFullName.Replace('+', '.'),
+                                ComponentTypeSymbol = bufferTypeTree.Symbol,
                                 Hash = bufferVariantHash.ToString(),
                                 GhostAttribute = inputGhostAttributes
                             });
@@ -629,7 +750,7 @@ using UnityEngine;
             if (bufferType == null)
             {
                 //Search in current compilation unit. This is slow path but only happen for the NetCode assembly itself (where we don't have any IInputComponentData, so fine).
-                var inputBufferType = context.executionContext.Compilation.GetSymbolsWithName("InputBufferData", SymbolFilter.Type).First() as INamedTypeSymbol;
+                var inputBufferType = new List<ISymbol>(context.executionContext.Compilation.GetSymbolsWithName("InputBufferData", SymbolFilter.Type))[0] as INamedTypeSymbol;
                 bufferSymbol = inputBufferType.Construct(inputType);
             }
             else
@@ -775,7 +896,16 @@ using UnityEngine;
                 if (isErrorBecausePrimitive || isErrorBecauseMustFindSubType)
                 {
                     context.diagnostic.LogError($"Inside type '{context.generatorName}', we could not find the exact template for field '{type.FieldName}' with configuration '{type.Description}', which means that netcode cannot serialize this type (with this configuration), as it does not know how. " +
-                                                $"To rectify, either a) define your own template for this type (and configuration), b) resolve any other code-gen errors, or c) modify your GhostField(...) configuration (Quantization, SubType, SmoothingAction etc) to use a known, already existing template. Known templates are {context.templateProvider.FormatAllKnownTypes()}. All known subTypes are {context.templateProvider.FormatAllKnownSubTypes()}!", type.Location);
+                                                $"To rectify, either a) define your own template for this type (and configuration), b) resolve any other code-gen errors, or c) modify your GhostField(...) configuration (Quantization, SubType, SmoothingAction etc) to use a known, already existing template. Known templates and subtypes are listed in the next lines.", type.Location);
+                    foreach (var typeTemplate in context.templateProvider.TypeTemplates.Keys)
+                    {
+                        context.diagnostic.LogError($"|__ known template type: {typeTemplate}");
+                    }
+
+                    foreach (var knownSubType in context.templateProvider.AllKnownSubTypes())
+                    {
+                        context.diagnostic.LogError($"|__ known subtype: {knownSubType}");
+                    }
                     return;
                 }
                 if (type.GhostFields.Count == 0 && !type.ShouldSerializeEnabledBit)
@@ -800,6 +930,15 @@ using UnityEngine;
                 parentContainer.m_TargetGenerator.Fragments["__GHOST_AGGREGATE_WRITE__"].Content = "";
                 ++context.curChangeMaskBits;
                 ++context.changeMaskBitCount;
+            }
+        }
+
+        public static void GenerateRemote(Context context, TypeInformation typeTree)
+        {
+            using (new Profiler.Auto("CodeGen"))
+            {
+                var generator = new RemotesCodeGen(context);
+                generator.Generate(context, typeTree);
             }
         }
 
@@ -888,7 +1027,7 @@ using UnityEngine;
             fixedListElementHelperGen.Replacements["GHOST_NAME"] = context.root.TypeFullName;
             fixedListElementHelperGen.Replacements["GHOST_NAMESPACE"] = context.generatedNs;
             fixedListElementHelperGen.Replacements["GHOST_FIELD_TYPE"] = elementTypeName;
-            fixedListElementHelperGen.Replacements["GHOST_COMPONENT_TYPE"] = argumentContainer.TypeInformation.FieldTypeName;
+            fixedListElementHelperGen.Replacements["GHOST_COMPONENT_TYPE"] = GetGlobalQualifiedTypeName(argumentContainer.TypeInformation);
             argumentContainer.m_TargetGenerator.AppendFragment("GHOST_COPY_TO_SNAPSHOT", fixedListElementHelperGen);
             argumentContainer.m_TargetGenerator.AppendFragment("GHOST_COPY_FROM_SNAPSHOT", fixedListElementHelperGen);
             argumentContainer.m_TargetGenerator.AppendFragment("GHOST_CALCULATE_CHANGE_MASK", fixedListElementHelperGen);
@@ -925,7 +1064,7 @@ using UnityEngine;
             fixedListSnapshotField.Replacements["GHOST_FIXEDLIST_NAME"] = fixedListStructName;
             fixedListSnapshotField.Replacements["GHOST_FIXEDLIST_CAPACITY"] = fixedListType.ElementCount.ToString();
             fixedListSnapshotField.Replacements["GHOST_NAMESPACE"] = context.generatedNs;
-            fixedListSnapshotField.Replacements["GHOST_COMPONENT_TYPE"] = fixedListType.FieldTypeName;
+            fixedListSnapshotField.Replacements["GHOST_COMPONENT_TYPE"] = GetGlobalQualifiedTypeName(fixedListType);
             fixedListSnapshotField.GenerateFile(fixedListStructName + "_GhostData.cs", fixedListSnapshotField.Replacements, context.batch);
 
             //Now that we have the helpers ready we can generate the remaining fixed list regions normally
@@ -1094,9 +1233,22 @@ using UnityEngine;
                 public bool IsSerialized;
                 public GhostComponentAttribute GhostAttribute;
                 public string InputBufferComponentTypeName;
+                public ITypeSymbol ComponentTypeSymbol;
+                public ITypeSymbol InputBufferComponentSymbol;
 
             }
             public readonly List<SerializationStrategyCodeGen> serializationStrategies;
+
+            public struct RemotesContextInfo
+            {
+                // remotes can either be on components or on methods
+                public string originalRemoteComponentTypeName; // we need to be able to match this with user code, with partial structs
+                // public string originalRemoteMethodName;
+                // for methods, we need a backing component for the RPC
+                public string BackingRemoteComponentName;
+            }
+
+            public RemotesContextInfo RemotesContext;
 
             //Follow the Rolsyn convention for inner classes (so Namespace.ClassName[+DeclaringClass]+Class
             public string variantTypeFullName;
@@ -1154,6 +1306,7 @@ using UnityEngine;
                 ghostFieldHash = 0;
                 variantTypeFullName = null;
                 variantHash = 0;
+                RemotesContext = default;
                 imports.Clear();
                 imports.Add("Unity.Entities");
                 imports.Add("Unity.Collections");

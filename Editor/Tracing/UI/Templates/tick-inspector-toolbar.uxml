@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<engine:UXML
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:engine="UnityEngine.UIElements"
+    xmlns:editor="UnityEditor.UIElements"
+    class="tick-inspector__toolbar"
+    xsi:noNamespaceSchemaLocation="../../../../../UIElementsSchema/UIElements.xsd">
+    <Style src="project://database/Packages/com.unity.netcode/Editor/Tracing/UI/Stylesheets/tick-inspector-toolbar.uss"/>
+
+    <engine:VisualElement class="tick-inspector__toolbar__container">
+        <engine:Label name="tick-inspector-filter-status" class="tick-inspector__toolbar__filter-status" />
+        <engine:Label name="tick-inspector-tick-label" text="empty" class="tick-inspector__toolbar__tick" />
+        <engine:Label name="tick-inspector-frame-label" text="empty" class="tick-inspector__toolbar__frame" />
+    </engine:VisualElement>
+    <editor:ToolbarSearchField name="tick-inspector-search" class="tick-inspector__toolbar__search" placeholder-text="Search..."/>
+
+</engine:UXML>

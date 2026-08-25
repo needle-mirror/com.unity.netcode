@@ -256,8 +256,8 @@ namespace Unity.NetCode
         /// <exception cref="InvalidOperationException">Throw an exception if the driver is not created or if multiple drivers are register</exception>
         public Entity Connect(EntityManager entityManager, NetworkEndpoint endpoint, Entity ent = default)
         {
-            if (entityManager.WorldUnmanaged.IsHost())
-                throw new InvalidOperationException("You cannot call Connect on a NetworkStreamDriver in a host world.");
+            if (entityManager.WorldUnmanaged.IsServer())
+                throw new InvalidOperationException("You cannot call Connect on a NetworkStreamDriver in a server or host world.");
 
             if (!DriverStore.m_Driver0.IsCreated)
                 throw new InvalidOperationException($"You cannot call Connect on a NetworkStreamDriver for which the DriverStore have been not created. Please ensure the NetworkDriverStore is setup before calling the Connect method.");
@@ -314,11 +314,51 @@ namespace Unity.NetCode
             }
             entityManager.AddComponentData(ent, new NetworkSnapshotAck());
             entityManager.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
+            entityManager.AddBuffer<OutgoingOutOfBandRpcDataStreamBuffer>(ent);
             entityManager.AddBuffer<OutgoingCommandDataStreamBuffer>(ent);
             entityManager.AddBuffer<IncomingSnapshotDataStreamBuffer>(ent);
             entityManager.GetBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
             netDebug.DebugLog($"[{entityManager.WorldUnmanaged.Name}][Connection] Connect called: Connection={connection.ToFixedString()}, State={state}.");
             return ent;
+        }
+
+        /// <summary>
+        /// Disconnect the given connection. This will trigger the disconnection process for the connection, which will result in the connection being closed and the associated entity being destroyed by the <see cref="NetworkStreamReceiveSystem"/>.
+        /// </summary>
+        /// <param name="connection">The connection to disconnect.</param>
+        public void Disconnect(NetworkStreamConnection connection)
+        {
+            if (connection.Value == default)
+                throw new InvalidOperationException($"Trying to disconnect a connection with default value. This is not a valid connection.");
+
+            if (!DriverStore.m_Driver0.IsCreated)
+                throw new InvalidOperationException($"You cannot call Disconnect on a NetworkStreamDriver for which the DriverStore have been not created. Please ensure the NetworkDriverStore is setup before calling the Disconnect method.");
+
+            // Note that we do not need to check if we're in a host world, since NetworkStreamConnection is not created in host worlds.
+            ref var driver = ref DriverStore.GetDriverRW(NetworkDriverStore.FirstDriverId);
+            driver.Disconnect(connection.Value);
+        }
+
+        /// <summary>
+        /// Disconnect the given connection entity. This will trigger the disconnection process for the connection, which will result in the connection being closed and the associated entity being destroyed by the <see cref="NetworkStreamReceiveSystem"/>.
+        /// </summary>
+        /// <param name="entityManager">The entity manager to use to retrieve the connection component and disconnect it.</param>
+        /// <param name="connectionEntity">The entity that hold the <see cref="NetworkStreamConnection"/> component of the connection to disconnect.</param>
+        public void Disconnect(EntityManager entityManager, Entity connectionEntity)
+        {
+            if (!entityManager.HasComponent<NetworkStreamConnection>(connectionEntity))
+            {
+                // We want to throw a specific error if we're a host world, since in that case it is expected to not have a NetworkStreamConnection component, and it is a common mistake to try to disconnect.
+                if (entityManager.WorldUnmanaged.IsHost())
+                {
+                    throw new InvalidOperationException($"Trying to disconnect the entity {connectionEntity} that does not have a NetworkStreamConnection component. Note that in host worlds, there is no NetworkStreamConnection for the local client connection, so this error is expected if you are trying to disconnect the local client connection in a host world. It is not possible to disconnect the local client connection in a host world.");
+                }
+
+                throw new InvalidOperationException($"Trying to disconnect the entity {connectionEntity} that does not have a NetworkStreamConnection component.");
+            }
+
+            var connection = entityManager.GetComponentData<NetworkStreamConnection>(connectionEntity);
+            Disconnect(connection);
         }
 
         /// <summary>
@@ -437,8 +477,8 @@ namespace Unity.NetCode
                 //case where the NetworkDriverStore is copied on the stack and assigned.
                 return;
             }
-            if (world.IsClient() && DriverStore.DriversCount > 1)
-                throw new InvalidOperationException($"Cannot assign the NetworkDriverStore to the NetworkStreamDriver for world {world.Name}. Client must configure the driver store to use ONLY ONE network driver, but the {nameof(driverStore)} instance passed as argument has been configured to use {driverStore.DriversCount} network drivers.");
+            if (!world.IsServer() && DriverStore.DriversCount > 1)
+                throw new InvalidOperationException($"Clients only support one connection. Cannot assign the NetworkDriverStore to the NetworkStreamDriver for world {world.Name}. Client must configure the driver store to use ONLY ONE network driver, but the {nameof(driverStore)} instance passed as argument has been configured to use {driverStore.DriversCount} network drivers.");
 
             //If the driver is not the "default" (no registered driver and the first interface is not created) it is valid to dispose the current driver.
             //For example: the server can dispose the driver to stop listening (it is actually the only way to stop listening).
@@ -447,7 +487,7 @@ namespace Unity.NetCode
             {
                 using var connectionQuery = world.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
                 if (!connectionQuery.IsEmpty)
-                    throw new InvalidOperationException($"Cannot assign the NetworkDriverStore to the NetworkStreamDriver for world {world.Name} because there are NetworkStreamConnection entities.\nPlease ensure you are setting up the drivers after you disconnected all the connections and have them properly cleanup by the NetworkStreamReceiveSystem. This will usually require at least one world update (because NetworkStreamConnection are cleanup component).");
+                    throw new InvalidOperationException($"There are still connections present. Please make sure to wait at least a frame before trying to reset the driver. Details: Cannot assign the NetworkDriverStore to the NetworkStreamDriver for world {world.Name} because there are NetworkStreamConnection entities.\nPlease ensure you are setting up the drivers after you disconnected all the connections and have them properly cleanup by the NetworkStreamReceiveSystem. This will usually require at least one world update (because NetworkStreamConnection are cleanup component).");
             }
 
             //reset the current driver store any any case. This is a no-op if the current instance is already destroyed.

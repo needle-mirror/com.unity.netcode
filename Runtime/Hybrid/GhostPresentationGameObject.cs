@@ -9,28 +9,35 @@ using UnityEngine.Jobs;
 namespace Unity.NetCode.Hybrid
 {
     /// <summary>
+    /// Obsolete. Use <see cref="UnmanagedGhostPresentationGameObjectPrefab"/> instead.
+    /// </summary>
+    [System.Obsolete("Managed components are no longer supported. Use the unmanaged UnmanagedGhostPresentationGameObjectPrefab instead, which references the prefabs through UnityObjectRef<GameObject>. First deprecated in 6.6.", true)]
+    public class GhostPresentationGameObjectPrefab
+    {
+    }
+
+    /// <summary>
     /// The GameObject prefabs which should be used as a visual representation of an entity.
     /// </summary>
-    public class GhostPresentationGameObjectPrefab : IComponentData
+    public struct UnmanagedGhostPresentationGameObjectPrefab : IComponentData
     {
         /// <summary>
         /// The GameObject prefab which should be used as a visual representation of an entity on the server.
         /// Since this is the server instance it should usually not be visible, but it is needed to for example
         /// run animations on the server.
         /// </summary>
-        public GameObject Server;
+        public UnityObjectRef<GameObject> Server;
         /// <summary>
         /// The GameObject prefab which should be used as a visual representation of an entity on the client.
         /// It is not possible to have separate GameObjects for interpolated and predicted ghosts, doing
         /// that would break prediction switching.
         /// </summary>
-        public GameObject Client;
+        public UnityObjectRef<GameObject> Client;
     }
     /// <summary>
-    /// A reference to an entity containing the GhostPresentationGameObjectPrefab. The GameObject prefabs
-    /// are not stored directly on the ghosts to avoid all ghosts having a managed component, instead
-    /// a separate entity is created for storing the managed component and this component has a reference
-    /// to that entity.
+    /// A reference to an entity containing the <see cref="UnmanagedGhostPresentationGameObjectPrefab"/>. The GameObject
+    /// prefabs are not stored directly on the ghosts, instead a separate entity is created for storing the prefab
+    /// references and this component has a reference to that entity.
     /// </summary>
     public struct GhostPresentationGameObjectPrefabReference : IComponentData
     {
@@ -127,12 +134,12 @@ namespace Unity.NetCode.Hybrid
                 var entity = entitiesWithoutGhostPresentationGameObjectState[i];
                 var presentation = presentations[i];
 
-                var goPrefabEntity = EntityManager.GetComponentData<GhostPresentationGameObjectPrefab>(presentation.Prefab);
+                var goPrefabEntity = EntityManager.GetComponentData<UnmanagedGhostPresentationGameObjectPrefab>(presentation.Prefab);
                 var goPrefab = World.IsServer() ? goPrefabEntity.Server : goPrefabEntity.Client;
                 int idx = -1;
-                if (goPrefab != null)
+                if (goPrefab.IsValid())
                 {
-                    var go = GameObject.Instantiate(goPrefab);
+                    var go = GameObject.Instantiate(goPrefab.Value);
                     var owner = go.GetComponent<GhostPresentationGameObjectEntityOwner>();
                     if (owner != null)
                     {

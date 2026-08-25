@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
-using System.Linq;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Unity.NetCode.Roslyn;
 
 namespace Unity.NetCode.Generators
@@ -22,25 +22,53 @@ namespace Unity.NetCode.Generators
                 Profiler.Begin("GetSemanticModel");
                 var model = codeGenContext.executionContext.Compilation.GetSemanticModel(syntaxNode.SyntaxTree);
                 Profiler.End();
+
+                if (model.GetDeclaredSymbol(syntaxNode) is not INamedTypeSymbol && model.GetDeclaredSymbol(syntaxNode as BaseMethodDeclarationSyntax) is not IMethodSymbol)
+                    continue;
+
+                TypeInformation typeInfo = null;
+
                 var candidateSymbol = model.GetDeclaredSymbol(syntaxNode) as INamedTypeSymbol;
-                if (candidateSymbol == null)
-                    continue;
-                var disableCommandCodeGen = Roslyn.Extensions.GetAttribute(candidateSymbol,
-                    "Unity.NetCode", "NetCodeDisableCommandCodeGenAttribute");
-                if (disableCommandCodeGen != null)
-                    continue;
-                if (candidateSymbol.ImplementsGenericInterface("Unity.NetCode.IRpcCommandSerializer"))
+
+                if (candidateSymbol != null)
                 {
-                    codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because an IRpcCommandSerializer for it already exists");
-                    continue;
+                    var disableCommandCodeGen = Roslyn.Extensions.GetAttribute(candidateSymbol,
+                    "Unity.NetCode", "NetCodeDisableCommandCodeGenAttribute");
+                    if (disableCommandCodeGen != null)
+                        continue;
+                    // If the serializer type already exist we can just skip generation
+                    if (candidateSymbol.ImplementsGenericInterface("Unity.NetCode.IRpcCommandSerializer"))
+                    {
+                        codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because an IRpcCommandSerializer for it already exists");
+                        continue;
+                    }
+
+                    codeGenContext.ResetState();
+                    codeGenContext.generatorName = Roslyn.Extensions.GetTypeNameWithDeclaringTypename(candidateSymbol);
+                    typeInfo = typeBuilder.BuildTypeInformation(candidateSymbol, null);
                 }
-                var typeInfo = typeBuilder.BuildTypeInformation(candidateSymbol, null);
+
+                IMethodSymbol candidateMethodSymbol = null;
+                if (typeInfo == null)
+                {
+                    candidateMethodSymbol = model.GetDeclaredSymbol(syntaxNode as BaseMethodDeclarationSyntax) as IMethodSymbol;
+
+                    if (candidateMethodSymbol != null)
+                    {
+                        candidateSymbol = candidateMethodSymbol.ContainingType;
+                        codeGenContext.ResetState();
+                        //codeGenContext.generatorName = RemotesFactory.GetRemoteMethodTypeName(candidateMethodSymbol);
+
+                        typeInfo = typeBuilder.BuildRemoteMethodTypeInformation(codeGenContext, candidateMethodSymbol, null);
+                    }
+                }
+
                 if (typeInfo == null)
                     continue;
                 codeGenContext.ResetState();
-                NameUtils.UpdateNameAndNamespace(typeInfo, ref codeGenContext, candidateSymbol);
+                NameUtils.UpdateNameAndNamespace(ref typeInfo, ref codeGenContext, candidateSymbol,candidateMethodSymbol);
                 // If the serializer type already exist we can just skip generation
-                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetRpcSerializerName(codeGenContext)).FirstOrDefault() != null)
+                if (new List<ISymbol>(codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetRpcSerializerName(codeGenContext))).Count > 0)
                 {
                     codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {codeGenContext.generatorName} because an rpc serializer for it already exists");
                     continue;

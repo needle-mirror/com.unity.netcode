@@ -1,0 +1,35 @@
+.tick-inspector__toolbar {
+    flex-direction: row;
+    justify-content: space-between;
+    border-color: var(--unity-colors-default-border);
+    border-width: 1px;
+    padding-right: 4px;
+    min-height: 20px;
+}
+
+.tick-inspector__toolbar__container {
+    flex-direction: row-reverse;
+    height: 20px;
+}
+
+.tick-inspector__toolbar__frame {
+    padding-top: 3px;
+    padding-left: 8px;
+    padding-right: 28px;
+    background-image: var(--timeline-frame-bg);
+    background-size: 100% 100%;
+    margin-right: -10px;
+}
+
+.tick-inspector__toolbar__tick {
+    padding-top: 3px;
+    padding-left: 28px;
+    padding-right: 28px;
+    background-image: var(--timeline-tick-bg);
+    background-size: 100% 100%;
+}
+
+.tick-inspector__toolbar__filter-status {
+    padding-top: 3px;
+    padding-left: 8px;
+}

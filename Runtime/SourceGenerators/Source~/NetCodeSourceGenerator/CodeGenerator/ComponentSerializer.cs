@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 
@@ -308,7 +307,7 @@ namespace Unity.NetCode.Generators
         {
             var generator = context.codeGenCache.GetTemplate(CodeGenerator.ComponentSerializer);
             m_TargetGenerator = generator.Clone();
-            foreach (var frag in k_OverridableFragments.Cast<string>())
+            foreach (var frag in k_OverridableFragments)
             {
                 if (!m_OverridableFragmentsList.Contains(frag))
                     m_OverridableFragmentsList += " " + frag;
@@ -391,7 +390,7 @@ namespace Unity.NetCode.Generators
             //At runtime the CLR give names like XXX`1[FullName
             replacements.Add("GHOST_NAME", context.generatorName.Replace(".", "").Replace('+', '_'));
             replacements.Add("GHOST_NAMESPACE", context.generatedNs);
-            replacements.Add("GHOST_COMPONENT_TYPE", type.TypeFullName.Replace('+', '.'));
+            replacements.Add("GHOST_COMPONENT_TYPE", CodeGenerator.GetGlobalQualifiedTypeName(type));
             replacements.Add("GHOST_VARIANT_TYPE", fullyQualifiedVariantName);
             replacements.Add("GHOST_CHANGE_MASK_BITS", context.changeMaskBitCount.ToString());
             replacements.Add("GHOST_FIELD_HASH", context.ghostFieldHash.ToString());

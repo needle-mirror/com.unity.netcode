@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode.Editor;
@@ -23,14 +22,20 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     partial struct MispredictionSystem : ISystem
     {
-        public unsafe void OnUpdate(ref SystemState state)
+        public void OnUpdate(ref SystemState state)
         {
             var increment = state.WorldUnmanaged.IsServer() ? 1 : 2;
             foreach (var c in SystemAPI.Query<RefRW<GhostGenTestTypes.GhostGenBigStruct>>())
             {
-                int* v = (int*)UnsafeUtility.AddressOf(ref c.ValueRW);
-                for (int i = 0; i < 101; ++i)
-                    v[i] += increment;
+                for (int i = 0; i < increment; ++i)
+                    c.ValueRW.Increment();
+                // One unit of misprediction per matrix error entry: matrixField1 reports a single
+                // scale-distance error, matrixField2 reports one distance error per column.
+                c.ValueRW.matrixField1.c0.x += increment;
+                c.ValueRW.matrixField2.c0.x += increment;
+                c.ValueRW.matrixField2.c1.x += increment;
+                c.ValueRW.matrixField2.c2.x += increment;
+                c.ValueRW.matrixField2.c3.x += increment;
             }
         }
     }
@@ -59,8 +64,9 @@ namespace Unity.NetCode.Tests
             //Verify that the ghost collection stats is in the condition we expect:
             var statsCollectionData = testWorld.GetSingletonRW<GhostStatsCollectionData>(testWorld.ServerWorld);
             var errorNames = testWorld.ClientWorlds[0].EntityManager.GetBuffer<PredictionErrorNames>(clientMetrics);
-            Assert.Less(errorNames.Length, 101);
-            Assert.AreEqual(statsCollectionData.ValueRO.m_PredictionErrors.Length, 101);
+            // 101 ints + 1 (matrixField1 scale) + 4 (matrixField2 columns). Names are fewer, capped to 512B per component.
+            Assert.Less(errorNames.Length, 106);
+            Assert.AreEqual(106, statsCollectionData.ValueRO.m_PredictionErrors.Length);
 
             if (useMetrics)
             {

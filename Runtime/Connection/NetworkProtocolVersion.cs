@@ -31,7 +31,10 @@ namespace Unity.NetCode
         [Obsolete("k_NetCodeVersion is obsolete, use DefaultNetCodeVersion instead (UnityUpgradable) -> DefaultNetCodeVersion", true)]
         public const int k_NetCodeVersion = -1;
 
-        const int k_DefaultNetCodeVersion = 9;  // Updated on every release
+        /// <summary>
+        /// This will be used in cases there is some issue generating the netcode version from the unity version
+        /// </summary>
+        const int k_FallbackNetCodeVersion = -1;
 
         /// <summary>
         /// Get the integer used to determine a compatible version of the Netcode package.
@@ -44,7 +47,15 @@ namespace Unity.NetCode
         /// compatible with each other. We only guarantee that the exact version is compatible with itself.</b>
         /// </remarks>
         /// <value>Builtin default netcode package version value</value>
-        public static int DefaultNetCodeVersion => k_DefaultNetCodeVersion;
+        public static int DefaultNetCodeVersion
+        {
+            get
+            {
+                if (NetCodeVersionFromUnityVersion.Value.Data != 0)
+                    return NetCodeVersionFromUnityVersion.Value.Data;
+                return k_FallbackNetCodeVersion;
+            }
+        }
 
         /// <summary>
         /// The NetCode package version
@@ -65,6 +76,39 @@ namespace Unity.NetCode
         /// can properly decode the snapshots.
         /// </summary>
         public ulong ComponentCollectionVersion;
+
+        abstract class NetCodeVersionFromUnityVersion
+        {
+            public static readonly SharedStatic<int> Value = SharedStatic<int>.GetOrCreate<NetCodeVersionFromUnityVersion, ValueKey>();
+            class ValueKey {}
+        }
+
+        /// <summary>
+        /// Set the netcode version converted from the unity version for later use in <see cref="GetNetcodeVersion"/>.
+        /// Can be set from a place which is not burst compiled and then read back in burst code.
+        /// </summary>
+        internal static void SetNetcodeVersion()
+        {
+            // This only needs to be set once
+            if (NetCodeVersionFromUnityVersion.Value.Data != 0)
+                return;
+            var fixedVersionString = new FixedString512Bytes(Application.unityVersion);
+            int majorVersion = 0;
+            int minorVersion = 0;
+            int patchVersion = 0;
+            int index = 0;
+            NetCodeVersionFromUnityVersion.Value.Data = k_FallbackNetCodeVersion;
+            if (fixedVersionString.Parse(ref index, ref majorVersion) != ParseError.None || majorVersion > ushort.MaxValue)
+                return;
+            index++; // increment the offset to start at the next decimal after first integer
+            if (fixedVersionString.Parse(ref index, ref minorVersion) != ParseError.None ||  minorVersion > byte.MaxValue)
+                return;
+            index++;
+            if (fixedVersionString.Parse(ref index, ref patchVersion) != ParseError.None ||  patchVersion > byte.MaxValue)
+                return;
+            // Convert the 6000.0.0 string format into a 4 byte integer with a maximum possible version of 65535.255.255
+            NetCodeVersionFromUnityVersion.Value.Data = (majorVersion << 16) + (minorVersion << 8) + patchVersion;
+        }
 
         /// <summary>
         /// Denotes if these two are matching, while respecting <see cref="RpcCollection.DynamicAssemblyList"/> rules.
@@ -163,7 +207,10 @@ namespace Unity.NetCode
             // Received protocol version, see if it's right:
             parameters.ProtocolVersion.AssertIsValid();
             var rpcData = default(RequestProtocolVersionHandshake);
-            rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
+            if (parameters.IsPassthroughRPC)
+                rpcData = parameters.GetPassthroughActionData<RequestProtocolVersionHandshake>();
+            else
+                rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
 
             var protocolVersionIsCorrect = rpcData.Data.IsCorrect(parameters.ProtocolVersion, parameters.UseDynamicAssemblyList);
             parameters.NetDebug.DebugLog($"[{parameters.WorldName}][Connection] Received protocol version {parameters.ConnectionStateRef.Value.ToFixedString()} UDAL:{parameters.UseDynamicAssemblyList} Connection[UniqueId:{rpcData.ConnectionUniqueId}] IsCorrect:{protocolVersionIsCorrect}\n - Ours:{parameters.ProtocolVersion.ToFixedString()}\n - Them:{rpcData.Data.ToFixedString()}");
@@ -224,9 +271,6 @@ namespace Unity.NetCode
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             // RPC arrived on the client, client must enter approval state.
-            var rpcData = default(ServerRequestApprovalAfterHandshake);
-            rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
-
             // Validate this is allowed to execute but after deserialization to prevent deserialization errors
             if (parameters.IsServer)
             {

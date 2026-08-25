@@ -51,12 +51,19 @@ namespace Unity.NetCode.Tests
 
     internal class OwnerPredictedSwitchOwnerTests
     {
+        /// <summary>
+        /// Server pushes a sequence of <see cref="GhostOwner.NetworkId"/> changes; each client must re-classify itself
+        /// between predicted and interpolated as ownership moves around (including direct N->M hand-offs between two
+        /// non-zero NetworkIds).
+        /// </summary>
         [Test]
-        [DisableSingleWorldHostTest]
         public void SwitchingOwner_ChangeGhostModeOnClients()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
+                //Run under a poor-network profile so the test doesn't accidentally only pass on
+                //the zero-latency happy path.
+                testWorld.SetTestLatencyProfile(NetCodeTestLatencyProfile.RTT16ms_PL5);
                 testWorld.Bootstrap(true);
                 var ghostGameObject = new GameObject();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
@@ -65,18 +72,19 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 2);
-                testWorld.Connect();
+                testWorld.Connect(maxSteps: 32);
                 testWorld.GoInGame();
 
-                //Spanw the ghost, no-owner is assigned yet. The spawned ghost on the client should be interpolated.
+                //Spawn the ghost, no-owner is assigned yet. The spawned ghost on the client should be interpolated.
                 //and auto-command target should be set to disabled.
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
                 Assert.AreNotEqual(Entity.Null, serverEnt);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = -1 });
-                for (int i = 0; i < 8; ++i)
+                for (int i = 0; i < k_TicksToPropagateOwnerSwitch; ++i)
                     testWorld.Tick();
                 //We should have a ghost and should have been spawn as interpolated
                 var clientGhosts = new Entity[2];
+                var clientNetworkIds = new int[2];
                 for (var index = 0; index < testWorld.ClientWorlds.Length; index++)
                 {
                     clientGhosts[index] =
@@ -84,38 +92,52 @@ namespace Unity.NetCode.Tests
                     Assert.AreNotEqual(Entity.Null, clientGhosts[index]);
                     Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager
                         .HasComponent<PredictedGhost>(clientGhosts[index]));
+                    clientNetworkIds[index] = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[index]).Value;
                 }
 
                 for (var index = 0; index < testWorld.ClientWorlds.Length; index++)
                 {
-                    //Server change owner, but don't enable auto-command.
-                    var owner = index;
-                    var nonowner = (index + 1) % 2;
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt,
-                        new GhostOwner { NetworkId = owner + 1 });
-                    for (int i = 0; i < 8; ++i)
-                        testWorld.Tick();
-                    //client should have changed the ghost to be predicted
-                    Assert.IsTrue(testWorld.ClientWorlds[index].EntityManager
-                        .HasComponent<PredictedGhost>(clientGhosts[owner]));
-                    Assert.IsFalse(testWorld.ClientWorlds[nonowner].EntityManager
-                        .HasComponent<PredictedGhost>(clientGhosts[nonowner]));
-                    //Release ownership. Verify client become interpolated again
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt,
-                        new GhostOwner { NetworkId = -1 });
-                    for (int i = 0; i < 8; ++i)
-                        testWorld.Tick();
-                    //client should have changed the ghost to be interpolated
-                    Assert.IsFalse(testWorld.ClientWorlds[owner].EntityManager
-                        .HasComponent<PredictedGhost>(clientGhosts[owner]));
-                    Assert.IsFalse(testWorld.ClientWorlds[nonowner].EntityManager
-                        .HasComponent<PredictedGhost>(clientGhosts[nonowner]));
+                    SetOwnerAndAssertClassification(testWorld, serverEnt, clientGhosts,
+                        ownerNetworkId: clientNetworkIds[index], predictedClientIndex: index);
+                    SetOwnerAndAssertClassification(testWorld, serverEnt, clientGhosts,
+                        ownerNetworkId: -1, predictedClientIndex: -1);
                 }
+
+                //Direct hand-off between two non-zero NetworkIds (no intermediate -1) must re-classify both clients.
+                SetOwnerAndAssertClassification(testWorld, serverEnt, clientGhosts,
+                    ownerNetworkId: clientNetworkIds[0], predictedClientIndex: 0);
+                SetOwnerAndAssertClassification(testWorld, serverEnt, clientGhosts,
+                    ownerNetworkId: clientNetworkIds[1], predictedClientIndex: 1,
+                    failureMessage: "Direct owner transfer between two non-zero NetworkIds did not re-classify both clients.");
+            }
+        }
+
+        const int k_TicksToPropagateOwnerSwitch = 16;
+
+        /// <summary>
+        /// Set <see cref="GhostOwner.NetworkId"/> on the server, tick long enough for the change to propagate, then
+        /// assert each client has (or does not have) <see cref="PredictedGhost"/> per
+        /// <paramref name="predictedClientIndex"/> (use -1 for "no client predicted").
+        /// </summary>
+        static void SetOwnerAndAssertClassification(NetCodeTestWorld testWorld, Entity serverEnt, Entity[] clientGhosts,
+            int ownerNetworkId, int predictedClientIndex, string failureMessage = null)
+        {
+            testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = ownerNetworkId });
+            for (int i = 0; i < k_TicksToPropagateOwnerSwitch; ++i)
+                testWorld.Tick();
+            for (int clientIdx = 0; clientIdx < testWorld.ClientWorlds.Length; ++clientIdx)
+            {
+                var shouldBePredicted = clientIdx == predictedClientIndex;
+                var hasPredicted = testWorld.ClientWorlds[clientIdx].EntityManager
+                    .HasComponent<PredictedGhost>(clientGhosts[clientIdx]);
+                if (shouldBePredicted)
+                    Assert.IsTrue(hasPredicted, failureMessage ?? $"Client {clientIdx} should be predicted (ownerNetworkId={ownerNetworkId}).");
+                else
+                    Assert.IsFalse(hasPredicted, failureMessage ?? $"Client {clientIdx} should be interpolated (ownerNetworkId={ownerNetworkId}).");
             }
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void SwitchingOwner_ServerReceiveCommandFromOwningClient([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -148,8 +170,10 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(Entity.Null, clientGhost);
                 Assert.AreEqual(ghostMode == GhostMode.Predicted, testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost),
                     "We don't currently own this ghost.");
-                //Server change owner and enable auto-command.
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = 1 });
+                //Server change owner and enable auto-command. Use the remote client's real NetworkId: in
+                //single-world-host mode NetworkId 1 is the host, not ClientWorlds[0].
+                var clientNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = clientNetworkId });
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt,
                     new AutoCommandTarget { Enabled = true });
                 for (int i = 0; i < 8; ++i)
@@ -186,7 +210,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void SwitchingOwnerDeserializeComponentCorreclty()
         {
             //The purpose of this test is to verify that when using prediction switching for a
@@ -219,6 +242,9 @@ namespace Unity.NetCode.Tests
                 var clientGhost = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientGhost);
                 Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost));
+                //Query the remote client's real NetworkId for ownership assignment: in single-world-host mode
+                //NetworkId 1 is the host, not ClientWorlds[0].
+                var clientNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]).Value;
                 //Even though data is for interpolated ghost the field is not interpolated. As such the value should
                 //be the server one minus the current interpolation delay (that default to 2)
                 {
@@ -237,7 +263,7 @@ namespace Unity.NetCode.Tests
                     for(int i=0;i<8;++i)
                         Assert.AreEqual(bs1[i].Value, bc1[i].Value);
                 }
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = 1 });
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = clientNetworkId });
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost));
@@ -281,7 +307,7 @@ namespace Unity.NetCode.Tests
                 }
 
                 //And change it again
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = 1 });
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = clientNetworkId });
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost));

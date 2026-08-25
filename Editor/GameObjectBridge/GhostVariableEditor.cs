@@ -1,5 +1,3 @@
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-
 using System.Reflection;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -51,4 +49,3 @@ namespace Unity.NetCode.Editor
         }
     }
 }
-#endif

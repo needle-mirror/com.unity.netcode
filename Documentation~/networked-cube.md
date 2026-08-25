@@ -1,6 +1,6 @@
 # Networked cube
 
-Make sure you have set up the project correctly using the [installation guide](installation.md) before starting your adventure (of creating a simple client-server based simulation).
+Make sure your project meets the [Netcode for Entities requirements](index.md#requirements) before starting your adventure (of creating a simple client-server based simulation).
 
 This tutorial briefly introduces the most common concepts involved in making client-server based games.
 

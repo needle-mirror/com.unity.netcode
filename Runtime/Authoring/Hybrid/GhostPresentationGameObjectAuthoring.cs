@@ -10,12 +10,13 @@ namespace Unity.NetCode.Hybrid
     /// </summary>
     /// <remarks>
     /// If <see cref="ServerPrefab"/> or <see cref="ClientPrefab"/> are not null, the baking
-    /// create a new additional entity with <see cref="GhostPresentationGameObjectPrefab"/> managed component that contains the prefab references.
+    /// create a new additional entity with an <see cref="UnmanagedGhostPresentationGameObjectPrefab"/> component that contains the prefab references.
     /// It also add to the converted entity an <see cref="GhostPresentationGameObjectPrefabReference"/> that references the new created entity.
     /// It finally register itself has a producer of IRegisterPlayableData.
     /// </remarks>
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.GhostPresentationGameObjectAuthoring)]
+    [AddComponentMenu("Multiplayer/Ghost Presentation GameObject Authoring", 100)]
     public class GhostPresentationGameObjectAuthoring : MonoBehaviour
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
         , IRegisterPlayableData
@@ -23,12 +24,12 @@ namespace Unity.NetCode.Hybrid
     {
         /// <summary>
         /// The GameObject prefab which should be used as a visual representation of an entity on the server.
-        /// See <see cref="GhostPresentationGameObjectPrefab"/> for further information.
+        /// See <see cref="UnmanagedGhostPresentationGameObjectPrefab"/> for further information.
         /// </summary>
         public GameObject ServerPrefab;
         /// <summary>
         /// The GameObject prefab which should be used as a visual representation of an entity on the client.
-        /// See <see cref="GhostPresentationGameObjectPrefab"/> for further information.
+        /// See <see cref="UnmanagedGhostPresentationGameObjectPrefab"/> for further information.
         /// </summary>
         public GameObject ClientPrefab;
         private EntityManager regEntityManager;
@@ -63,30 +64,31 @@ namespace Unity.NetCode.Hybrid
 
             var target = this.GetNetcodeTarget(isPrefab);
 
-            var prefabComponent = new GhostPresentationGameObjectPrefab
-            {
-                Client = (target == NetcodeConversionTarget.Server) ? null : authoring.ClientPrefab,
-                Server = (target == NetcodeConversionTarget.Client) ? null : authoring.ServerPrefab
-            };
-            if (prefabComponent.Server == null && prefabComponent.Client == null)
+            var clientPrefab = (target == NetcodeConversionTarget.Server) ? null : authoring.ClientPrefab;
+            var serverPrefab = (target == NetcodeConversionTarget.Client) ? null : authoring.ServerPrefab;
+            if (serverPrefab == null && clientPrefab == null)
                 return;
             var presPrefab = CreateAdditionalEntity(TransformUsageFlags.None);
-            AddComponentObject(presPrefab, prefabComponent);
+            AddComponent(presPrefab, new UnmanagedGhostPresentationGameObjectPrefab
+            {
+                Client = clientPrefab,
+                Server = serverPrefab
+            });
 
             var entity = GetEntity(TransformUsageFlags.Dynamic);
             AddComponent(entity, new GhostPresentationGameObjectPrefabReference{Prefab = presPrefab});
 
             // Register all the components needed for animation data
             m_AddedTypes = new HashSet<Type>();
-            if (prefabComponent.Client != null)
+            if (clientPrefab != null)
             {
-                var anim = GetComponent<GhostAnimationController>(prefabComponent.Client);
+                var anim = GetComponent<GhostAnimationController>(clientPrefab);
                 if (anim != null && anim.AnimationGraphAsset != null)
                     anim.AnimationGraphAsset.RegisterPlayableData(this);
             }
-            if (prefabComponent.Server != null)
+            if (serverPrefab != null)
             {
-                var anim = GetComponent<GhostAnimationController>(prefabComponent.Server);
+                var anim = GetComponent<GhostAnimationController>(serverPrefab);
                 if (anim != null && anim.AnimationGraphAsset != null)
                     anim.AnimationGraphAsset.RegisterPlayableData(this);
             }

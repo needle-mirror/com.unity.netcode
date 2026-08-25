@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -107,8 +106,15 @@ namespace NetCodeAnalyzer
 
         public static bool IsInGroupHierarchy(ITypeSymbol systemType, ITypeSymbol targetGroupType, HashSet<ITypeSymbol> visitedGroups)
         {
-            var updateInGroupAttr = systemType.GetAttributes()
-                .FirstOrDefault(attr => attr.AttributeClass?.Name == "UpdateInGroupAttribute");
+            AttributeData? updateInGroupAttr = null;
+            foreach (var attr in systemType.GetAttributes())
+            {
+                if (attr.AttributeClass?.Name == "UpdateInGroupAttribute")
+                {
+                    updateInGroupAttr = attr;
+                    break;
+                }
+            }
 
             if (updateInGroupAttr == null)
                 return false;
@@ -116,8 +122,7 @@ namespace NetCodeAnalyzer
             if (updateInGroupAttr.ConstructorArguments.Length == 0)
                 return false;
 
-            var directGroupType = updateInGroupAttr.ConstructorArguments[0].Value as ITypeSymbol;
-            if (directGroupType == null)
+            if (updateInGroupAttr.ConstructorArguments[0].Value is not ITypeSymbol directGroupType)
                 return false;
 
             if (SymbolEqualityComparer.Default.Equals(directGroupType, targetGroupType) ||

@@ -1,0 +1,669 @@
+:root {
+
+}
+
+.tick-inspector__list-view {}
+/* SelectTracingTargetWindow — root and layout */
+.tracing-select-target-window-root {
+    flex-grow: 1;
+}
+
+.tracing-tab-header-spacer {
+    height: 0;
+    min-height: 0;
+}
+
+#tracing-main-list-view {
+    flex-grow: 1;
+}
+
+#tracing-status-label {
+    margin-left: 6px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+/* MultiColumnTreeView name cell: kind icon visibility by tab (matches prior ListView row modes) */
+.tracing-mctv-name-cell.tracing-list-row--mode-all #tracing-row-kind-icon,
+.tracing-mctv-name-cell.tracing-list-row--mode-selected #tracing-row-kind-icon {
+    display: flex;
+}
+
+.tracing-mctv-name-cell.tracing-list-row--mode-systems #tracing-row-kind-icon,
+.tracing-mctv-name-cell.tracing-list-row--mode-components #tracing-row-kind-icon {
+    display: none;
+}
+
+.tick-inspector {
+    flex-grow: 1;
+    /* Constrain to available space so a tall tree scrolls internally instead of overflowing the column
+       and squeezing the toolbar / timeline. */
+    min-height: 0;
+}
+
+.tick-inspector__tree-view {
+    flex-grow: 1;
+    min-height: 0;
+}
+
+/* Row layout: label fills, warning + buttons pinned to the right */
+.tick-inspector__tree-view-item {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+}
+
+/* Text fills available space, shrinks with ellipsis when narrow */
+.tick-inspector__tree-view-item-label {
+    flex-grow: 1;
+    flex-shrink: 1;
+
+    /* Position the icon on the left, and center it vertically */
+    background-position-x: left;
+    background-position-y: center;
+
+    /* Explicitly set the icon size so it doesn't stretch */
+    background-size: 16px 16px;
+
+    /* Prevent the image from tiling across the label */
+    background-repeat: no-repeat;
+
+    /* Add padding so the text starts after the icon (e.g., 16px icon + 4px gap) */
+    padding-left: 20px;
+
+    /* Margins to make space for the warning label outline */
+    margin-top: 3px;
+    margin-bottom: 3px;
+
+    /* Truncate long system names with ellipsis. overflow:hidden is required for
+       text-overflow:ellipsis to actually clip in UI Toolkit. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    -unity-font-style: bold;
+}
+
+/* System item variant - uses system icon */
+.tick-inspector__tree-view-item--system .tick-inspector__tree-view-item-label {
+    background-image: var(--system-icon);
+}
+
+/* Metadata foldout — sits above the tree; its title is styled like a tree row (metadata icon + bold) */
+.tick-inspector__metadata-foldout {
+    flex-shrink: 0;
+}
+
+.tick-inspector__metadata-foldout-label {
+    background-image: var(--metadata-icon);
+    background-position-x: left;
+    background-position-y: center;
+    background-size: 16px 16px;
+    background-repeat: no-repeat;
+    padding-left: 20px;
+    -unity-font-style: bold;
+}
+
+.tick-inspector__metadata-foldout-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 1px 0;
+}
+
+.tick-inspector__metadata-foldout-row__name {
+    min-width: 130px;
+    color: var(--unity-colors-label-text);
+}
+
+.tick-inspector__metadata-foldout-row__value {
+    -unity-font-style: bold;
+}
+
+.tick-inspector__metadata-foldout-tag-container {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* SystemGroup item variant - uses system group icon */
+.tick-inspector__tree-view-item--system-group .tick-inspector__tree-view-item-label {
+    background-image: var(--system-group-icon);
+}
+
+/* Ghost (entity) item variant - uses ghost icon */
+.tick-inspector__tree-view-item--ghost .tick-inspector__tree-view-item-label {
+    background-image: var(--ghost-icon);
+}
+
+/* Component item variant - uses component icon */
+.tick-inspector__tree-view-item--component .tick-inspector__tree-view-item-label {
+    background-image: var(--component-icon);
+}
+
+/* Red diff tint. It multiplies with the icon, so the per-variant rules below swap to the light icon
+   variant (otherwise dark light-theme icons would tint near-black). */
+.tick-inspector__tree-view-item--has-diff .tick-inspector__tree-view-item-label {
+    -unity-background-image-tint-color: var(--diff-icon-tint);
+}
+
+.tick-inspector__tree-view-item--has-diff.tick-inspector__tree-view-item--system .tick-inspector__tree-view-item-label {
+    background-image: var(--system-icon-diff);
+}
+
+.tick-inspector__tree-view-item--has-diff.tick-inspector__tree-view-item--system-group .tick-inspector__tree-view-item-label {
+    background-image: var(--system-group-icon-diff);
+}
+
+.tick-inspector__tree-view-item--has-diff.tick-inspector__tree-view-item--ghost .tick-inspector__tree-view-item-label {
+    background-image: var(--ghost-icon-diff);
+}
+
+.tick-inspector__tree-view-item--has-diff.tick-inspector__tree-view-item--component .tick-inspector__tree-view-item-label {
+    background-image: var(--component-icon-diff);
+}
+
+.tick-inspector__tree-view-item-diff-tag-container {
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    margin-left: auto;
+}
+
+.tick-inspector__tree-view-item-diff-tag {
+    flex-shrink: 0;
+    align-self: center;
+    margin: 0 4px 0 0;
+    border-width: 1px;
+    border-radius: 0;
+    padding: 0 3px;
+    background-color: rgba(0, 0, 0, 0);
+    -unity-text-align: middle-center;
+}
+
+.tick-inspector__tree-view-item-diff-tag--selected {
+    border-color: var(--scarlet);
+}
+
+.tick-inspector__tree-view-item-diff-tag--deselected {
+    border-color: var(--diff-tag-deselected);
+    color: var(--diff-tag-deselected);
+}
+
+/* Buttons pinned to the right */
+.tick-inspector__tree-view-item-button-container {
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+}
+
+/* Misprediction/desync detail table (see MispredictionDetailTable). The table replaces the row's
+   label/badge/buttons, so the row stacks vertically and the table spans the full width. */
+.tick-inspector__tree-view-item--misprediction-table {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.tick-inspector__misprediction-table {
+    flex-grow: 1;
+    margin-top: 2px;
+    margin-bottom: 4px;
+    border-width: 1px;
+    border-color: var(--unity-colors-default-border);
+    border-radius: 3px;
+}
+
+.tick-inspector__misprediction-table-header,
+.tick-inspector__misprediction-table-row {
+    flex-direction: row;
+}
+
+/* Header band: subtle background + divider under the column titles. */
+.tick-inspector__misprediction-table-header {
+    background-color: var(--unity-colors-toolbar-background);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--unity-colors-default-border);
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+}
+
+/* Two equal-width columns: Predicted Tick | Server Authority. */
+.tick-inspector__misprediction-table-column {
+    flex-grow: 1;
+    flex-basis: 0;
+    padding: 2px 4px;
+}
+
+/* Vertical divider between the predicted and authoritative columns. */
+.tick-inspector__misprediction-table-column--right,
+.tick-inspector__misprediction-table-cell--right {
+    border-left-width: 1px;
+    border-left-color: var(--unity-colors-default-border);
+}
+
+.tick-inspector__misprediction-table-cell {
+    flex-grow: 1;
+    flex-basis: 0;
+    flex-direction: row;
+    align-items: flex-end;
+    padding: 2px 4px;
+}
+
+/* Stacked field lines fill the cell; the before/after side label pins to the bottom-right. */
+.tick-inspector__misprediction-table-fields {
+    flex-grow: 1;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.tick-inspector__misprediction-table-side-label {
+    flex-shrink: 0;
+    margin-left: 4px;
+    opacity: 0.5;
+}
+
+/* One field per line; value/structural tokens sit inline so a highlight wraps just its scalar. */
+.tick-inspector__misprediction-table-field-line {
+    flex-direction: row;
+    flex-wrap: nowrap;
+}
+
+.tick-inspector__misprediction-table-span {
+    margin: 0;
+    padding: 0;
+    white-space: nowrap;
+}
+
+/* Diverging values: red fill on the predicted side, a neutral box on the authoritative side. */
+.tick-inspector__misprediction-table-field--diff {
+    background-color: var(--scarlet);
+    border-radius: 2px;
+    color: var(--diff-highlight-text);
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+.tick-inspector__misprediction-table-field--server-diff {
+    background-color: rgba(128, 128, 128, 0.25);
+    border-radius: 2px;
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+.tick-inspector__misprediction-table-no-data {
+    background-color: rgba(128, 128, 128, 0.25);
+    border-radius: 2px;
+    padding: 0 4px;
+}
+
+/* 4. Shared Icon Button Styles */
+.tracing-window__icon-button {
+    width: 16px;
+    height: 16px;
+    margin: 0 2px; /* Add a little spacing between the buttons */
+
+    /* Remove default button styling for a flat look */
+    background-color: transparent;
+    border-width: 0;
+
+    /* Ensure the icon fits the button size */
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+/* Optional: Add a subtle hover effect so users know it's clickable */
+.tracing-window__icon-button:hover {
+    background-color: var(--tracing-hover-surface);
+    border-radius: 3px;
+}
+
+/* 5. Specific Official Built-in Icons */
+.tracing-window__script-icon {
+    background-image: var(--script-icon);
+}
+
+.tracing-window__open-window-icon {
+    background-image: var(--open-window-icon);
+}
+
+.tracing-window--hidden {
+    display: none;
+}
+
+/* 6. Select Tracing Target window — category TabView (list + header live below the tab headers) */
+#tracing-tab-view {
+    flex-shrink: 0;
+    margin-bottom: 6px;
+}
+
+/* TabView headers: same icon treatment as the previous custom tab strip */
+#tracing-tab-view .tracing-tab-kind-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-right: 6px;
+    align-self: center;
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: 16px 16px;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+#tracing-tab-view .tracing-tab-kind-icon--system {
+    background-image: var(--system-icon);
+}
+
+#tracing-tab-view .tracing-tab-kind-icon--component {
+    background-image: var(--component-icon);
+}
+
+#tracing-tab-view.tracing-target-tab-view .unity-tab-view__content-container {
+    display: none;
+}
+
+#tracing-search-container {
+    height: 22px;
+    flex-direction: row;
+    align-items: center;
+    background-color: var(--unity-colors-input_field-background);
+    margin-left: 4px;
+    margin-right: 4px;
+    margin-bottom: 6px;
+    border-radius: var(--unity-metrics-default-border_radius);
+    border-width: 1px;
+    border-color: var(--unity-colors-input_field-border);
+}
+
+#tracing-search-container > ToolbarSearchField {
+    flex-grow: 1;
+    margin-left: 2px;
+    margin-right: 2px;
+}
+
+/* Match row checkbox column: content sits toward the separator with the Name column (see #tracing-row-toggle). */
+.tracing-mctv-select-column-header-cell {
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    flex-grow: 1;
+    flex-shrink: 0;
+}
+
+#tracing-header-select-all-toggle {
+    flex-shrink: 0;
+    margin-left: 2px;
+    margin-right: 4px;
+}
+
+.tracing-mctv-column-header {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: var(--unity-colors-label-text);
+    -unity-text-align: middle-left;
+}
+
+.tracing-mctv-column-header--name {
+    flex-grow: 1;
+    min-width: 80px;
+}
+
+.tracing-mctv-name-cell {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+    min-height: 20px;
+}
+
+#tracing-main-list-view #tracing-row-toggle {
+    flex-shrink: 0;
+    margin-left: 2px;
+    margin-right: 4px;
+}
+
+/* Filterable column headers: title + filter dropdown toggle (EditorToolbarDropdownToggle) */
+.tracing-mctv-filter-header-content {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+    padding: 2px 2px 2px 6px;
+}
+
+.tracing-mctv-filter-header-content > .tracing-mctv-filter-header-title {
+    flex-grow: 1;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 2px;
+}
+
+/* Compact replica of the scene-view toolbar dropdown-toggle chrome (its overlay stylesheets are not
+   loaded in regular editor windows): two joined flat segments, blue "pressed" tint while checked. */
+.tracing-header-filter-button {
+    flex-direction: row;
+    flex-shrink: 0;
+    align-self: center;
+    margin: 0;
+    padding: 0;
+    min-height: 0;
+    height: 16px;
+    border-radius: 2px;
+}
+
+.tracing-header-filter-button > .unity-dropdown-toggle__toggle {
+    margin: 0 1px 0 0;
+    padding: 0 2px;
+    border-width: 0;
+    border-radius: 2px 0 0 2px;
+    background-color: rgba(0, 0, 0, 0);
+    justify-content: center;
+    align-items: center;
+    min-width: 16px;
+}
+
+.tracing-header-filter-button > .unity-dropdown-toggle__dropdown {
+    margin: 0;
+    padding: 0 1px;
+    border-width: 0;
+    border-radius: 0 2px 2px 0;
+    background-color: rgba(0, 0, 0, 0);
+    justify-content: center;
+    align-items: center;
+    min-width: 12px;
+}
+
+.tracing-header-filter-button > .unity-dropdown-toggle__toggle:hover,
+.tracing-header-filter-button > .unity-dropdown-toggle__dropdown:hover {
+    background-color: var(--unity-colors-button-background-hover);
+}
+
+/* Scene-view toolbars use --unity-overlay-buttons-on-color, which resolves to this pressed color. */
+.tracing-header-filter-button > .unity-dropdown-toggle__toggle:checked,
+.tracing-header-filter-button > .unity-dropdown-toggle__dropdown:checked {
+    background-color: var(--unity-colors-button-background-pressed);
+}
+
+.tracing-header-filter-button .unity-dropdown-toggle__icon {
+    width: 16px;
+    height: 16px;
+    background-image: var(--tracing-header-filter-icon);
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+/* Column header value-filter popup (TracingColumnFilterPopupWindow) */
+.tracing-column-filter-popup {
+    flex-grow: 1;
+    padding: 4px;
+}
+
+.tracing-column-filter-popup__title {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: var(--unity-colors-label-text);
+    margin: 2px 2px 4px 2px;
+}
+
+/* Non-scrolling footer at the bottom of the popup: special entries (pattern filters, None) and the All toggle. */
+.tracing-column-filter-popup__footer {
+    flex-shrink: 0;
+    margin: 3px 2px 1px 2px;
+    padding-top: 3px;
+    border-top-width: 1px;
+    border-top-color: var(--unity-colors-default-border);
+}
+
+.tracing-column-filter-popup__footer > .tracing-column-filter-popup__value-toggle {
+    margin: 1px 0;
+}
+
+.tracing-column-filter-popup__all-toggle {
+    margin: 1px 0;
+}
+
+.tracing-column-filter-popup__scroll {
+    flex-grow: 1;
+}
+
+.tracing-column-filter-popup__value-toggle {
+    margin: 1px 2px;
+}
+
+.tracing-column-filter-popup__value-toggle .unity-toggle__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tracing-column-filter-popup__empty-label {
+    margin: 2px;
+    color: var(--unity-colors-helpbox-text);
+}
+
+#tracing-row-kind-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    margin-left: 4px;
+    margin-right: 4px;
+    align-self: center;
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-size: 18px 18px;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+#tracing-row-kind-icon.tracing-row-kind-icon--system {
+    background-image: var(--system-icon);
+}
+
+#tracing-row-kind-icon.tracing-row-kind-icon--component {
+    background-image: var(--component-icon);
+}
+
+/* Clickable Scene view shortcut on the LocalTransform row. */
+#tracing-row-scene-vis-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-left: 4px;
+    margin-right: 4px;
+    align-self: center;
+    background-image: var(--scene-view-icon);
+    background-position: center center;
+    background-repeat: no-repeat;
+    background-size: 16px 16px;
+    -unity-background-scale-mode: scale-to-fit;
+    opacity: 0.85;
+}
+
+#tracing-row-scene-vis-icon:hover {
+    opacity: 1;
+}
+
+.tracing-mctv-name-cell {
+    flex-direction: row;
+    flex-grow: 1;
+    align-items: center;
+}
+
+.tracing-mctv-cell-label {
+    font-size: 11px;
+    color: var(--unity-colors-default-text);
+    -unity-text-align: middle-left;
+}
+
+.tracing-mctv-cell-label--tracing-column-world {
+    white-space: normal;
+}
+
+.tracing-mctv-cell-label--tracing-column-namespace {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tracing-mctv-cell-label--tracing-column-type {
+    flex-shrink: 0;
+}
+
+.tracing-mctv-flag-cell {
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    flex-grow: 1;
+    padding-right: 12px;
+}
+
+.tracing-mctv-flag-cell > #tracing-flag-toggle {
+    flex-shrink: 0;
+    margin: 0;
+}
+
+#tracing-row-label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 80px;
+    margin-left: 0;
+    padding-left: 0;
+    -unity-text-align: middle-left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tracing-component-filter-cell {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+}
+
+.tracing-component-filter-toggle-group {
+    flex-shrink: 0;
+    flex-grow: 0;
+    margin-top: 1px;
+    margin-bottom: 1px;
+}
+
+.tracing-window--full-height-width-centered {
+    justify-content: center;
+    align-items: center;
+    align-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.tracing-window__label {
+    font-size: 14px;
+    -unity-text-align: upper-center;
+}
+
+.tracing-window {
+    width: 100%;
+    height: 100%;
+}
+
+.tracing-window--centered-content {
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    flex-grow: 1;
+}
+
+.tracing-window__set-tracing-target-button {
+    margin-top: 8px;
+}
+

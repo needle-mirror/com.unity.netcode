@@ -11,6 +11,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using Unity.Profiling;
@@ -302,13 +303,15 @@ namespace Unity.NetCode
         ComponentLookup<NetworkStreamInGame> m_InGameFromEntity;
         ComponentLookup<EnablePacketLogging> m_EnablePacketLoggingFromEntity;
         BufferLookup<OutgoingRpcDataStreamBuffer> m_OutgoingRpcBufferFromEntity;
+        BufferLookup<OutgoingOutOfBandRpcDataStreamBuffer> m_OutgoingOutOfBandRpcBufferFromEntity;
         BufferLookup<IncomingRpcDataStreamBuffer> m_RpcBufferFromEntity;
         BufferLookup<IncomingCommandDataStreamBuffer> m_CmdBufferFromEntity;
         BufferLookup<IncomingSnapshotDataStreamBuffer> m_SnapshotBufferFromEntity;
         NativeList<NetCodeConnectionEvent> m_ConnectionEvents;
-        private NetworkPipelineStageId m_reliableSequencedPipelineStageId;
 
         NativeHashMap<uint, int> m_MigrationIds;
+
+        EntityQuery m_LocalConnectionQuery;
 
         /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
@@ -319,6 +322,8 @@ namespace Unity.NetCode
                 if ((driverMigrationSystem = world.GetExistingSystemManaged<DriverMigrationSystem>()) != null)
                     break;
             }
+
+            m_LocalConnectionQuery = state.GetEntityQuery(typeof(LocalConnection));
 
             m_RandomIndex = new NativeReference<uint>(Allocator.Persistent);
             m_RandomIndex.Value = (uint)System.Diagnostics.Stopwatch.GetTimestamp();
@@ -341,12 +346,12 @@ namespace Unity.NetCode
             m_EnablePacketLoggingFromEntity = state.GetComponentLookup<EnablePacketLogging>();
 
             m_OutgoingRpcBufferFromEntity = state.GetBufferLookup<OutgoingRpcDataStreamBuffer>();
+            m_OutgoingOutOfBandRpcBufferFromEntity = state.GetBufferLookup<OutgoingOutOfBandRpcDataStreamBuffer>();
             m_RpcBufferFromEntity = state.GetBufferLookup<IncomingRpcDataStreamBuffer>();
             m_CmdBufferFromEntity = state.GetBufferLookup<IncomingCommandDataStreamBuffer>();
             m_SnapshotBufferFromEntity = state.GetBufferLookup<IncomingSnapshotDataStreamBuffer>();
-            m_reliableSequencedPipelineStageId = NetworkPipelineStageId.Get<ReliableSequencedPipelineStage>();
 
-            AttemptCreateFakeHostConnection(ref state);
+            AttemptCreateFakeHostConnection(state.WorldUnmanaged, m_NumNetworkIds, m_LocalConnectionQuery);
 
             NetworkEndpoint lastEp = default;
             NetworkDriverStore driverStore = default;
@@ -375,6 +380,7 @@ namespace Unity.NetCode
             UnsafeUtility.MemClear((void*)m_DriverPointers, UnsafeUtility.SizeOf<NetworkStreamDriver.Pointers>());
             var networkStreamEntity = state.EntityManager.CreateEntity(ComponentType.ReadWrite<NetworkStreamDriver>());
             state.EntityManager.SetName(networkStreamEntity, "NetworkStreamDriver");
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, networkStreamEntity);
             SystemAPI.SetSingleton(new NetworkStreamDriver((void*)m_DriverPointers, m_NumNetworkIds, m_FreeNetworkIds, lastEp, m_ConnectionEvents, m_ConnectionEvents.AsReadOnly()));
             SystemAPI.GetSingleton<NetworkStreamDriver>().ResetDriverStore(state.WorldUnmanaged, ref driverStore);
 
@@ -390,34 +396,41 @@ namespace Unity.NetCode
             var migratedNetworkIds = state.EntityManager.CreateEntity(ComponentType.ReadWrite<MigratedNetworkIdsData>());
             state.EntityManager.SetName(migratedNetworkIds, "MigratedNetworkIDds");
             state.EntityManager.SetComponentData(migratedNetworkIds, new MigratedNetworkIdsData() { MigratedNetworkIds = m_MigrationIds });
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, migratedNetworkIds);
 
             var networkIDAllocationData = state.EntityManager.CreateEntity(ComponentType.ReadWrite<NetworkIDAllocationData>());
-            state.EntityManager.SetName(networkIDAllocationData, "NetworkIDAllocationData");
+            state.EntityManager.SetName(networkIDAllocationData, "NetworkIDAllocationData-Singleton");
             state.EntityManager.SetComponentData(networkIDAllocationData, new NetworkIDAllocationData() { FreeNetworkIds = m_FreeNetworkIds, NumNetworkIds = m_NumNetworkIds });
+            EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, networkIDAllocationData);
+
+            NetworkProtocolVersion.SetNetcodeVersion();
         }
 
 
         // The content of this method should shadow the logic in HandleDriverEvents.ApproveConnection
-        void AttemptCreateFakeHostConnection(ref SystemState state)
+        // TODO next time we touch this, we can potentially move this logic to a static method and put it in the same file as the connection approval logic https://github.cds.internal.unity3d.com/unity/unity/pull/100426#discussion_r943809
+        internal static void AttemptCreateFakeHostConnection(WorldUnmanaged world, NativeReference<int> numNetworkIds, EntityQuery localConnectionQuery)
         {
-            if (state.WorldUnmanaged.IsHost())
+            if (world.IsHost() && !localConnectionQuery.HasSingleton<LocalConnection>())
             {
+                EntityManager em = world.EntityManager;
                 // Combined single world host still needs a connection entity
                 // Generate a fake connection for handling going in game etc
-                var ent = state.EntityManager.CreateEntity();
-                state.EntityManager.AddComponent(ent, NetworkStreamConnection.GetEssentialComponentsForConnection());
-                state.EntityManager.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
-                // TODO set NetworkStreamInGame on by default? As a single world host, there's not really a case for that to be off. If users rely on this to know if they are ready, they should instead have their own user side signal.
-                state.EntityManager.GetBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup { Value = ent });
+                var ent = em.CreateEntity();
+                em.AddComponent(ent, NetworkStreamConnection.GetEssentialComponentsForConnection());
+                em.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
+                em.AddBuffer<OutgoingOutOfBandRpcDataStreamBuffer>(ent);
+                // TODO-next@connection set NetworkStreamInGame on by default? As a single world host, there's not really a case for that to be off. If users rely on this to know if they are ready, they should instead have their own user side signal.
+                em.GetBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup { Value = ent });
 
                 // Avoid using 0
-                int nid = m_NumNetworkIds.Value + 1;
-                m_NumNetworkIds.Value = nid;
+                int nid = numNetworkIds.Value + 1;
+                numNetworkIds.Value = nid;
 
                 var networkId = new NetworkId {Value = nid};
-                state.EntityManager.AddComponentData(ent, networkId);
-                state.EntityManager.AddComponent<LocalConnection>(ent); // we're not doing this for binary world servers, since it doesn't really make sense. For a server world, a local client world shouldn't be different from other client worlds.
-                state.EntityManager.SetName(ent, new FixedString64Bytes(FixedString.Format("Host Fake NetworkConnection ({0})", nid)));
+                em.AddComponentData(ent, networkId);
+                em.AddComponent<LocalConnection>(ent); // we're not doing this for binary world servers, since it doesn't really make sense. For a server world, a local client world shouldn't be different from other client worlds.
+                em.SetName(ent, new FixedString64Bytes(FixedString.Format("Host Fake NetworkConnection ({0})", nid)));
             }
         }
 
@@ -434,11 +447,11 @@ namespace Unity.NetCode
             ref readonly var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO;
             if (DriverState.Default == networkStreamDriver.DriverState)
             {
-                var driverStore = DriverStore;
                 foreach (var connection in SystemAPI.Query<RefRO<NetworkStreamConnection>>())
                 {
-                    driverStore.Disconnect(connection.ValueRO);
+                    networkStreamDriver.Disconnect(connection.ValueRO);
                 }
+
                 DriverStore.ScheduleUpdateAllDrivers(state.Dependency).Complete();
                 DriverStore.Dispose();
             }
@@ -490,7 +503,8 @@ namespace Unity.NetCode
                     ComponentCollectionVersion = GhostCollectionSystem.CalculateComponentCollectionHash(serializerState),
                 };
                 netDebug.DebugLog($"[{state.WorldUnmanaged.Name}] NetworkProtocolVersion finalized with: {npv.ToFixedString()}, DefaultVariants:{data.DefaultVariants.Count}, Serializers:{data.Serializers.Length}, SS:{data.SerializationStrategies.Length}, InputBuffers:{data.InputComponentBufferMap.Count}, RPCs:{rpcCollection.Rpcs.Length}, DynamicAssemblyList:{rpcCollection.DynamicAssemblyList}!");
-                state.EntityManager.CreateSingleton(npv);
+                var npvEntity = state.EntityManager.CreateSingleton(npv, "NetworkProtocolVersion-Singleton");
+                EntitiesStaticInternalAccessBursted.SetHideInHierarchy(state.EntityManager, npvEntity);
                 npv.AssertIsValid();
             }
             var networkProtocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>();
@@ -526,6 +540,7 @@ namespace Unity.NetCode
             if (driverListening)
             {
                 m_GhostComponentFromEntity.Update(ref state);
+                AttemptCreateFakeHostConnection(state.WorldUnmanaged, this.m_NumNetworkIds, m_LocalConnectionQuery); // in case we reuse the same world but with a different driver, we still want the fake connection recreated
                 var acceptJob = new ConnectionAcceptJob
                 {
                     driverStore = DriverStore,
@@ -580,6 +595,7 @@ namespace Unity.NetCode
             m_InGameFromEntity.Update(ref state);
             m_EnablePacketLoggingFromEntity.Update(ref state);
             m_OutgoingRpcBufferFromEntity.Update(ref state);
+            m_OutgoingOutOfBandRpcBufferFromEntity.Update(ref state);
             m_RpcBufferFromEntity.Update(ref state);
             m_CmdBufferFromEntity.Update(ref state);
             m_SnapshotBufferFromEntity.Update(ref state);
@@ -609,7 +625,6 @@ namespace Unity.NetCode
                 rpcBuffer = m_RpcBufferFromEntity,
                 cmdBuffer = m_CmdBufferFromEntity,
                 snapshotBuffer = m_SnapshotBufferFromEntity,
-                reliableSequencedPipelineStageId = m_reliableSequencedPipelineStageId,
 
                 requireConnectionApproval = networkStreamDriver.RequireConnectionApproval ? (byte)1 : (byte)0,
                 protocolVersion = networkProtocolVersion,
@@ -689,6 +704,7 @@ namespace Unity.NetCode
                         });
                         commandBuffer.AddBuffer<PrespawnSectionAck>(ent);
                         var outgoingBuf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
+                        commandBuffer.AddBuffer<OutgoingOutOfBandRpcDataStreamBuffer>(ent);
                         commandBuffer.AddBuffer<IncomingCommandDataStreamBuffer>(ent);
                         commandBuffer.AppendToBuffer(ent, new LinkedEntityGroup{Value = ent});
                         commandBuffer.SetName(ent, (FixedString64Bytes)$"NetworkConnection (Handshake:{tickRate.HandshakeApprovalTimeoutMS}ms)");
@@ -738,7 +754,6 @@ namespace Unity.NetCode
             public BufferLookup<IncomingRpcDataStreamBuffer> rpcBuffer;
             public BufferLookup<IncomingCommandDataStreamBuffer> cmdBuffer;
             public BufferLookup<IncomingSnapshotDataStreamBuffer> snapshotBuffer;
-            public NetworkPipelineStageId reliableSequencedPipelineStageId;
 
             public NetworkProtocolVersion protocolVersion;
 
@@ -770,7 +785,7 @@ namespace Unity.NetCode
                 if (Hint.Unlikely(requestDisconnectFromEntity.TryGetComponent(entity, out var disconnectRequest)))
                 {
                     disconnectReason = disconnectRequest.Reason;
-                    driverStore.Disconnect(connection);
+                    driverStore.GetDriverRW(connection.DriverId).Disconnect(connection.Value);
                     // Disconnect cleanup will be handled below.
                 }
                 else if (!inGameFromEntity.HasComponent(entity))
@@ -915,17 +930,14 @@ namespace Unity.NetCode
                                     var rtt = NetworkSnapshotAck.CalculateRttViaLocalTime(localTime, localTimeMinusRTT);
                                     snapshotAck.UpdateRemoteTime(remoteTime, rtt, localTime);
 
-                                    // SSId:
-                                    var currentSnapshotSequenceId = reader.ReadByte();
-
-                                    // Copy the reader here, as we want to pass the ServerTick into the GhostReceiveSystem,
-                                    // and that'll fail if we read too far.
+                                    // Read the ServerTick from a copy so the main reader still points at it
+                                    // when we pass the buffer to GhostReceiveSystem.
                                     var copyOfReader = reader;
                                     var currentSnapshotServerTick = new NetworkTick{SerializedData = copyOfReader.ReadUInt()};
 
                                     // Skip old snapshots:
                                     var isValid = !snapshotAck.LastReceivedSnapshotByLocal.IsValid || currentSnapshotServerTick.IsNewerThan(snapshotAck.LastReceivedSnapshotByLocal);
-                                    UpdatePacketLossStats(ref snapshotAck.SnapshotPacketLoss, isValid, currentSnapshotSequenceId, currentSnapshotServerTick, ref snapshotAck, in entity, buffer);
+                                    UpdatePacketLossStats(ref snapshotAck.SnapshotPacketLoss, isValid, buffer);
                                     if (!isValid)
                                         break;
                                     //This is partially valid: if we receive 3 packets, it is valid to only ack the last one
@@ -944,7 +956,6 @@ namespace Unity.NetCode
                                     }
                                     snapshotAck.ReceivedSnapshotByLocalMask |= 1;
                                     snapshotAck.LastReceivedSnapshotByLocal = currentSnapshotServerTick;
-                                    snapshotAck.CurrentSnapshotSequenceId = currentSnapshotSequenceId;
 
                                     // Limitation: Clobber any previous snapshot, even if said snapshot has not been processed yet.
                                     if (buffer.Length > 0)
@@ -965,8 +976,13 @@ namespace Unity.NetCode
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                                     UnityEngine.Debug.Assert(reader.GetBytesRead() == RpcCollection.k_RpcCommonHeaderLengthBytes);
 #endif
-                                    var rtt = NetworkSnapshotAck.GetRpcRttFromReliablePipeline(connection, ref driver, ref driverInstance, pipelineStage, reliableSequencedPipelineStageId);
-                                    snapshotAck.UpdateRemoteTime(remoteTime, rtt, localTime);
+                                    if (pipelineStage.Id != driverInstance.outOfBandPipeline.Id)
+                                    {
+                                        var rtt = NetworkSnapshotAck.GetRpcRttFromReliablePipeline(connection,
+                                            ref driver, ref driverInstance, pipelineStage);
+                                        snapshotAck.UpdateRemoteTime(remoteTime, rtt, localTime);
+                                    }
+
                                     var buffer = rpcBuffer[entity];
                                     buffer.Add(ref reader);
                                     break;
@@ -983,6 +999,28 @@ namespace Unity.NetCode
                     }
                 }
                 doubleBreak:
+
+                // Populate snapshot packet loss statistics and CurrentSnapshotSequenceId from the
+                // UnreliableSequencedPipelineStage on the client. On the server, these are tracked
+                // manually in GhostSendSystem.
+                if (!isServer)
+                {
+                    driver.GetPipelineBuffers(driverInstance.unreliablePipeline, NetworkPipelineStageId.Get<UnreliableSequencedPipelineStage>(), connection.Value,
+                        out var recvBuffer, out _, out var sharedBuffer);
+                    if (recvBuffer.IsCreated && sharedBuffer.IsCreated)
+                    {
+                        unsafe
+                        {
+                            var recvSeqId = (UnreliableSequencedPipelineStage.SequenceId*)recvBuffer.GetUnsafeReadOnlyPtr();
+                            snapshotAck.CurrentSnapshotSequenceId = (byte)recvSeqId->Value;
+
+                            var transportStats = (UnreliableSequencedPipelineStage.Statistics*)sharedBuffer.GetUnsafeReadOnlyPtr();
+                            snapshotAck.SnapshotPacketLoss.NumPacketsReceived = transportStats->NumPacketsReceived;
+                            snapshotAck.SnapshotPacketLoss.NumPacketsCulledOutOfOrder = transportStats->NumPacketsCulledOutOfOrder;
+                            snapshotAck.SnapshotPacketLoss.NumPacketsDroppedNeverArrived = transportStats->NumPacketsDroppedNeverArrived;
+                        }
+                    }
+                }
 
                 // Now react to changes:
 
@@ -1141,7 +1179,7 @@ namespace Unity.NetCode
                         disconnectReason = connection.CurrentState == ConnectionState.State.Handshake
                             ? NetworkStreamDisconnectReason.HandshakeTimeout
                             : NetworkStreamDisconnectReason.ApprovalTimeout;
-                        driverStore.Disconnect(connection);
+                        driverStore.GetDriverRW(connection.DriverId).Disconnect(connection.Value);
                     }
                 }
             }
@@ -1203,6 +1241,7 @@ namespace Unity.NetCode
                 connectionUniqueIds.Add(connectionUniqueId);
 
                 // the logic in AttemptCreateFakeHostConnection should shadow the logic here. I.e. If you update this, double check AttemptCreateFakeHostConnection.
+                // TODO next time we touch this, we can potentially move this logic to a static method and put it in the same file as the fake connection logic https://github.cds.internal.unity3d.com/unity/unity/pull/100426#discussion_r943809
                 networkId = new NetworkId {Value = newNetworkId};
                 commandBuffer.AddComponent(ent, networkId);
                 commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", newNetworkId)));
@@ -1226,64 +1265,17 @@ namespace Unity.NetCode
             }
 
             /// <summary>
-            /// Records SnapshotSequenceId [SSId] statistics, detecting packet loss, packet duplication, and out of order packets.
+            /// Tracks the <see cref="SnapshotPacketLossStatistics.NumPacketsCulledAsArrivedOnSameFrame"/> statistic.
+            /// Other packet loss statistics are now sourced from the <see cref="UnreliableSequencedPipelineStage"/>.
             /// </summary>
-            // ReSharper disable once UnusedParameter.Local
-            private void UpdatePacketLossStats(ref SnapshotPacketLossStatistics stats, bool snapshotIsConfirmedNewer,
-                in byte currentSnapshotSequenceId, NetworkTick currentSnapshotServerTick, ref NetworkSnapshotAck snapshotAck,
-                in Entity entity, DynamicBuffer<IncomingSnapshotDataStreamBuffer> buffer)
+            private static void UpdatePacketLossStats(ref SnapshotPacketLossStatistics stats, bool snapshotIsConfirmedNewer,
+                DynamicBuffer<IncomingSnapshotDataStreamBuffer> buffer)
             {
-                if (stats.NumPacketsReceived == 0) snapshotAck.CurrentSnapshotSequenceId = (byte) (currentSnapshotSequenceId - 1);
-                stats.NumPacketsReceived++;
-
-                var sequenceIdDelta = snapshotAck.CalculateSequenceIdDelta(currentSnapshotSequenceId, snapshotIsConfirmedNewer);
-                if (snapshotIsConfirmedNewer)
+                if (snapshotIsConfirmedNewer && buffer.Length > 0)
                 {
-                    // Detect packet loss:
-                    var numDroppedPackets = sequenceIdDelta - 1;
-                    if (numDroppedPackets > 0)
-                    {
-                        stats.NumPacketsDroppedNeverArrived += (ulong) numDroppedPackets;
-#if NETCODE_DEBUG
-                        TryLog(entity, (FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}, ST:{currentSnapshotServerTick.ToFixedString()}] Inferred {numDroppedPackets} snapshots dropped!");
-#endif
-                    }
-
                     // Netcode limitation: We can only process one snapshot per tick!
-                    if (buffer.Length > 0)
-                    {
-                        stats.NumPacketsCulledAsArrivedOnSameFrame++;
-#if NETCODE_DEBUG
-                        TryLog(entity, (FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}, ST:{currentSnapshotServerTick.ToFixedString()}] Clobbering previous snapshot, arrived same frame.");
-#endif
-                    }
-
-#if NETCODE_DEBUG
-                    TryLog(entity, (FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}, ST:{currentSnapshotServerTick.ToFixedString()}] Accepted & queued!");
-#endif
-                    return;
+                    stats.NumPacketsCulledAsArrivedOnSameFrame++;
                 }
-
-                // Detect out of order and duplicate packets:
-                if (sequenceIdDelta == 0)
-                {
-                    // We can't track any previous duplicate packets (unless we keep an ack history),
-                    // so we don't track it at all. Just log.
-#if NETCODE_DEBUG
-                    TryLog(entity, (FixedString512Bytes) $"[SSId:{currentSnapshotSequenceId}, ST:{currentSnapshotServerTick.ToFixedString()}] Detected duplicated snapshot packet!");
-#endif
-                    return;
-                }
-
-                stats.NumPacketsCulledOutOfOrder++;
-                // Technically a packet we skipped over was counted as dropped, but it just arrived.
-                // We may not even know about it, as jitter during connection can cause us to detect
-                // dropped packets that we should never have received anyway.
-                if (stats.NumPacketsDroppedNeverArrived > 0)
-                    stats.NumPacketsDroppedNeverArrived--;
-#if NETCODE_DEBUG
-                TryLog(entity, (FixedString512Bytes) $"[SSId:{currentSnapshotSequenceId}, ST:{currentSnapshotServerTick.ToFixedString()}] Culled as arrived {Unity.Mathematics.math.abs(sequenceIdDelta)} ServerTicks late!");
-#endif
             }
 
 

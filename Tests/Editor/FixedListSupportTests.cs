@@ -135,6 +135,12 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnCreate()
         {
+            if (World.IsHost())
+            {
+                // This is a "sending input to host/server and make sure serialization works" test, we don't care about local host world inputs, there's no serialization there.
+                Enabled = false;
+                return;
+            }
             RequireForUpdate<NetworkStreamInGame>();
             RequireForUpdate(GetEntityQuery(ComponentType.ReadWrite<FixedListCommand>()));
         }
@@ -160,8 +166,15 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnCreate()
         {
+            if (World.IsHost())
+            {
+                // This is a "sending input to host/server and make sure serialization works" test, we don't care about local host world inputs, there's no serialization there.
+                Enabled = false;
+                return;
+            }
             RequireForUpdate<NetworkStreamInGame>();
             RequireForUpdate(GetEntityQuery(ComponentType.ReadWrite<FixedListInputData>()));
+
         }
         protected override void OnUpdate()
         {
@@ -529,7 +542,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void CommandDataAndIInputComponent_SupportFixedList([Values]bool useInputData)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -554,7 +566,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick();
 
-                testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
@@ -568,8 +580,10 @@ namespace Unity.NetCode.Tests
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
                 if (!useInputData)
+                {
                     testWorld.ServerWorld.EntityManager.AddComponent<FixedListCommand>(serverEnt);
                     testWorld.ClientWorlds[0].EntityManager.AddComponent<FixedListCommand>(clientEnt);
+                }
 
                 for (int i = 0; i < 60; ++i)
                     testWorld.Tick();
@@ -949,7 +963,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [DisableSingleWorldHostTest]
         public void FixedList_Command_Capacity_Cap()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -969,7 +982,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick();
 
-                testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ServerWorld);
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 

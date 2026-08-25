@@ -6,6 +6,7 @@ using System;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.NetCode.EntitiesInternalAccess;
 using Unity.NetCode.LowLevel.Unsafe;
 
 /// <summary>
@@ -109,6 +110,28 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// By default, single host world mode <b>enables</b> interpolation smoothing (via the <see cref="HostTransformInterpolationSystem"/>).
+    /// However, if you're confident that the <see cref="ClientServerTickRate.SimulationTickRate"/> will align with the build target's vSync render rate,
+    /// (for example; when targeting specific consoles and mobile devices), you can disable interpolation entirely via this setting,
+    /// removing the CPU and memory overhead of caching transform state and performing interpolation.
+    /// </summary>
+    public enum SingleWorldHostInterpolationMode
+    {
+        /// <summary>
+        /// Designed for mobile and console, where you expect the SimulationTickRate to <b>perfectly</b> align with
+        /// <see cref="UnityEngine.Application.targetFrameRate"/> (or vSync) render rate.
+        /// </summary>
+        Disabled = 0,
+        /// <summary>
+        /// Introduces half a <see cref="ClientServerTickRate.SimulationTickRate"/> tick worth of 'input to render' latency, on average,
+        /// but does so to smooth out transforms on netcode "off frames" (see <see cref="NetworkTime.IsOffFrame"/>).
+        /// Designed for PC games (which typically have variable render refresh rates), or cases where your <see cref="ClientServerTickRate.SimulationTickRate"/>
+        /// is not equal to your <see cref="UnityEngine.Application.targetFrameRate"/> (or vSync) render rate.
+        /// </summary>
+        Interpolate = 1,
+    }
+
+    /// <summary>
     /// Helper methods and structs used to configure and create ghost prefabs
     /// </summary>
     public static class GhostPrefabCreation
@@ -165,6 +188,8 @@ namespace Unity.NetCode
             /// Instruct the <see cref="GhostSendSystem"/> to always use a single baseline for this ghost archetype.
             /// </summary>
             public bool UseSingleBaseline;
+            /// <inheritdoc cref="BaseGhostSettings.SingleWorldHostInterpolationSmoothing"/>
+            public SingleWorldHostInterpolationMode SingleWorldHostInterpolationSmoothing;
             /// <summary>
             /// Optional, custom deterministic function that retrieve all no-backing and serializable component types for this ghost. By serializable,
             /// we means components that either have ghost fields (fields with a <see cref="GhostFieldAttribute"/> attribute)
@@ -466,6 +491,7 @@ namespace Unity.NetCode
             root.MaxSendRate = ghostConfig.MaxSendRate;
             root.SupportedModes = GhostPrefabBlobMetaData.GhostMode.Both;
             root.DefaultMode = GhostPrefabBlobMetaData.GhostMode.Interpolated;
+            root.SingleWorldHostInterpolationSmoothing = ghostConfig.SingleWorldHostInterpolationSmoothing;
             if (ghostConfig.SupportedGhostModes == GhostModeMask.Interpolated)
                 root.SupportedModes = GhostPrefabBlobMetaData.GhostMode.Interpolated;
             else if (ghostConfig.SupportedGhostModes == GhostModeMask.Predicted)
@@ -790,7 +816,7 @@ namespace Unity.NetCode
             if (target != NetcodeConversionTarget.Client || ghostConfig.SupportedGhostModes != GhostModeMask.Interpolated)
                 entityManager.AddComponentData(rootEntity, new PredictedGhost());
             if (ghostConfig.UsePreSerialization)
-                entityManager.AddComponentData(rootEntity, default(PreSerializedGhost));
+               entityManager.AddComponentData(rootEntity, default(PreSerializedGhost));
 
             var hasBuffers = false;
             //Check if the entity has any buffers left and SnapshotDynamicData buffer to for client. Must be stripped on server
@@ -990,6 +1016,8 @@ namespace Unity.NetCode
         /// <remarks>
         /// Note that - when using this in a System `OnCreate` method - you must ensure your system is created after the `DefaultVariantSystemGroup`,
         /// as we must register serialization strategies before you access them.
+        /// Note that <see cref="GhostCollectionSystem"/> will update and strip your prefabs at runtime on the next ECS update. Instantiating ghosts before then
+        /// will create ghosts without the proper stripping.
         /// </remarks>
         /// <param name="entityManager">Used to add components data on ghost children.</param>
         /// <param name="prefab">Entity prefab to be converted.</param>
@@ -1003,7 +1031,10 @@ namespace Unity.NetCode
             ConvertToGhostPrefab_Internal(entityManager, prefab, config, target, overrides);
             using var codePrefabQuery = entityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<CodeGhostPrefab>());
             if (!codePrefabQuery.TryGetSingletonEntity<CodeGhostPrefab>(out var codePrefabSingleton))
+            {
                 codePrefabSingleton = entityManager.CreateSingletonBuffer<CodeGhostPrefab>();
+                EntitiesStaticInternalAccessBursted.SetHideInHierarchy(entityManager, codePrefabSingleton);
+            }
             var codePrefabs = entityManager.GetBuffer<CodeGhostPrefab>(codePrefabSingleton);
 
 #if NETCODE_DEBUG

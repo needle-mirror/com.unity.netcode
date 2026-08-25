@@ -53,6 +53,10 @@ namespace Unity.NetCode
             /// </summary>
             public NetworkPipeline reliablePipeline;
             /// <summary>
+            /// The pipeline used for sending out-of-band reliable messages
+            /// </summary>
+            public NetworkPipeline outOfBandPipeline;
+            /// <summary>
             /// The pipeline used for sending unreliable messages and snapshots
             /// </summary>
             public NetworkPipeline unreliablePipeline;
@@ -93,6 +97,10 @@ namespace Unity.NetCode
             /// The pipeline used for sending reliable messages
             /// </summary>
             public NetworkPipeline reliablePipeline;
+            /// <summary>
+            /// The pipeline used for sending out-of-band reliable messages
+            /// </summary>
+            public NetworkPipeline outOfBandPipeline;
             /// <summary>
             /// The pipeline used for sending unreliable messages and snapshots
             /// </summary>
@@ -257,6 +265,7 @@ namespace Unity.NetCode
                 {
                     driver = m_Driver0.instance.driver.ToConcurrent(),
                     reliablePipeline = m_Driver0.instance.reliablePipeline,
+                    outOfBandPipeline = m_Driver0.instance.outOfBandPipeline,
                     unreliablePipeline = m_Driver0.instance.unreliablePipeline,
                     unreliableFragmentedPipeline = m_Driver0.instance.unreliableFragmentedPipeline,
                 };
@@ -265,6 +274,7 @@ namespace Unity.NetCode
                 {
                     driver = m_Driver1.instance.driver.ToConcurrent(),
                     reliablePipeline = m_Driver1.instance.reliablePipeline,
+                    outOfBandPipeline = m_Driver1.instance.outOfBandPipeline,
                     unreliablePipeline = m_Driver1.instance.unreliablePipeline,
                     unreliableFragmentedPipeline = m_Driver1.instance.unreliableFragmentedPipeline,
                 };
@@ -273,6 +283,7 @@ namespace Unity.NetCode
                 {
                     driver = m_Driver2.instance.driver.ToConcurrent(),
                     reliablePipeline = m_Driver2.instance.reliablePipeline,
+                    outOfBandPipeline = m_Driver2.instance.outOfBandPipeline,
                     unreliablePipeline = m_Driver2.instance.unreliablePipeline,
                     unreliableFragmentedPipeline = m_Driver2.instance.unreliableFragmentedPipeline,
                 };
@@ -414,6 +425,7 @@ namespace Unity.NetCode
         /// Utility method to disconnect the <see cref="NetworkStreamConnection" /> connection.
         /// </summary>
         /// <inheritdoc cref="GetDriverRW"/>
+        [Obsolete("Disconnect is obsolete and being moved to NetworkStreamDriver so it is in the same place as the Connect method. Please use NetworkStreamDriver.Disconnect or call Disconnect on the driver directly instead. This method will be removed in a future release.", false)]
         public void Disconnect(NetworkStreamConnection connection) => GetDriverRW(connection.DriverId).Disconnect(connection.Value);
 
         internal JobHandle ScheduleUpdateAllDrivers(JobHandle dependency)

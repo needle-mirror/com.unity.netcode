@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
@@ -8,6 +7,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -24,6 +24,19 @@ namespace Unity.NetCode.Tests
         {
             defaultVariants.Add(typeof(GhostGen_IntStruct), Rule.ForAll(typeof(ClientOnlyVariant)));
         }
+    }
+
+    internal struct InternalTargetComponent : IComponentData
+    {
+        public float someValue;
+    }
+
+    /// <summary>An internal variant targeting an internal component. Both are supported.</summary>
+    [GhostComponentVariation(typeof(InternalTargetComponent), nameof(InternalComponentVariantTest))]
+    internal struct InternalComponentVariantTest
+    {
+        [GhostField]
+        public float someValue;
     }
 
     [TestFixture]
@@ -80,17 +93,35 @@ namespace Unity.NetCode.Tests
                 if (ghostSerializerCollection[i].NumComponents == 5)
                 {
                     Assert.AreEqual(1, ghostSerializerCollection[i].NumChildComponents);
-                    Assert.AreEqual(2, ghostComponentIndex.AsNativeArray()
-                        .GetSubArray(ghostSerializerCollection[i].FirstComponent, 5)
-                        .Count(t => t.SerializerIndex == serializerIndex));
+                    var subArray = ghostComponentIndex.AsNativeArray()
+                        .GetSubArray(ghostSerializerCollection[i].FirstComponent, 5);
+
+                    int count = 0;
+                    foreach (var t in subArray)
+                    {
+                        if (t.SerializerIndex == serializerIndex)
+                            count++;
+                    }
+
+                    Assert.AreEqual(2, count);
                 }
                 //The (none) variant should have 4
                 else if (ghostSerializerCollection[i].NumComponents == 4)
                 {
                     Assert.AreEqual(entityIndex==0?1:0, ghostSerializerCollection[i].NumChildComponents);
-                    Assert.AreEqual(1, ghostComponentIndex.AsNativeArray()
-                        .GetSubArray(ghostSerializerCollection[i].FirstComponent, 4)
-                        .Count(t => t.SerializerIndex == serializerIndex));
+                    var subArray = ghostComponentIndex.AsNativeArray()
+                        .GetSubArray(ghostSerializerCollection[i].FirstComponent, 4);
+
+                    int count = 0;
+                    foreach (var t in subArray)
+                    {
+                        if (t.SerializerIndex == serializerIndex)
+                        {
+                            count++;
+                        }
+                    }
+
+                    Assert.AreEqual(1, count);
                 }
                 else
                 {
@@ -468,6 +499,92 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        internal class InternalComponentConverter : TestNetCodeAuthoring.IConverter
+        {
+            public void Bake(GameObject gameObject, IBaker baker)
+            {
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new InternalTargetComponent());
+            }
+        }
+
+        [Test(Description = "Both variants and the components they target can be internal. Full flow test: makes sure such a variant is found by the runtime variant logic, can be assigned as a prefab override and is used for serialization. The internal component has no ghost fields itself, so its value can only be replicated through the variant")]
+        public void SerializationVariant_InternalVariantTargetingInternalComponent_IsUsedForSerialization()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, 1);
+
+                //Prefab creation: bake a ghost with the internal component and override its serialization with the internal variant
+                var ghostGameObject = new GameObject("InternalVariantGhost");
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new InternalComponentConverter();
+                var authoring = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                authoring.DefaultGhostMode = GhostMode.Interpolated;
+                authoring.SupportedGhostModes = GhostModeMask.All;
+
+                var hash = GhostVariantsUtility.UncheckedVariantHashNBC(typeof(InternalComponentVariantTest).FullName, typeof(InternalTargetComponent).FullName);
+                Assert.AreNotEqual(0, hash);
+                ghostGameObject.AddComponent<GhostAuthoringInspectionComponent>().ComponentOverrides = new[]
+                {
+                    new GhostAuthoringInspectionComponent.ComponentOverride
+                    {
+                        FullTypeName = typeof(InternalTargetComponent).FullName,
+                        PrefabType = GhostPrefabType.All,
+                        SendTypeOptimization = GhostSendType.AllClients,
+                        VariantHash = hash
+                    },
+                };
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject), "Cannot create ghost collection");
+                testWorld.BakeGhostCollection(testWorld.ServerWorld);
+                testWorld.BakeGhostCollection(testWorld.ClientWorlds[0]);
+
+                testWorld.Connect();
+                testWorld.GoInGame();
+
+                //The internal variant is found by the runtime variant logic
+                using var collectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponentSerializerCollectionData>());
+                var collectionData = collectionQuery.GetSingleton<GhostComponentSerializerCollectionData>();
+                using var strategies = collectionData.GetAllAvailableSerializationStrategiesForType(ComponentType.ReadWrite<InternalTargetComponent>(), 0, isRoot: true);
+                var foundVariant = false;
+                for (int i = 0; i < strategies.Length; ++i)
+                    foundVariant |= strategies[i].Hash == hash;
+                Assert.IsTrue(foundVariant, $"Expected the {nameof(InternalComponentVariantTest)} variant (hash {hash}) targeting the internal component {nameof(InternalTargetComponent)} to be found among the {strategies.Length} available serialization strategies");
+
+                // set initial value. normally this component doesn't have ghost fields so shouldn't be replicated, but it works because of the variant.
+                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+                var expectedValue = 123f;
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new InternalTargetComponent { someValue = expectedValue });
+
+                testWorld.TickUntilClientsHaveAllGhosts();
+                var clientEnt = testWorld.TryGetSingletonEntity<InternalTargetComponent>(testWorld.ClientWorlds[0]);
+                Assert.AreNotEqual(Entity.Null, clientEnt, "The ghost was never spawned client side");
+
+                //Prefab override check: the prefab serializer for the internal component must point to the internal variant
+                var collection = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
+                var ghostSerializerCollection = testWorld.ServerWorld.EntityManager.GetBuffer<GhostComponentSerializer.State>(collection);
+                var componentIndex = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionComponentIndex>(collection);
+                var ghostPrefabCollection = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(collection);
+                var typeIndex = TypeManager.GetTypeIndex<InternalTargetComponent>();
+                var serializerFound = false;
+                for (int i = 0; i < ghostPrefabCollection[0].NumComponents; ++i)
+                {
+                    var idx = componentIndex[ghostPrefabCollection[0].FirstComponent + i];
+                    if (ghostSerializerCollection[idx.SerializerIndex].ComponentType.TypeIndex == typeIndex)
+                    {
+                        serializerFound = true;
+                        Assert.AreEqual(hash, ghostSerializerCollection[idx.SerializerIndex].VariantHash, "The prefab serializer for the internal component is not using the internal variant");
+                        break;
+                    }
+                }
+                Assert.IsTrue(serializerFound, $"No serializer found for {nameof(InternalTargetComponent)} in the ghost prefab. The variant override was not applied");
+
+                var clientValue = testWorld.ClientWorlds[0].EntityManager.GetComponentData<InternalTargetComponent>(clientEnt).someValue;
+                Assert.AreEqual(expectedValue, clientValue, "the internal component's value wasn't replicated when it should have been because of variants");
+            }
+        }
+
         /// <summary>A client only variant we can assign.</summary>
         [GhostComponentVariation(typeof(Transforms.LocalTransform), nameof(TransformVariantTest))]
         [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
@@ -501,23 +618,10 @@ namespace Unity.NetCode.Tests
                 authoring.SupportedGhostModes = GhostModeMask.All;
 
                 //Setup a variant for both root and child entity and check that the runtime serializer use this one to serialize data
-                var attrType = typeof(TransformVariantTest).GetCustomAttribute<GhostComponentVariationAttribute>();
-                ulong hash = 0;
+                ulong hash = GhostVariantsUtility.UncheckedVariantHashNBC(typeof(TransformVariantTest).FullName, typeof(LocalTransform).FullName);
 
                 using var collectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponentSerializerCollectionData>());
-                var collectionData = collectionQuery.GetSingleton<GhostComponentSerializerCollectionData>();
-                foreach (var ssIndex in collectionData.SerializationStrategiesComponentTypeMap.GetValuesForKey(attrType.ComponentType))
-                {
-                    var ss = collectionData.SerializationStrategies[ssIndex];
-                    if (ss.DisplayName.ToString().Contains(nameof(TransformVariantTest)))
-                    {
-                        hash = ss.Hash;
-                        goto found;
-                    }
-                }
-                Assert.Fail($"Couldn't find {nameof(TransformVariantTest)} to apply it!");
 
-                found:
                 Assert.AreNotEqual(0, hash);
                 inspection.ComponentOverrides = new[]
                 {
@@ -625,18 +729,22 @@ namespace Unity.NetCode.Tests
                 const int exampleEntityIndex = 66;
                 var inspection = goFromFunc.GetComponent<GhostAuthoringInspectionComponent>() ?? goFromFunc.AddComponent<GhostAuthoringInspectionComponent>();
 
-                var entityGuid = new EntityGuid
-                {
-                    a = (ulong)goFromFunc.GetInstanceID(),
-                    b = exampleEntityIndex,
-                };
+                var entityGuid = new EntityGuid(goFromFunc.GetEntityId(), EntityId.None, 0, exampleEntityIndex);
+
                 var componentOverride = inspection.GetOrAddPrefabOverride(typeof(GhostGen_IntStruct), entityGuid, (GhostPrefabType) GhostAuthoringInspectionComponent.ComponentOverride.NoOverride);
 
                 var ghostAuthoringComponent = collection[i].GetComponent<GhostAuthoringComponent>();
                 Assert.IsNotNull(ghostAuthoringComponent);
                 var allComponentOverrides = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(ghostAuthoringComponent, false);
-                var foundInspection = allComponentOverrides.First(x => x.Item1 == goFromFunc);
-                Assert.AreEqual(foundInspection.Item1.GetInstanceID(), entityGuid.OriginatingId, $"entityGuid.OriginatingId '{entityGuid.OriginatingId}' did not match game object set '{goFromFunc}'");
+                (GameObject, GhostAuthoringInspectionComponent.ComponentOverride) foundInspection = default;
+                foreach (var x in allComponentOverrides)
+                {
+                    if (x.Item1 == goFromFunc)
+                    {
+                        foundInspection = x;
+                    }
+                }
+                Assert.AreEqual(foundInspection.Item1.GetEntityId(), entityGuid.OriginatingEntityId, $"entityGuid.OriginatingEntityId '{entityGuid.OriginatingEntityId}' did not match game object set '{goFromFunc}'");
                 Assert.AreEqual(foundInspection.Item2.EntityIndex, exampleEntityIndex, "EntityIndex should have been set!");
             }
         }

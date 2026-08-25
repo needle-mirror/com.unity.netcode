@@ -47,6 +47,7 @@ namespace Unity.NetCode
             public ulong StableHash;
         }
 
+        // TODO - Just re-use the GhostPrefabCreation.Config struct here.
         public int Importance;
         public byte MaxSendRate;
         public GhostMode SupportedModes;
@@ -55,6 +56,7 @@ namespace Unity.NetCode
         public bool PredictedSpawnedGhostRollbackToSpawnTick;
         public bool RollbackPredictionOnStructuralChanges;
         public bool UseSingleBaseline;
+        public SingleWorldHostInterpolationMode SingleWorldHostInterpolationSmoothing;
         public BlobString Name;
         ///<summary>Array of components for each child in the hierarchy.</summary>
         public BlobArray<ComponentInfo> ServerComponentList;
@@ -81,6 +83,7 @@ namespace Unity.NetCode
         /// A list of (child index, components) pairs which should be disabled when the prefab is used to instantiate an interpolated ghost. This is used so we can have a single client prefab.
         /// </summary>
         public BlobArray<ComponentReference> DisableOnInterpolatedClient;
+
     }
 
     /// <summary>

@@ -13,6 +13,7 @@ namespace Unity.NetCode
     /// </summary>
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.NetCodePhysicsConfig)]
+    [AddComponentMenu("Multiplayer/NetCode Physics Config", 4)]
     public sealed class NetCodePhysicsConfig : MonoBehaviour
     {
         /// <summary>

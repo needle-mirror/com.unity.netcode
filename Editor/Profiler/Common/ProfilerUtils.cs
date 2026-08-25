@@ -42,8 +42,11 @@ namespace Unity.NetCode.Editor
     /// </summary>
     static class ProfilerUtils
     {
-        internal static string GetWorldName(NetworkRole role)
+        internal static string GetWorldName(NetworkRole role, bool isHost = false)
         {
+            if (isHost)
+                return "Host World";
+
             return role switch
             {
                 NetworkRole.Server => ClientServerBootstrap.ServerWorld?.Name ?? "Server World",
@@ -54,7 +57,7 @@ namespace Unity.NetCode.Editor
 
         internal static int GetMaxMessageSize()
         {
-            NetCodeConfig.RuntimeTryFindSettings();
+            NetCodeConfig.FindAndAssignGlobalConfig();
             var config = NetCodeConfig.Global;
             if (config && !Application.isPlaying)
                 return config.MaxMessageSize;
@@ -240,6 +243,18 @@ namespace Unity.NetCode.Editor
         static void OpenNetworkProfilerWindow()
         {
             EditorWindow.GetWindow<ProfilerWindow>(false, null, true);
+        }
+
+        internal static VisualElement CreateInfoTextElement(params string[] texts)
+        {
+            var element = new VisualElement();
+            element.AddToClassList(NetcodeProfilerConstants.s_InfoTextLabelContainerUssClass);
+            foreach (var text in texts)
+            {
+                var textElement = new Label(text);
+                element.Add(textElement);
+            }
+            return element;
         }
     }
 }

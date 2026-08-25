@@ -1,0 +1,20 @@
+/*
+ * Light skin palette for the GhostAuthoringInspectionComponent drawer.
+ */
+:root {
+    --ghost-inspection-replicated-icon-tint: #CC2480;
+    --ghost-inspection-non-replicated-icon-tint: #404040;
+    --ghost-inspection-override-bar: #1A1A1A;
+    --ghost-inspection-prefabtype-background: #C7C7C7;
+    --ghost-inspection-prefabtype-background-stripped: #ED9994;
+    --ghost-inspection-prefabtype-text: #141414;
+    --ghost-inspection-broken-background: #FFD6D4;
+    --ghost-inspection-broken-text: #731712;
+}
+
+.ghost-inspection-tooltip-host {
+    --ghost-inspection-tooltip-muted: #555555;
+    --ghost-inspection-tooltip-highlight: #7A5C00;
+    --ghost-inspection-tooltip-positive: #0B6B2E;
+    --ghost-inspection-tooltip-negative: #B01B10;
+}

@@ -1,4 +1,3 @@
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using System;
 using Unity.Collections;
 using Unity.Entities;
@@ -21,6 +20,9 @@ namespace Unity.NetCode
     // Most of this will disappear with Entities Integration
     struct GhostEntityMapping : IDisposable
     {
+        /// <summary>
+        /// Internal data for mapping, not meant to be consumed outside this class.
+        /// </summary>
         internal struct MappedEntity
         {
             public WorldUnmanaged World;
@@ -41,7 +43,7 @@ namespace Unity.NetCode
                 return new GameObjectKey() { gameObjectId = prefabId, worldSequenceId = world.SequenceNumber, hasWorld = true};
             }
 
-            // Internal note: having a GameObject parameter helps prevent cases where I go GetForGameObject(ghostAdapter.GetEntityId) --> MonoBehaviours also have EntityIds, which can cause easy to miss issues
+            // Internal note: having a GameObject parameter helps prevent cases where I go GetForGameObject(ghostObject.GetEntityId) --> MonoBehaviours also have EntityIds, which can cause easy to miss issues
             public static GameObjectKey GetForGameObject(GameObject gameObject)
             {
                 return GetForGameObject(gameObject.GetEntityId());
@@ -62,14 +64,18 @@ namespace Unity.NetCode
             }
         }
 
-        // The EntityId to World key makes it so we can have a single gameObject prefab for two different entity prefab in different worlds
+        // This supports two types of mapping.
+        // Prefabs where the EntityId+World key has both set. This allows having two keys with the same EntityId, but with different worlds. Useful for prefabs.
+        // And runtime GameObjects. Those can only have one entity associated, so the key has its world set to default.
         internal NativeHashMap<GameObjectKey, MappedEntity> m_MappedEntities;
         NativeHashSet<EntityId> m_CurrentObjectInitializingCheck;
 
-        public GhostEntityMapping(bool _)
+        public static GhostEntityMapping Create()
         {
-            this.m_MappedEntities = new(64, Allocator.Persistent);
-            m_CurrentObjectInitializingCheck = new(1, Allocator.Persistent);
+            GhostEntityMapping toReturn = default;
+            toReturn.m_MappedEntities = new(64, Allocator.Persistent);
+            toReturn.m_CurrentObjectInitializingCheck = new(1, Allocator.Persistent);
+            return toReturn;
         }
 
         public void Dispose()
@@ -135,9 +141,9 @@ namespace Unity.NetCode
         }
 
         /// <inheritdoc cref="AcquireEntityReferencePrefab"/>
-        internal static EntityLink AcquireEntityReferenceGameObject(EntityId gameObjectId, EntityId transformId, EntityId prefabEntityId, WorldUnmanaged autoWorld, Entity injectedEntity = default)
+        internal static EntityLink AcquireEntityReferenceGameObject(EntityId gameObjectId, EntityId transformId, EntityId prefabEntityId, WorldUnmanaged forWorld, Entity injectedEntity = default)
         {
-            return AcquireEntityReference(gameObjectId, transformId, isPrefabGameObject: false, forWorld: autoWorld, prefabId: prefabEntityId, injectedEntity: injectedEntity);
+            return AcquireEntityReference(gameObjectId, transformId, isPrefabGameObject: false, forWorld: forWorld, prefabId: prefabEntityId, injectedEntity: injectedEntity);
         }
 
         /// <inheritdoc cref="AcquireEntityReferencePrefab"/>
@@ -146,7 +152,7 @@ namespace Unity.NetCode
             ref var self = ref Netcode.Unmanaged.m_EntityMapping;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (self.m_CurrentObjectInitializingCheck.Contains(gameObjectId))
-                throw new InvalidOperationException($"Already initializing object {(int)gameObjectId}, sanity check failed.");
+                throw new InvalidOperationException($"Already initializing object {EntityId.ToULong(gameObjectId)}, sanity check failed. This is an internal error, please raise a bug with unity if you see this.");
             self.m_CurrentObjectInitializingCheck.Add(gameObjectId);
             try
             {
@@ -168,11 +174,6 @@ namespace Unity.NetCode
                 }
                 else
                 {
-#if UNITY_EDITOR
-                    if (!Application.isPlaying)
-                        throw new InvalidOperationException("Sanity check failed, shouldn't be here. Please raise a bug if you see this, editor time is not supported.");
-#endif
-
                     Assert.IsTrue(forWorld.IsCreated, "sanity check failed, the world to instantiate into should be known at this point");
 
                     var entity = injectedEntity;
@@ -251,6 +252,9 @@ namespace Unity.NetCode
         }
 
         /// <inheritdoc cref="ReleasePrefabReference"/>
+        /// <param name="worldIsCreated">Whether to assume the world is created or not</param>
+        /// <param name="gameObjectKey">The GameObject whose entity we're releasing</param>
+        /// <param name="forceRelease">Forces the destruction of the associated entity, even if the ref count is > 0</param>
         private static EntityLink ReleaseEntityReference(GameObjectKey gameObjectKey, bool worldIsCreated)
         {
             ref var self = ref Netcode.Unmanaged.m_EntityMapping;
@@ -277,6 +281,13 @@ namespace Unity.NetCode
                 }
             }
             return default;
+        }
+
+        // needs to happen after usual release, some remove methods in the if above require that mapping
+        public static void ForceReleaseOnWorldDestroy(EntityId gameObjectId)
+        {
+            ref var self = ref Netcode.Unmanaged.m_EntityMapping;
+            self.m_MappedEntities.Remove(GameObjectKey.GetForGameObject(gameObjectId));
         }
 
         /// <summary>
@@ -321,7 +332,7 @@ namespace Unity.NetCode
     internal static class MappingExtensions
     {
         /// <inheritdoc cref="EntityExt(UnityEngine.GameObject,bool,Unity.Entities.WorldUnmanaged)"/>
-        public static Entity EntityExt(this GhostAdapter self, WorldUnmanaged forWorld = default)
+        public static Entity EntityExt(this GhostObject self, WorldUnmanaged forWorld = default)
         {
             if (self.IsPrefab())
                 return GhostEntityMapping.LookupEntityReferencePrefab(self.gameObject, forWorld).Entity;
@@ -358,4 +369,3 @@ namespace Unity.NetCode
         }
     }
 }
-#endif

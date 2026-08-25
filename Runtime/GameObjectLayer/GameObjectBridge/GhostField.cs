@@ -1,8 +1,8 @@
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using System;
 using System.Diagnostics;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using Unity.Jobs.LowLevel.Unsafe;
 using UnityEngine;
 using Unity.NetCode.EntitiesInternalAccess;
 using Assert = UnityEngine.Assertions.Assert;
@@ -51,14 +51,19 @@ namespace Unity.NetCode
         //
         // Entities had plans for a ComponentRef, we can potentially use this instead when it's available.
 
+        // TODO-next@OnValueChanged
+        // Some nice conversations with users here https://discussions.unity.com/t/ghostfields-in-gameobject-netcode-devlog-entry-3/1713506/6
+        // We'd need to be careful around the number of useless checks we'd do if users have zero callbacks registered. a compile time way to signal there's an OnValueChanged could help mitigate this?
+
         internal Entity m_Entity;
         internal WorldUnmanaged m_World;
         internal ComponentType m_GeneratedWrapperComponentType;
 
         // caching
-        void* m_CachedPtr;
+        IntPtr m_CachedPtr; // not using void* since at the time of this writing, CoreCLR seems to have an issue with void*
         EntityStorageInfo m_CachedChunkInfo;
         int m_LastComponentTypeVersion;
+        ulong m_CachedChunkSequenceNumber;
 
         /// <summary>
         /// initial value on prefabs and also used to display the value in the inspector at runtime. (see the refresh method) // allows for no-GC alloc custom inspector, just reusing Unity's property drawing capabilities
@@ -78,8 +83,9 @@ namespace Unity.NetCode
             m_Entity = Entity.Null;
             m_World = default;
             m_GeneratedWrapperComponentType = default;
-            m_CachedPtr = null;
+            m_CachedPtr = default;
             m_CachedChunkInfo = default;
+            m_CachedChunkSequenceNumber = 0;
             m_LastComponentTypeVersion = 0;
             m_Value = initialValue;
         }
@@ -98,7 +104,7 @@ namespace Unity.NetCode
             m_World = world.Unmanaged;
             m_Entity = entity;
             m_GeneratedWrapperComponentType = t;
-            m_CachedPtr = EntitiesStaticInternalAccessBursted.GetComponentDataRawRO(ref m_World, m_Entity, m_GeneratedWrapperComponentType.TypeIndex);
+            m_CachedPtr = (IntPtr)EntitiesStaticInternalAccessBursted.GetComponentDataRawRO(ref m_World, m_Entity, m_GeneratedWrapperComponentType.TypeIndex);
             if (withInitialValue)
             {
                 // m_Value is the value serialized by unity in the prefab. So we apply this value when appropriate
@@ -113,6 +119,7 @@ namespace Unity.NetCode
         void RefreshChunkStorage()
         {
             m_CachedChunkInfo = m_World.EntityManager.GetStorageInfo(m_Entity);
+            m_CachedChunkSequenceNumber = m_CachedChunkInfo.Chunk.SequenceNumber;
         }
         bool ShouldRefreshCachedChunkInfo(EntityManager em)
         {
@@ -139,6 +146,7 @@ namespace Unity.NetCode
                 // So instead we check the entity directly
 
                 if (
+                        m_CachedChunkInfo.Chunk.SequenceNumber != m_CachedChunkSequenceNumber || // chunks are pooled and so can be reused with the same entity, but with different data layout
                         m_CachedChunkInfo.IndexInChunk >= m_CachedChunkInfo.Chunk.Count ||
                         m_CachedChunkInfo.Chunk.GetEntityDataPtrRO(em.GetEntityTypeHandle())[m_CachedChunkInfo.IndexInChunk] != m_Entity // Had a chat with Fabrice, there's potentially ways to make GetEntityDataPtrRO more efficient, knowing this is accessed from the main thread. We'll have to see how the type dependency and safety system evolves to maybe make this faster.
                         // m_CachedEntitiesInChunk[m_CachedChunkInfo.IndexInChunk] != m_Entity // Can't cache the ptr to the entities array. Entities potentially has an issue with their Invalid() check above that could be wrong (it's based on a chunk index that could be reused by another chunk potentially), making that pointer caching flaky. It's an issue with semantics, "Invalid" tells if the chunk is unused. But in the case where a chunk has been repurposed, it is technically "valid" even though it's not what it used to be anymore. Fabrice will look into it.
@@ -179,6 +187,8 @@ namespace Unity.NetCode
                 // TODO-release@potentialOptim : We should measure real use cases with those and see if the per-field cached pointer refresh is too much (vs doing a single one per ghost). could cache instead the GhostObject or GhostBehaviour and use it as our holder of the lookup to the chunk and index. This way we only refresh once instead of 20x if there's 20 fields on the same ghost.
                 // TODO-release@potentialOptim: look into having sync points before the prediction update and just have users write in cached values instead of the component data directly. Since we control the PredictionUpdate loop, we know no other ECS systems could write to those components.
 
+                Assert.IsFalse(JobsUtility.IsExecutingJob, "GhostField value access is unsupported in jobs. Please use ECS components and related jobs APIs to do so.");
+
                 var em = m_World.EntityManager;
                 em.CompleteDependencyBeforeROExtension(m_GeneratedWrapperComponentType.TypeIndex);
 
@@ -186,10 +196,10 @@ namespace Unity.NetCode
 
                 if (ShouldRefreshCachedChunkInfo(em))
                 {
-                    m_CachedPtr = EntitiesStaticInternalAccessBursted.GetComponentDataRawRO(ref m_World, m_Entity, m_GeneratedWrapperComponentType.TypeIndex);
+                    m_CachedPtr = (IntPtr)EntitiesStaticInternalAccessBursted.GetComponentDataRawRO(ref m_World, m_Entity, m_GeneratedWrapperComponentType.TypeIndex);
                 }
 
-                Assert.IsTrue(m_CachedPtr == EntitiesStaticInternalAccessBursted.GetComponentDataRawRO(ref m_World, m_Entity, m_GeneratedWrapperComponentType.TypeIndex), "sanity check failed, cached pointer is not up to date, please raise a bug"); // TODO-release@potentialOptim remove this once we're sure this hasn't been triggered for a while, this way editor side perf will be better.
+                Assert.IsTrue(m_CachedPtr == (IntPtr)EntitiesStaticInternalAccessBursted.GetComponentDataRawRO(ref m_World, m_Entity, m_GeneratedWrapperComponentType.TypeIndex), "sanity check failed, cached pointer is not up to date, please raise a bug"); // TODO-release@potentialOptim remove this once we're sure this hasn't been triggered for a while, this way editor side perf will be better.
 
                 return *(InternalTypeT*)m_CachedPtr; // cast works because we're assuming the generated component's value field is at 0 offset. We're enforcing this in sourcegen with a field offset so hopefully this shouldn't be too evil.
             }
@@ -197,12 +207,13 @@ namespace Unity.NetCode
             {
                 // since we also want to do change version bumps, which is stored in the chunk, there's no advantage to bypass the chunk access like with the Get,
                 // so just using higher level APIs from entities.
+                Assert.IsFalse(JobsUtility.IsExecutingJob, "GhostField value access is unsupported in jobs. Please use ECS components and related jobs APIs to do so.");
 
                 var em = m_World.EntityManager;
                 Assert.IsTrue(em.HasComponent(m_Entity, m_GeneratedWrapperComponentType), k_NoEntityError);
                 Assert.IsTrue(em.HasComponent<PredictedGhost>(m_Entity), $"Trying to write to a ghost field when not allowed. Make sure to check {nameof(GhostBehaviour.CanWriteState)} before writing to it or make sure to only write from {nameof(GhostBehaviour)}.{nameof(GhostBehaviour.PredictionUpdate)}. Your ghost must either be predicted client side or you must write to it server side only.");
 
-                var currentPtr = EntitiesStaticInternalAccessBursted.GetComponentDataRawRW(ref m_World, m_Entity, m_GeneratedWrapperComponentType.TypeIndex);
+                var currentPtr = (IntPtr)EntitiesStaticInternalAccessBursted.GetComponentDataRawRW(ref m_World, m_Entity, m_GeneratedWrapperComponentType.TypeIndex);
                 if (currentPtr != m_CachedPtr)
                 {
                     m_CachedPtr = currentPtr;
@@ -412,4 +423,3 @@ namespace Unity.NetCode
         }
     }
 }
-#endif

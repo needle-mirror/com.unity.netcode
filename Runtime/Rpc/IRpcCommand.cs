@@ -88,6 +88,21 @@ namespace Unity.NetCode
     /// </summary>
     public interface IApprovalRpcCommand : IComponentData
     {}
+    
+    /// <summary>
+    /// An interface which can be used to implement RPCs that can be sent using an out-of-band pipeline.
+    /// Such RPCs have their own reliability, order, and window size guarantees and restrictions, allowing these
+    /// RPCs to bypass congestion using standard RPCs and vice versa. This is useful if either you have a high number
+    /// of RPCs that could become congested and want to send higher priority RPCs that will skip ahead in line, or
+    /// you have two systems communicating whose RPCs are unrelated and you don't want congestion in one to impact
+    /// the other.
+    /// </summary>
+    /// <remarks>
+    /// Like standard RPCs, out-of-band RPCs do not make any guarantees regarding arrival relative to snapshots.
+    /// Out-of-band RPCs ALSO do not make any guarantees regarding arrival relative to standard RPCs.
+    /// </remarks>
+    public interface IOutOfBandRpcCommand : IComponentData
+    {}
 
     /// <summary>
     /// Interop struct used to pass additional data to the <see cref="IRpcCommandSerializer{T}.Serialize"/> method.
