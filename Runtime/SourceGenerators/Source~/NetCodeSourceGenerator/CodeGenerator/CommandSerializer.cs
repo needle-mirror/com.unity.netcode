@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     // The CommandSerializer instances are created by CodeGenerator. The class itself is not threadsafe,
     // but since every SourceGenerator has its own Context it is safe use.
@@ -107,7 +107,7 @@ namespace Unity.NetCode.Generators
             {
                 // Write the fragments for incrementing/decrementing InputEvent types inside the input struct
                 // This is done for the count (integer) type nested inside the InputEvent struct (parent)
-                if (m_TypeInformation.ContainingTypeFullName == "Unity.NetCode.InputEvent")
+                if (m_TypeInformation.ContainingTypeFullName == "Unity.Netcode.InputEvent")
                 {
                     m_CommandGenerator.Replacements.Add("EVENTNAME", m_TypeInformation.FieldPath);
                     m_CommandGenerator.GenerateFragment("INCREMENT_INPUTEVENT", m_CommandGenerator.Replacements, m_CommandGenerator);
@@ -153,7 +153,7 @@ namespace Unity.NetCode.Generators
         public void GenerateSerializer(CodeGenerator.Context context, TypeInformation typeInfo)
         {
             var typeFullName = typeInfo.TypeFullName.Replace('+', '.');
-            var displayName = typeFullName.Replace("Unity.NetCode.InputBufferData<", "").Replace(">", ""); // Bit of a hack.
+            var displayName = typeFullName.Replace("Unity.Netcode.InputBufferData<", "").Replace(">", ""); // Bit of a hack.
             var replacements = new Dictionary<string, string>
             {
                 {"COMMAND_NAME", context.generatorName.Replace(".", "").Replace('+', '_')},

@@ -2,7 +2,7 @@ using NUnit.Framework;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class MultiEntityGhostConverter : TestNetCodeAuthoring.IConverter
     {

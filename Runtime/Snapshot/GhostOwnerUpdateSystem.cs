@@ -1,7 +1,7 @@
 using Unity.Burst;
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     [BurstCompile]
     [WithOptions(EntityQueryOptions.IgnoreComponentEnabledState)]

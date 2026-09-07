@@ -5,7 +5,7 @@ using Unity.Entities;
 using Unity.Profiling;
 using UnityEngine.Profiling;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// System responsible to track all the <see cref="GhostBehaviour"/> component and run their

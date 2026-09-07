@@ -3,14 +3,16 @@ using System.Diagnostics;
 using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Properties;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A simple struct used to represent a network tick. This is using a uint internally, but it has special
     /// logic to deal with invalid ticks, and it handles wrap around correctly.
     /// </summary>
     [Serializable]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkTick : IEquatable<NetworkTick>
     {
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]

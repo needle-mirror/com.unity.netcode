@@ -2,10 +2,11 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 using UnityEngine.Assertions;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Same as <see cref="NetcodeServerRateManager"/>, but there's a bit more work to do to setup <see cref="NetworkTime.ServerTick"/> when in non-predicting frames (in other words; off frames).

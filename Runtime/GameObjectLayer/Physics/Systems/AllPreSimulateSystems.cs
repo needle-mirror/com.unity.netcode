@@ -1,9 +1,10 @@
 using System;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     // This runs only on client, we don't want to affect the server simulation. Same as transform syncing where the entity to GO only happens client side
     // We need to set shouldAutoWake to false before any transform updates
@@ -18,6 +19,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateBefore(typeof(PredictedGhostObjectEntityToGameObjectTransformSystem))]
+    [UpdateAfter(typeof(GhostPredictionDisableSimulateSystem))] // needs this tick's Simulate flags to know what to freeze
     internal partial class PredictedGhostPrepareRigidbodySystem : GhostPrepareRigidbodySystemBase
     {
     }

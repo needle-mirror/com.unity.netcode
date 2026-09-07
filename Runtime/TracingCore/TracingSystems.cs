@@ -2,10 +2,11 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.NetCode.EntitiesInternalAccess;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.LowLevel.StateSave;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
 
     /// <summary>

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Unity.Entities;
 using UnityEngine.Assertions;
 
-namespace Unity.NetCode.Analytics
+namespace Unity.Netcode.Analytics
 {
     internal static class NetCodeAnalyticsState
     {

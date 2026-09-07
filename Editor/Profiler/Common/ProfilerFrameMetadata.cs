@@ -1,7 +1,7 @@
 using Unity.Collections;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Wrapper struct to hold all the emitted metadata for a single frame in the Netcode profiler.

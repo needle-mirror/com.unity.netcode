@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 using UnityEngine;
+using UnityEngine.Assertions;
 using Debug = UnityEngine.Debug;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Bridge class between your GameObject and the underlying Netcode ghost entity. This is your main access point to the underlying ghost's data.
@@ -34,8 +36,8 @@ namespace Unity.NetCode
 
         // When Instantiating a server side GameObject, we need to create the associated server side entity from its prefab. So we get GameObject --> GO Prefab --> Entity Prefab and instantiate that entity prefab automatically. TODO-release The need for this should be gone with entities integration.
         [HideInInspector][SerializeField] internal GhostPrefabReference prefabReference;
-        Entity m_CachedEntity;
-        NetcodeWorld m_CachedWorld; // We don't want to keep a WorldUnmanaged here, since they can become invalid even if their IsCreated is true (as they are value types). Managed Worlds are easier to manipulate
+        internal Entity m_CachedEntity;
+        internal NetcodeWorld m_CachedWorld; // We don't want to keep a WorldUnmanaged here, since they can become invalid even if their IsCreated is true (as they are value types). Managed Worlds are easier to manipulate
         internal bool WasInitialized = false;
 
         // Internal note: Use case: I have a spawner that itself decides whether the GO is predicted at spawn or not --> the prefab is already created on disk.
@@ -48,7 +50,6 @@ namespace Unity.NetCode
         [Tooltip("Prefabs are automatically tracked by Netcode. However this means once a prefab is registered, its settings can't be modified anymore. In order to programmatically update those settings, you need to make sure to update them before prefab registration. This setting allows you to control when prefab registration happens. Make sure to call Netcode.RegisterPrefab yourself, in the same order both client and server side.")]
         [SerializeField] public bool SkipAutomaticPrefabRegistration;
 
-        /// <summary>
         /// By default, GhostObject ghosts support (and replicate) non-uniform (per-axis) 3D scale, stored in a
         /// <see cref="PostTransformMatrix"/> component on the ghost entity. Enable this to treat the scale as uniform
         /// instead: no <see cref="PostTransformMatrix"/> is added, and the scale is driven by
@@ -58,7 +59,10 @@ namespace Unity.NetCode
         [Tooltip("By default, GhostObject ghosts support (and replicate) non-uniform (per-axis) 3D scale, stored in a PostTransformMatrix component on the ghost entity.\n\nEnable this to treat the scale as uniform instead: no PostTransformMatrix is added, and the scale is driven by LocalTransform.Scale (taken from transform.localScale.x; y and z are ignored).\n\nSaves the PostTransformMatrix chunk memory and its per-snapshot change bit on ghosts that never scale non-uniformly.")]
         [SerializeField] public bool UseUniformScale;
 
-        internal GhostEntityMapping.EntityLink EntityLink
+        /// <summary>
+        /// The underlying generated ghost <see cref="Unity.Entities.Entity"/> associated with this GameObject. Updating the GhostObject's data will update the entity's data which will then be synchronized using Netcode for Entities.
+        /// </summary>
+        public Entity Entity
         {
             get
             {
@@ -66,14 +70,9 @@ namespace Unity.NetCode
                 if (!WasInitialized && prefabReference == null) Debug.LogError("Prefab reference is null, make sure your GameObject is spawned from a prefab.", this.gameObject);
 #endif
                 TryInitializeCachedLink();
-                return new GhostEntityMapping.EntityLink() { Entity = m_CachedEntity, World = m_CachedWorld.Unmanaged };
+                return m_CachedEntity;
             }
         }
-
-        /// <summary>
-        /// The underlying generated ghost <see cref="Unity.Entities.Entity"/> associated with this GameObject. Updating the GhostObject's data will update the entity's data which will then be synchronized using Netcode for Entities.
-        /// </summary>
-        public Entity Entity => EntityLink.Entity;
 
         /// <summary>
         /// The world this ghost belongs to. Can be a client or server world
@@ -87,6 +86,40 @@ namespace Unity.NetCode
             }
         }
 
+        #region initialization
+        /// <summary>
+        /// Authoritative or prediction initialization
+        /// Put any authority specific logic needed for initialization here.
+        /// </summary>
+        private void CanWriteStateRuntimeInitialize(GhostEntityMapping.EntityLink link)
+        {
+            RuntimeInitializeCommon();
+
+            // withInitialValue=true since this is called server side, so there's no state already set in existing ECS components
+            InitializeRuntimeGhostBehaviours(link, withInitialValue: true);
+        }
+
+        /// <summary>
+        /// Non-authoritative initialization
+        /// Put any client specific logic needed for initialization here.
+        /// </summary>
+        internal void ClientRuntimeInitialize(GhostEntityMapping.EntityLink link)
+        {
+            InitializeWithLink(link);
+            RuntimeInitializeCommon();
+
+            // withInitialValue=false since this is a spawn from the network, we already have values in ECS components.
+            InitializeRuntimeGhostBehaviours(link, withInitialValue: false);
+        }
+
+        private void RuntimeInitializeCommon()
+        {
+            var manager = World.EntityManager;
+            var ghostInfo = manager.GetComponentData<GhostGameObjectLink>(Entity);
+            ghostInfo.GhostObjectId = GetEntityId();
+            manager.SetComponentData(Entity, ghostInfo);
+        }
+        #endregion
 
         #region entity mapping
         /// <summary>
@@ -107,6 +140,7 @@ namespace Unity.NetCode
         {
             bool creatingEntity = false;
 
+            GhostEntityMapping.EntityLink link;
             {
                 // WARNING This block should disappear with entities integration. Make sure to take this into account when adding code here
                 var existingLink = GhostEntityMapping.LookupEntityReferenceGameObject(this.gameObject);
@@ -118,7 +152,7 @@ namespace Unity.NetCode
                     GhostGameObjectSpawnSystem.TryGetAndValidateWorldForSpawn(out potentialWorldForSpawn); // if this is a first entity creation, this is the world we'd spawn into
                 }
 
-                var link = GhostEntityMapping.AcquireEntityReferenceGameObject(this.gameObject.GetEntityId(), gameObject.transform.GetEntityId(), prefabEntityId: prefabReference.Prefab.GetEntityId(), forWorld: potentialWorldForSpawn);
+                link = GhostEntityMapping.AcquireEntityReferenceGameObject(this.gameObject.GetEntityId(), gameObject.transform.GetEntityId(), prefabEntityId: prefabReference.Prefab.GetEntityId(), forWorld: potentialWorldForSpawn);
                 var transform = this.transform;
                 // Need to set transform data now, since there's systems that'll look at transform positions and they should have the non-default values now
                 if (creatingEntity)
@@ -150,14 +184,12 @@ namespace Unity.NetCode
             if (creatingEntity)
             {
                 // TODO-next@startOverride once we have virtual Start override removed from GhostBehaviour, we can move some of this to the GhostObject awake
-                var em = World.EntityManager;
-                if (em.HasComponent<PendingClientGameObjectSpawn>(Entity))
-                    em.RemoveComponent<PendingClientGameObjectSpawn>(Entity); // Since this is an authoritative (or predicted) spawn, the client spawn system shouldn't touch this, we're already initialized here
-                var ghostInfo = em.GetComponentData<GhostGameObjectLink>(Entity);
-                ghostInfo.GhostObjectId = GetEntityId();
-                em.SetComponentData(Entity, ghostInfo);
+                var em = link.World.EntityManager;
+                if (em.HasComponent<PendingClientGameObjectSpawn>(link.Entity))
+                    em.RemoveComponent<PendingClientGameObjectSpawn>(link.Entity); // Since this is an authoritative (or predicted) spawn, the client spawn system shouldn't touch this, we're already initialized here
 
-                this.InitializeRuntimeGhostBehaviours(this.EntityLink, withInitialValue: true); // withInitialValue=true since this is called server side, so there's no state already set in existing ECS components
+                // creatingEntity should only ever be true server side or when predicting. Finish initializing the ghostObject for clients who can write state.
+                CanWriteStateRuntimeInitialize(link);
             }
         }
 
@@ -320,12 +352,19 @@ namespace Unity.NetCode
             // Empty Start so that didStart gets set, useful for order of operations
         }
 
+        /// <summary>
+        /// Marks whether this gameObject is being destroyed
+        /// </summary>
+        internal bool IsDestroying { get; private set; }
+
         void OnDestroy()
         {
             if (!m_IsPrefab)
             {
                 InternalReleaseEntityReference();
             }
+            IsDestroying = true;
+
             // TODO-release have some warning if trying to destroy a client side GO
         }
 
@@ -337,21 +376,16 @@ namespace Unity.NetCode
             return prefabReference == null || prefabReference.Prefab == this.gameObject;
         }
 
+        /// <summary>
+        /// Used by the test frameworks (N4E & NGO) to initialize runtime created GameObjects as prefab assets.
+        /// Calls the function that is normally run by the <see cref="GhostPrefabPostProcessor"/>.
+        /// </summary>
+        /// <remarks>
+        /// This shouldn't be called outside of internal test code.
+        /// </remarks>
         internal void InitializeAsPrefab()
         {
-            try
-            {
-                GhostPrefabReference.s_IsPostProcessing = true;
-                prefabReference = ScriptableObject.CreateInstance<GhostPrefabReference>();
-                prefabReference.name = "GhostPrefabReference";
-
-                prefabReference.Prefab = gameObject;
-                prefabReference.SkipAutomaticPrefabRegistration = SkipAutomaticPrefabRegistration;
-            }
-            finally
-            {
-                GhostPrefabReference.s_IsPostProcessing = false;
-            }
+            GhostPrefabReference.CreateForPrefab(this);
         }
         #endregion
 
@@ -362,7 +396,7 @@ namespace Unity.NetCode
             InitializeWithLink(link);
 
             // Initializing GhostBehaviour information
-            m_AllBehaviours = GetComponentsInChildren<GhostBehaviour>();
+            m_AllBehaviours = GetComponentsInChildren<GhostBehaviour>(true);
             var tracker = new GhostBehaviour.GhostBehaviourTracking();
             tracker.allBehaviourTypeInfo = new NativeArray<GhostBehaviourTypeInfo>(m_AllBehaviours.Length, Allocator.Domain); // TODO-next@prefabRegistration once we release unused prefabs, switch this back to Persistent allocator and release this allocation
             for (int i = 0; i < m_AllBehaviours.Length; i++)
@@ -408,21 +442,22 @@ namespace Unity.NetCode
             // registers the ECS components with the ghost type, so that prefab registration works and knows which serializers to setup.
             foreach (var ghostBehaviour in m_AllBehaviours)
             {
-                ghostBehaviour.InitializePrefabWithEntityComponents();
+                ghostBehaviour.InitializePrefabWithEntityComponents(link, this);
             }
         }
 
         internal void InitializeRuntimeGhostBehaviours(GhostEntityMapping.EntityLink link, bool withInitialValue)
         {
             // initializing the ghost link here so that we don't recursively do initialization if the below calls needs that link
-            InitializeWithLink(link);
+            Assert.IsTrue(WasInitialized, $"Sanity check failed. {nameof(InitializeRuntimeGhostBehaviours)} should not be used before the link has been initialized!");
 
-            GhostTransform.Initialize(this.World, this.Entity, withInitialValue: false); // LocalTransform is initialized elsewhere
+            var entity = link.Entity;
+            GhostTransform.Initialize(this.World, entity, withInitialValue: false); // LocalTransform is initialized elsewhere
 
             // only initializing on runtime entity, it's useless to do that work for the prefab instances for now and we don't want to have to clear this buffer (to remove the prefab versions of those monobehaviours)
 
-            var behaviourTrackingBuffer = link.World.EntityManager.GetComponentData<GhostBehaviour.GhostBehaviourTracking>(link.Entity);
-            link.World.EntityManager.SetComponentData(link.Entity, behaviourTrackingBuffer);
+            var behaviourTrackingBuffer = link.World.EntityManager.GetComponentData<GhostBehaviour.GhostBehaviourTracking>(entity);
+            link.World.EntityManager.SetComponentData(entity, behaviourTrackingBuffer);
             // At runtime, we need to initialize which entity and world to get the supporting components from.
             foreach (var ghostBehaviour in m_AllBehaviours)
             {
@@ -468,4 +503,3 @@ namespace Unity.NetCode
         }
     }
 }
-

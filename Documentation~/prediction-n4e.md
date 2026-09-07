@@ -8,9 +8,9 @@ There are also some [client prediction edge cases](prediction-details.md) you sh
 
 ## Prediction in Netcode for Entities
 
-Prediction only runs for entities that have the [`PredictedGhost`](xref:Unity.NetCode.PredictedGhost) and [`Simulate`](xref:Unity.Entities.Simulate) components. Unity adds the `PredictedGhost` component to all predicted ghosts on the client, and to all ghosts on the server. On the client, the component also contains some data it needs for the prediction, such as which snapshot has been applied to the ghost.
+Prediction only runs for entities that have the [`PredictedGhost`](xref:Unity.Netcode.PredictedGhost) and [`Simulate`](xref:Unity.Entities.Simulate) components. Unity adds the `PredictedGhost` component to all predicted ghosts on the client, and to all ghosts on the server. On the client, the component also contains some data it needs for the prediction, such as which snapshot has been applied to the ghost.
 
-The prediction is based on a fixed time-step loop, controlled by the [`PredictedSimulationSystemGroup`](xref:Unity.NetCode.PredictedSimulationSystemGroup),
+The prediction is based on a fixed time-step loop, controlled by the [`PredictedSimulationSystemGroup`](xref:Unity.Netcode.PredictedSimulationSystemGroup),
 which runs on both client and server, and that usually contains the core part of the deterministic ghosts simulation.
 
 The primary API elements involved in prediction are:
@@ -29,7 +29,7 @@ The primary API elements involved in prediction are:
 
 ## Client-side `PredictedSimulationSystemGroup`
 
-When the prediction runs, the `PredictedSimulationSystemGroup` sets the correct time for the current prediction tick in the ECS `TimeData` struct. It also sets the `ServerTick` in the [`NetworkTime`](xref:Unity.NetCode.NetworkTime) singleton to the tick being predicted (among other fields/conveniences).
+When the prediction runs, the `PredictedSimulationSystemGroup` sets the correct time for the current prediction tick in the ECS `TimeData` struct. It also sets the `ServerTick` in the [`NetworkTime`](xref:Unity.Netcode.NetcodeTime.NetworkTime) singleton to the tick being predicted (among other fields/conveniences).
 
 > [!NOTE]
 > The rollback and prediction resimulation can add a substantial overhead to each frame.
@@ -59,7 +59,7 @@ For example:
 
 ### Check which entities to predict using the `PredictedGhost.ShouldPredict` helper method (LEGACY)
 
-This is a legacy method of performing these checks and is not recommended, although it is still supported. You can call the static method  [`PredictedGhost.ShouldPredict`](xref:Unity.NetCode.PredictedGhost.ShouldPredict*) before updating an entity. In this case the method or job that updates the entity should look something like this:
+This is a legacy method of performing these checks and is not recommended, although it is still supported. You can call the static method  [`PredictedGhost.ShouldPredict`](xref:Unity.Netcode.PredictedGhost.ShouldPredict*) before updating an entity. In this case the method or job that updates the entity should look something like this:
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/prediction-n4e.cs#ShouldPredict)]
 

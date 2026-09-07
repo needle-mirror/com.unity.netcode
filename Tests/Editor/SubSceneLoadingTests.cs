@@ -11,7 +11,7 @@ using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]

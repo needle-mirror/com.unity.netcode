@@ -1,4 +1,4 @@
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     static class TracingWindowUssClasses
     {

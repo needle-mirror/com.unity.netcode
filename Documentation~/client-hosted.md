@@ -6,9 +6,6 @@ In a client-hosted topology, one player's process owns the authoritative server 
 
 Netcode for Entities supports two client-hosted setups that differ in how the host runs its client and server logic. Binary-worlds host mode keeps a full client world and a full server world in the host's process, while single-world host mode combines both roles into one world to reduce CPU and memory overhead. Review the following topics to compare the two and choose the setup that fits your game.
 
-> [!NOTE]
-> Single-world host mode is experimental. To enable it, add the `NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST` scripting define symbol to your project.
-
 | **Topic**                                       | **Description**                                                                                                                                              |
 | :---------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[Binary-worlds host mode](binary-worlds-host-mode.md)**     | Configure a host that runs separate client and server worlds connected through intra-process communication (IPC), which keeps gameplay code paths identical to a dedicated server deployment. |

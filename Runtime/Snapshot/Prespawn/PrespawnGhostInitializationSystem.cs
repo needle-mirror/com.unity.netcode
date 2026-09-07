@@ -6,11 +6,11 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Scenes;
 using Unity.Burst;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// InitializePrespawnGhostSystem systems is responsible to prepare and initialize all sub-scenes pre-spawned ghosts

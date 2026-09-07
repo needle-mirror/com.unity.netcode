@@ -10,7 +10,7 @@ using Unity.Networking.Transport;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostObjectRemotesTests
     {
@@ -33,6 +33,10 @@ namespace Unity.NetCode.Tests
 
             foreach (var gb in GameObject.FindObjectsByType<GhostBehaviourWithRemotes>())
             {
+                if (gb.Ghost.IsPrefab())
+                {
+                    continue;
+                }
                 if (gb.IsServer)
                 {
                     Assert.IsNull(serverObject, "There should only be one server object.");
@@ -95,6 +99,10 @@ namespace Unity.NetCode.Tests
 
             foreach (var gb in GameObject.FindObjectsByType<GhostBehaviourWithRemotes>())
             {
+                if (gb.Ghost.IsPrefab())
+                {
+                    continue;
+                }
                 if (gb.IsServer)
                 {
                     Assert.IsNull(serverObject, "There should only be one server object.");

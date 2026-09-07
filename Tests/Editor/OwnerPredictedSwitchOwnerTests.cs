@@ -3,7 +3,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [GhostComponent(SendTypeOptimization = GhostSendType.OnlyPredictedClients)]
     struct PredictedComponentData : IComponentData
@@ -181,7 +181,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(ghostMode == GhostMode.Predicted || ghostMode == GhostMode.OwnerPredicted, testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost),
                     "We currently own this ghost.");
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager
-                    .GetComponentData<NetCode.AutoCommandTarget>(clientGhost).Enabled);
+                    .GetComponentData<Unity.Netcode.AutoCommandTarget>(clientGhost).Enabled);
                 var serverBuffer =
                     testWorld.ServerWorld.EntityManager.GetBuffer<InputBufferData<InputComponentData>>(serverEnt);
                 var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;

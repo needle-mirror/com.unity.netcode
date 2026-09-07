@@ -5,7 +5,7 @@ As such, the client needs to match the server time at all times for the model to
 
 ## The NetworkTimeSystem
 
-[NetworkTimeSystem](xref:Unity.NetCode.NetworkTimeSystem) calculates which server time to present on the client.
+[NetworkTimeSystem](xref:Unity.Netcode.NetworkTimeSystem) calculates which server time to present on the client.
 The network time system calculates an initial estimate of the server time based on the round trip time and latest received snapshot from the server.
 When the client receives an initial estimate, it makes small changes to the time progress rather than doing large changes to the current time.
 To make accurate adjustments, the server tracks how long it keeps commands in a buffer before it uses them.
@@ -25,7 +25,7 @@ The `NetworkTimeSystem` slowly adjusts both `prediction tick` and `interpolation
 interpolation tick nor the prediction tick goes back in time.
 
 ### Configuring clients interpolation
-A [ClientTickRate](xref:Unity.NetCode.ClientTickRate) singleton entity in the client World can be used to
+A [ClientTickRate](xref:Unity.Netcode.ClientTickRate) singleton entity in the client World can be used to
 configure how the system estimate both prediction tick and interpolation delay.
 
 
@@ -36,10 +36,10 @@ configure how the system estimate both prediction tick and interpolation delay.
 | MaxPredictAheadTimeMS        | The maximum accepted ping. RTT will be clamped to this value when calculating server tick on the client, which means if ping is higher than this the server will get old commands. <br/>Increasing this allows the client to deal with higher ping, but the client will run more prediction steps which takes more CPU time.    |
 | TargetCommandSlack           | Specifies the number of simulation ticks the client tries to make sure the commands are received by the server before they are used on the server.                                                                                                                                                                                        |
 
-It is possible to further customize the client times calculation. Please read the [ClientTickRate](xref:Unity.NetCode.ClientTickRate) documentation for more in depth information.
+It is possible to further customize the client times calculation. Please read the [ClientTickRate](xref:Unity.Netcode.ClientTickRate) documentation for more in depth information.
 
 ## Retrieving timing information in your application
-Netcode for Entities provide a [NetworkTime](xref:Unity.NetCode.NetworkTime) singleton
+Netcode for Entities provide a [NetworkTime](xref:Unity.Netcode.NetcodeTime.NetworkTime) singleton
 that should be used to retrieve the current simulated/predicted server tick, interpolated tick and other time related properties.
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/time-synchronization.cs#GetTime)]
@@ -51,7 +51,7 @@ For example:
 - IsFinalPredictionTick : the current server tick which will be the last tick to predict.
 - IsFirstTimeFullyPredictingTick: the current server tick is a full tick and this is the first time it is being predicting as a non-partial tick. Useful to implement actions that should be executed only once.
 
-And many others. Please check [NetworkTime docs](xref:Unity.NetCode.NetworkTime) for further information.
+And many others. Please check [NetworkTime docs](xref:Unity.Netcode.NetcodeTime.NetworkTime) for further information.
 
 ## Client `DeltaTime`, `ElapsedTime`, and `Unscaled` time
 
@@ -65,6 +65,6 @@ This time scaling has some additional implications:
 As a result, the `Time.ElapsedTime` seen inside and outside the simulation group is usually different.
 
 For cases where you need to have access to real, unscaled delta and elapsed time inside the `SimulationSystemGroup`, you can use the
-[`UnscaledClientTime`](xref:Unity.UnscaledClientTime) singleton.
+[`UnscaledClientTime`](xref:Unity.Netcode.NetcodeTime.UnscaledClientTime) singleton.
 
 The values in the `UnscaledClientTime.DeltaTime` and `UnscaledClientTime.ElapsedTime` are the ones normally reported by application loop.

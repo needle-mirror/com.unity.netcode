@@ -1,6 +1,6 @@
 using System;
 using Unity.Collections;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Profiling.Editor;
 using UnityEditor;
 using UnityEditor.Profiling;
@@ -8,7 +8,7 @@ using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     [Serializable]
     class NetcodeForEntitiesProfilerModuleViewController : ProfilerModuleViewController

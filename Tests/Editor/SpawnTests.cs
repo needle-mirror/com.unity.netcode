@@ -2,12 +2,13 @@
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Transforms;
 using UnityEngine;
 using Unity.Burst;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct Data : IComponentData
     {

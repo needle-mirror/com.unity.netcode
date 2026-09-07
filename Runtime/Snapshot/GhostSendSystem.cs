@@ -11,13 +11,15 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
-using Unity.NetCode.EntitiesInternalAccess;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     internal struct GhostCleanup : ICleanupComponentData
     {
@@ -29,6 +31,7 @@ namespace Unity.NetCode
     /// <summary>
     /// For internal use only, struct used to pass some data to the code-generate ghost serializer.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostSerializerState
     {
         /// <summary>
@@ -113,6 +116,7 @@ namespace Unity.NetCode
     /// Singleton entity that contains all the tweakable settings for the <see cref="GhostSendSystem"/>.
     /// </summary>
     [Serializable]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostSendSystemData : IComponentData
     {
         /// <summary>
@@ -239,7 +243,7 @@ namespace Unity.NetCode
         [Tooltip("<b>Obsolete: No longer functional!</b>\n\nThe maximum number of entities the <b>GhostSendSystem</b> will add to the snapshot for any given connection, within a single <b>NetworkTickRate</b> snapshot send interval. Ignores irrelevant ghosts and cancelled sends (e.g. zero change static optimized chunks). This can be used to reduce / control CPU time on the server.\n\n<b>Warning</b>: <b>MaxSendChunks</b> may lead to unnecessarily empty snapshot packets, in cases where adding this many entities to the snapshot does not completely fill it. Prefer <b>MaxSendChunks</b> and <b>MaxIterateChunks</b>.\n\nDefaults to 0 (OFF).")]
         [Min(0)]
         [ReadOnly]
-        [Obsolete("No longer functional! Prefer MaxSendChunks and MaxIterateChunks to tweak GhostSendSystem CPU characteristics. (RemovedAfter 1.x)", false)]
+        [Obsolete("No longer functional! Prefer MaxSendChunks and MaxIterateChunks to tweak GhostSendSystem CPU characteristics. (RemovedAfter 1.x)", true)]
         public int MaxSendEntities;
 
         /// <summary>
@@ -435,7 +439,7 @@ namespace Unity.NetCode
     /// the enties are prioritized by their importance.
     /// </para>
     /// <para>
-    /// The base ghost importance can be set at authoring time on the prefab (<see cref="Unity.NetCode.GhostAuthoringComponent"/>);
+    /// The base ghost importance can be set at authoring time on the prefab (<see cref="Unity.Netcode.GhostAuthoringComponent"/>);
     /// At runtime the ghost importance is scaled based on:
     /// </para>
     /// <para>- age (the last time the entities has been sent)</para>
@@ -454,6 +458,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct GhostSendSystem : ISystem
     {
         NativeParallelHashMap<RelevantGhostForConnection, int> m_GhostRelevancySet;
@@ -909,7 +914,6 @@ namespace Unity.NetCode
             public int networkTickRateIntervalTicks;
 
             public PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate> BatchScaleImportance;
-            public PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate> ScaleGhostImportance;
 
             [ReadOnly] public DynamicSharedComponentTypeHandle ghostImportancePerChunkTypeHandle;
             [NativeDisableUnsafePtrRestriction] [ReadOnly] public IntPtr ghostImportanceDataIntPtr;
@@ -1626,28 +1630,13 @@ namespace Unity.NetCode
                 var numChunksCulled = 0;
 #endif
                 var hasBatched = BatchScaleImportance.Ptr.IsCreated;
-                var hasNonBatched = ScaleGhostImportance.Ptr.IsCreated;
-                var runImportanceScaling = connectionHasConnectionData && (hasBatched || hasNonBatched);
+                var runImportanceScaling = connectionHasConnectionData && hasBatched;
                 if (runImportanceScaling)
                 {
-                    if (hasBatched)
-                    {
-                        var func = (delegate *unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, UnsafeList<PrioChunk>*, void>)BatchScaleImportance.Ptr.Value;
-                        func(connectionDataPtr, ghostImportanceDataIntPtr,
-                            GhostComponentSerializer.IntPtrCast(ref ghostImportancePerChunkTypeHandle),
-                            prioChunksRef);
-                    }
-                    else
-                    {
-                        for (int i = 0; i < prioChunksRef->Length; ++i)
-                        {
-                            ref var serialChunk = ref prioChunksRef->ElementAt(i);
-                            if (!serialChunk.chunk.Has(ref ghostImportancePerChunkTypeHandle)) continue;
-                            IntPtr chunkTile = new IntPtr(serialChunk.chunk.GetDynamicSharedComponentDataAddress(ref ghostImportancePerChunkTypeHandle));
-                            var func = (delegate *unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, int, int>)ScaleGhostImportance.Ptr.Value;
-                            serialChunk.priority = func(connectionDataPtr, ghostImportanceDataIntPtr, chunkTile, serialChunk.priority);
-                        }
-                    }
+                    var func = (delegate *unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, UnsafeList<PrioChunk>*, void>)BatchScaleImportance.Ptr.Value;
+                    func(connectionDataPtr, ghostImportanceDataIntPtr,
+                        GhostComponentSerializer.IntPtrCast(ref ghostImportancePerChunkTypeHandle),
+                        prioChunksRef);
 
                     if (systemData.MinDistanceScaledSendImportance > 0)
                     {
@@ -1673,7 +1662,7 @@ namespace Unity.NetCode
                 prioChunksRef->Sort();
 
 #if NETCODE_DEBUG
-                PacketDumpAddedChunksAndGhostImportance(ctx.SerialChunks, runImportanceScaling, numChunksCulled, connectionHasConnectionData, hasBatched, hasNonBatched);
+                PacketDumpAddedChunksAndGhostImportance(ctx.SerialChunks, runImportanceScaling, numChunksCulled, connectionHasConnectionData, hasBatched);
 #endif
             }
 
@@ -1690,7 +1679,7 @@ namespace Unity.NetCode
             }
 #endif
             [Conditional("NETCODE_DEBUG")]
-            private unsafe void PacketDumpAddedChunksAndGhostImportance(in UnsafeList<PrioChunk>* serialChunks, bool runImportanceScaling, int numChunksCulled, bool connectionHasConnectionData, bool hasBatched, bool hasNonBatched)
+            private unsafe void PacketDumpAddedChunksAndGhostImportance(in UnsafeList<PrioChunk>* serialChunks, bool runImportanceScaling, int numChunksCulled, bool connectionHasConnectionData, bool hasBatched)
             {
 #if NETCODE_DEBUG
                 if (netDebugPacket.IsCreated)
@@ -1701,7 +1690,7 @@ namespace Unity.NetCode
                     }
 
                     FixedString64Bytes res = runImportanceScaling ? $"ran & culled {numChunksCulled} chunks!" : "disabled!";
-                    netDebugPacket.Log($"\n\tGhostImportance(connHasData:{connectionHasConnectionData}, batched:{hasBatched}, nonBatched:{hasNonBatched}) {res}");
+                    netDebugPacket.Log($"\n\tGhostImportance(connHasData:{connectionHasConnectionData}, batched:{hasBatched}) {res}");
                 }
 #endif
             }
@@ -2015,12 +2004,10 @@ namespace Unity.NetCode
             if (!SystemAPI.TryGetSingleton<GhostImportance>(out var importance))
             {
                 serializeJob.BatchScaleImportance = default;
-                serializeJob.ScaleGhostImportance = default;
             }
             else
             {
                 serializeJob.BatchScaleImportance = importance.BatchScaleImportanceFunction;
-                serializeJob.ScaleGhostImportance = importance.ScaleImportanceFunctionSuppressedWarning;
             }
 
             // We don't want to assign default value to type handles as this would lead to a safety error

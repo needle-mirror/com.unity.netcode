@@ -1,16 +1,16 @@
 using System;
 using System.Collections.Generic;
 using Unity.Entities;
-using Unity.NetCode.Editor.Tracing.UI;
+using Unity.Netcode.Editor.Tracing.UI;
 using Unity.Transforms;
 using UnityEditor;
 using UnityEditor.Toolbars;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
-using static Unity.NetCode.Editor.Tracing.TracingColumnFilters;
+using static Unity.Netcode.Editor.Tracing.TracingColumnFilters;
 
-namespace Unity.NetCode.Editor.Tracing
+namespace Unity.Netcode.Editor.Tracing
 {
     /// <summary>
     /// Editor window to pick ECS systems and components for tracing. The selection lives in
@@ -41,7 +41,7 @@ namespace Unity.NetCode.Editor.Tracing
             }
         }
 
-        internal const string k_WindowTitle = "Select Tracing Target";
+        internal const string k_WindowTitle = "Prediction Tracing Targets";
 
         const string k_UssClassTracingSelectTargetWindowRoot = "tracing-select-target-window-root";
         const string k_UssClassTracingTabHeaderSpacer = "tracing-tab-header-spacer";
@@ -155,9 +155,14 @@ namespace Unity.NetCode.Editor.Tracing
         internal static void ShowWindow()
         {
             var window = GetWindow<SelectTracingTargetWindow>();
-            window.titleContent = new GUIContent(k_WindowTitle);
             window.minSize = new Vector2(480, 360);
             window.Show();
+        }
+
+        // OnEnable (unlike CreateGUI) also runs for background tabs after the theme-switch domain reload,
+        void OnEnable()
+        {
+            titleContent = new GUIContent(k_WindowTitle, EditorGUIUtility.IconContent(Constants.PredictionTracingIconPath).image);
         }
 
         void OnDestroy()

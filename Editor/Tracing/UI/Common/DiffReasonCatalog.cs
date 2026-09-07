@@ -1,6 +1,6 @@
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
 
     // The display name and one-line explanation of each <see cref="DiffInfo.DiffReasons"/>.
@@ -33,6 +33,7 @@ namespace Unity.NetCode.Editor.Tracing.UI
             new(DiffInfo.DiffReasons.SystemOrder, "System order", "Systems ran in a different order on each side."),
             new(DiffInfo.DiffReasons.BatchedTick, "Batched tick", "Server simulated this tick as part of a batch."),
             new(DiffInfo.DiffReasons.DeltaTime, "Delta time", "Client and server tick delta times differ."),
+            new(DiffInfo.DiffReasons.PartialTick, "Partial tick", "Diff on a partial tick, where mismatches are expected."),
         };
 
         // Every catalog reason OR'd together — the "all diff tags selected" mask

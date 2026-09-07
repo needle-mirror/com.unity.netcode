@@ -1,9 +1,9 @@
 using UnityEditor;
 using NUnit.Framework;
 using Unity.Entities.Build;
-using Unity.NetCode.Tests;
+using Unity.Netcode.Tests;
 
-namespace Unity.NetCode.Tests.Scenes
+namespace Unity.Netcode.Tests.Scenes
 {
     internal class DotsGlobalSettingsTests : TestWithSceneAsset
     {

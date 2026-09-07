@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Jobs;
-using Unity.NetCode;
+using Unity.Netcode;
 using UnityEngine.TestTools;
 
 namespace Tests.Editor

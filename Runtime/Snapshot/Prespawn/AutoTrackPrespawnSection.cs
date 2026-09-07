@@ -7,7 +7,7 @@ using Unity.Entities;
 using Unity.Scenes;
 using Unity.Burst;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// RPCs to control the prespawn streaming. Sent by the client to the server when a scene is loaded/unloaded.

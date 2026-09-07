@@ -14,7 +14,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace Unity.NetCode.Samples.Common
+namespace Unity.Netcode.Samples.Common
 {
     [UpdateInGroup(typeof(PresentationSystemGroup))]
 #if USING_ENTITIES_GRAPHICS

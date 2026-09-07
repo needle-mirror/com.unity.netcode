@@ -12,7 +12,7 @@ For a complete list of host migration requirements, refer to the [Host migration
 
 ## Host migration process
 
-When host migration is enabled, the host serializes a snapshot of the synchronizable game state at regular intervals, including the list of connected clients, added components, loaded scenes, all ghost and ghost prefab information, and any user data added via the [IncludeInMigration](xref:Unity.NetCode.HostMigration.IncludeInMigration) component. This host migration data is uploaded securely to the connected lobby, with each snapshot overwriting the previous one.
+When host migration is enabled, the host serializes a snapshot of the synchronizable game state at regular intervals, including the list of connected clients, added components, loaded scenes, all ghost and ghost prefab information, and any user data added via the [IncludeInMigration](xref:Unity.Netcode.HostMigration.IncludeInMigration) component. This host migration data is uploaded securely to the connected lobby, with each snapshot overwriting the previous one.
 
 A host migration is triggered when the host leaves or is disconnected and the relay connection is lost. The lobby notifies all connected clients and one of the clients is chosen as the new host, requests a new [relay allocation](https://docs.unity.com/ugs/en-us/manual/relay/manual/connection-flow#1), and updates the lobby data with the new relay allocation information. The other clients can then join the new relay allocation when they receive the lobby update.
 
@@ -22,12 +22,12 @@ After the host role is migrated, the new host downloads the most recent snapshot
 
 The following data is saved and restored on the new host as part of host migration:
 
-* All user components on the connection entity on the server, as well as the [`NetworkStreamInGame`](xref:Unity.NetCode.NetworkStreamInGame) component presence. The connection entity on the client has no special handling.
+* All user components on the connection entity on the server, as well as the [`NetworkStreamInGame`](xref:Unity.Netcode.NetworkStreamInGame) component presence. The connection entity on the client has no special handling.
 * All ghosts and their ghost components. The full component data of ghost components is saved and restored, not just ghost fields.
 * Server-only components with at least one variable marked with a `GhostField` attribute.
 * The current network tick and elapsed time values.
 * Only data which is normally included in [snapshots](../ghost-snapshots.md) is supported (components and dynamic buffers). For example, native containers aren't included in the migration data.
-* Components listed in the [`NonGhostMigrationComponents`](xref:Unity.NetCode.HostMigration.NonGhostMigrationComponents) buffer of entities marked with the [IncludeInMigration](xref:Unity.NetCode.HostMigration.IncludeInMigration) component, including non-ghost components on ghost entities.
+* Components listed in the [`NonGhostMigrationComponents`](xref:Unity.Netcode.HostMigration.NonGhostMigrationComponents) buffer of entities marked with the [IncludeInMigration](xref:Unity.Netcode.HostMigration.IncludeInMigration) component, including non-ghost components on ghost entities.
 
 ### Detecting connection loss
 
@@ -75,4 +75,4 @@ The steps described in the diagram are as follows:
 * [Unity Lobby documentation](https://docs.unity.com/ugs/en-us/manual/lobby/manual/unity-lobby-service)
 * [Unity Relay documentation](https://docs.unity.com/ugs/en-us/manual/relay/manual/introduction)
 * [Unity Authentication documentation](https://docs.unity.com/ugs/en-us/manual/authentication/manual/overview)
-* [`NetworkStreamInGame` API documentation](xref:Unity.NetCode.NetworkStreamInGame)
+* [`NetworkStreamInGame` API documentation](xref:Unity.Netcode.NetworkStreamInGame)

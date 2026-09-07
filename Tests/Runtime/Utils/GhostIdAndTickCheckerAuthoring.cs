@@ -1,7 +1,7 @@
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     // used to verify ghost id's and spawn ticks are consistent across migrations
     internal struct GhostIdAndTickChecker : IComponentData

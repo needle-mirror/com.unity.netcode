@@ -5,11 +5,12 @@ using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
 
 #if NETCODE_TRACING_TOOL
-    [Overlay(typeof(SceneView), k_OverlayId, "Netcode Tracing")]
+    [Overlay(typeof(SceneView), k_OverlayId, "Prediction Tracing")]
+    [Icon(Constants.PredictionTracingIconPath)]
 #endif
     internal class SceneVisualizationOverlay : Overlay
     {

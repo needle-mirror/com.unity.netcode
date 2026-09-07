@@ -3,10 +3,11 @@ using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.HostMigration;
+using Unity.Netcode.HostMigration;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>The NetworkProtocolVersion is a singleton entity that is automatically created by the
@@ -25,6 +26,7 @@ namespace Unity.NetCode
     /// to validate they are both using same version. If the version mismatch, the connection is forcibly closed.
     /// </para>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkProtocolVersion : IComponentData
     {
         /// <inheritdoc cref="DefaultNetCodeVersion"/>
@@ -152,6 +154,7 @@ namespace Unity.NetCode
     /// Protocol validation will still validate the <see cref="NetworkProtocolVersion.NetCodeVersion"/>,
     /// <see cref="NetworkProtocolVersion.RpcCollectionVersion"/> and <see cref="NetworkProtocolVersion.ComponentCollectionVersion"/>.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GameProtocolVersion : IComponentData
     {
         /// <summary>

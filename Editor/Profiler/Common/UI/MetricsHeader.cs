@@ -1,7 +1,7 @@
 using System;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// The title bar that is shown in every tab and contains metrics information as well as tick navigation buttons.

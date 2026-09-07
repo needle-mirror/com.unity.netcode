@@ -4,8 +4,9 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Networking.Transport;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>
@@ -26,6 +27,7 @@ namespace Unity.NetCode
     /// </remarks>
     /// <typeparam name="TActionSerializer">The typename of the struct implementing the <see cref="IRpcCommandSerializer{T}"/> interface for the <typeparamref name="TActionRequest"/>.</typeparam>
     /// <typeparam name="TActionRequest">The typename of a struct implementing the <see cref="IComponentData"/> interface.</typeparam>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct RpcQueue<TActionSerializer, TActionRequest>
         where TActionRequest : struct, IComponentData
         where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>

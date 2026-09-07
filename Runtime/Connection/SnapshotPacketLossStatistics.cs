@@ -1,7 +1,8 @@
 using Unity.Collections;
 using Unity.Mathematics;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Stores packet loss causes and statistics for all received snapshots. Thus, client-only (with one exception).
@@ -11,6 +12,7 @@ namespace Unity.NetCode
     /// On the client, the fields <see cref="NumPacketsReceived"/>, <see cref="NumPacketsCulledOutOfOrder"/>, and
     /// <see cref="NumPacketsDroppedNeverArrived"/> are sourced from <see cref="Unity.Networking.Transport.UnreliableSequencedPipelineStage.Statistics"/>.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SnapshotPacketLossStatistics
     {
         /// <summary>

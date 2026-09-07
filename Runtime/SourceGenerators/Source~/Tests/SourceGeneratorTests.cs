@@ -5,12 +5,12 @@ using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Unity.NetCode.Generators;
+using Unity.Netcode.Generators;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace Unity.NetCode.GeneratorTests
+namespace Unity.Netcode.GeneratorTests
 {
     // TODO: Add tests for GhostEnabledBits.
     // TODO: Add tests for types moved to SerializationStrategy.
@@ -25,7 +25,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             namespace N1
@@ -71,7 +71,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             public struct Outer
@@ -114,7 +114,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = $@"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.SomeNamespace
             {{
                 public struct PlayerInput : IInputComponentData
@@ -285,7 +285,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             const string testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             public struct TestComponent : IComponentData
@@ -310,7 +310,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             public struct MyTest
             {
@@ -367,7 +367,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             public struct AllCompositeTemplates : IComponentData
             {
@@ -395,7 +395,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             //Normally it would have 2 bits mask.
@@ -421,7 +421,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             //Normally it would have 2 bits mask.
@@ -526,10 +526,10 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
-            namespace Unity.NetCode
+            namespace Unity.Netcode
             {
                 public struct TestRecurse : IComponentData
                 {
@@ -563,10 +563,10 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
-            namespace Unity.NetCode
+            namespace Unity.Netcode
             {
                 [GhostComponentVariation(typeof(Transforms.LocalTransform))]
                 [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
@@ -626,10 +626,10 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
-            namespace Unity.NetCode
+            namespace Unity.Netcode
             {
                 [GhostComponentVariationAttribute(typeof(Transforms.LocalTransform))]
                 [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
@@ -670,7 +670,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             internal struct InternalComponent : IComponentData
@@ -725,15 +725,15 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
-            namespace Unity.NetCode { public struct NetworkTick { } }
+            namespace Unity.Netcode { public struct NetworkTick { } }
 
             [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.Predicted)]
             public struct CommandTest : ICommandData
             {
-                [GhostField]public Unity.NetCode.NetworkTick Tick {get;set;}
+                [GhostField]public Unity.Netcode.NetworkTick Tick {get;set;}
                 [GhostField]public int Value;
             }
             ";
@@ -781,11 +781,11 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
 
-            namespace Unity.NetCode { public struct NetworkTick { } }
+            namespace Unity.Netcode { public struct NetworkTick { } }
 
             public struct Buffer : IBufferElementData
             {
@@ -799,7 +799,7 @@ namespace Unity.NetCode.GeneratorTests
             }
             public struct CommandData : ICommandData
             {
-                public Unity.NetCode.NetworkTick Tick {get;set;}                         // Fine.
+                public Unity.Netcode.NetworkTick Tick {get;set;}                         // Fine.
                 public int CValue1;                                                      // ! All fields must be GhostFields.
                 [GhostField] public int CValue2;                                         // Fine.
                 public ulong CValue3 { get; private set; }                               // Fine (properties with implicit backing fields can be non-GhostFields).
@@ -812,7 +812,7 @@ namespace Unity.NetCode.GeneratorTests
                 public int VValue1;                                    // Fine.
                 [GhostField] public int VValue2;                       // Fine.
                 public float VValue3 { get; private set; }             // Fine.
-                public Unity.NetCode.NetworkTick VValue4 {set;}        // ! GhostFields must have getters.
+                public Unity.Netcode.NetworkTick VValue4 {set;}        // ! GhostFields must have getters.
                 [GhostField] public int this[int i] { get {} set {} }  // ! GhostFields must not be indexers.
             }
             ";
@@ -856,11 +856,11 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
 
-            namespace Unity.NetCode { public struct NetworkTick { } }
+            namespace Unity.Netcode { public struct NetworkTick { } }
 
             namespace Test
             {
@@ -870,7 +870,7 @@ namespace Unity.NetCode.GeneratorTests
                 }
                 public struct Invalid2 : IComponentData, ICommandData
                 {
-                    public Unity.NetCode.NetworkTick Tick {get;set}
+                    public Unity.Netcode.NetworkTick Tick {get;set}
                     public int Value1;
                 }
                 public struct Invalid3 : IComponentData, IBufferElementData
@@ -879,7 +879,7 @@ namespace Unity.NetCode.GeneratorTests
                 }
                 public struct Invalid4: IBufferElementData, ICommandData
                 {
-                    public Unity.NetCode.NetworkTick Tick {get;set}
+                    public Unity.Netcode.NetworkTick Tick {get;set}
                     public int Value1;
                 }
                 public struct Invalid5 : IBufferElementData, IRpcCommand
@@ -925,9 +925,9 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_SubTypes()
         {
             var customTemplates = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
             using System.Collections.Generic;
-            namespace Unity.NetCode.Generators
+            namespace Unity.Netcode.Generators
             {
                 internal static partial class UserDefinedTemplates
                 {
@@ -951,7 +951,7 @@ namespace Unity.NetCode.GeneratorTests
             }";
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct MyType : IComponentData
             {
@@ -1004,7 +1004,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             [GhostComponent]
             public struct MyData : IComponentData
@@ -1043,7 +1043,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             [GhostComponent]
             public struct MyType : IComponentData
@@ -1051,7 +1051,7 @@ namespace Unity.NetCode.GeneratorTests
                 [GhostField] public char MyField;
             }
             ";
-            LogAssert.Expect(LogType.Error, new Regex("Inside type 'Unity_NetCode_Test_Generated_MyType', we could not find the exact template for field 'MyField' with"));
+            LogAssert.Expect(LogType.Error, new Regex("Inside type 'Unity_Netcode_Test_Generated_MyType', we could not find the exact template for field 'MyField' with"));
             for (int i = 0; i < s_BaseKnownTypeCount; i++)
             {
                 LogAssert.Expect(LogType.Error, new Regex(".*known template type:.*"));
@@ -1071,16 +1071,16 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1 + s_BaseKnownTypeCount + s_BaseKnownSubtypesCount, errors.Length);
             Assert.IsTrue(errors[0].GetMessage()
                 .Contains(
-                    "Inside type 'Unity_NetCode_Test_Generated_MyType', we could not find the exact template for field 'MyField' with configuration 'Type:System.Char Key:System.Char (quantized=-1 composite=False smoothing=0 subtype=0)'"));
+                    "Inside type 'Unity_Netcode_Test_Generated_MyType', we could not find the exact template for field 'MyField' with configuration 'Type:System.Char Key:System.Char (quantized=-1 composite=False smoothing=0 subtype=0)'"));
         }
 
         [Test]
         public void SourceGenerator_QuantizeError()
         {
             var customTemplates = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
             using System.Collections.Generic;
-            namespace Unity.NetCode.Generators
+            namespace Unity.Netcode.Generators
             {
                 internal static partial class UserDefinedTemplates
                 {
@@ -1104,7 +1104,7 @@ namespace Unity.NetCode.GeneratorTests
             }";
             var testDataWrong = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct MyType : IComponentData
             {
@@ -1113,7 +1113,7 @@ namespace Unity.NetCode.GeneratorTests
             ";
             var testDataCorrect = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct MyType : IComponentData
             {
@@ -1170,9 +1170,9 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_SubTypeCompositeError()
         {
             var customTemplates = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
             using System.Collections.Generic;
-            namespace Unity.NetCode.Generators
+            namespace Unity.Netcode.Generators
             {
                 internal static partial class UserDefinedTemplates
                 {
@@ -1196,7 +1196,7 @@ namespace Unity.NetCode.GeneratorTests
             }";
             var testData = @"
             using Unity.Mathematics;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Transforms;
 
             [GhostComponentVariation(typeof(LocalTransform), ""Translation - 2D"")]
@@ -1272,7 +1272,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             public struct DefaultComponent : IComponentData
             {
                 [GhostField] public int Value;
@@ -1315,10 +1315,10 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
-            namespace Unity.NetCode
+            namespace Unity.Netcode
             {
                 public struct SendToChildDefault : IComponentData
                 {
@@ -1380,7 +1380,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = $@"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
 
@@ -1413,9 +1413,9 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
-            namespace Unity.NetCode { public struct NetworkTick { } }
+            namespace Unity.Netcode { public struct NetworkTick { } }
 
             namespace __GHOST_NAMESPACE__
             {
@@ -1441,7 +1441,7 @@ namespace Unity.NetCode.GeneratorTests
 
                 public struct __My_Command__: ICommandData
                 {
-                    public Unity.NetCode.NetworkTick Tick {get;set;}
+                    public Unity.Netcode.NetworkTick Tick {get;set;}
                     public int __ValidField;
                     public int __COMMAND_IS_RESERVED;
                 }
@@ -1471,7 +1471,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.Entities
             {
                 public struct Entity<T>
@@ -1525,7 +1525,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace A
             {
                 public struct TestComponent : IComponentData
@@ -1566,7 +1566,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG
             {
                 public struct TestComponent : IComponentData
@@ -1604,7 +1604,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.Test
             {
                 public struct PlayerInput : IInputComponentData
@@ -1651,7 +1651,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             public class ParentClass1
             {
                 public class ParentClass2
@@ -1709,9 +1709,9 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
-            namespace Unity.NetCode
+            namespace Unity.Netcode
             {
                 public struct NetworkTick { }
                 public interface IInputComponentData
@@ -1800,7 +1800,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.Test
             {
                 internal class OuterHost
@@ -1831,14 +1831,14 @@ namespace Unity.NetCode.GeneratorTests
         [Test]
         public void SourceGenerator_InputComponentData_NamespaceCollidingWithAssembly_UsesGlobalQualifiedNames()
         {
-            // Test assembly name is Unity.NetCode.Test (see GeneratorTestHelpers.GeneratedAssemblyName).
-            // namespace Unity.NetCode.Test.Generated nests inside Unity.NetCode.Test, so a duplicate
+            // Test assembly name is Unity.Netcode.Test (see GeneratorTestHelpers.GeneratedAssemblyName).
+            // namespace Unity.Netcode.Test.Generated nests inside Unity.Netcode.Test, so a duplicate
             // child namespace shadows unqualified user type references in generated registration code.
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
-            namespace Unity.NetCode.Test
+            namespace Unity.Netcode.Test
             {
                 public struct SomeInput : IInputComponentData
                 {
@@ -1846,7 +1846,7 @@ namespace Unity.NetCode.GeneratorTests
                 }
             }
 
-            namespace Unity.NetCode.Test.Unity.NetCode.Test
+            namespace Unity.Netcode.Test.Unity.Netcode.Test
             {
             }";
 
@@ -1864,13 +1864,13 @@ namespace Unity.NetCode.GeneratorTests
             Assert.IsNotNull(registrationSource, "Expected GhostComponentSerializerCollection to be generated");
 
             var registrationText = registrationSource!.SyntaxTree.GetText().ToString();
-            Assert.That(registrationText, Does.Contain("ComponentType.ReadWrite<global::Unity.NetCode.Test.SomeInput>"));
-            Assert.That(registrationText, Does.Contain("ComponentType.ReadWrite<global::Unity.NetCode.InputBufferData<global::Unity.NetCode.Test.SomeInput>>"));
-            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<Unity\.NetCode\.Test\.SomeInput>"),
+            Assert.That(registrationText, Does.Contain("ComponentType.ReadWrite<global::Unity.Netcode.Test.SomeInput>"));
+            Assert.That(registrationText, Does.Contain("ComponentType.ReadWrite<global::Unity.Netcode.InputBufferData<global::Unity.Netcode.Test.SomeInput>>"));
+            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<Unity\.Netcode\.Test\.SomeInput>"),
                 "Unqualified type names are ambiguous inside AssemblyName.Generated when a nested namespace duplicates the assembly name");
-            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<global::Unity\.NetCode\.InputBufferData<Unity\.NetCode\.Test\.SomeInput>"),
+            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<global::Unity\.Netcode\.InputBufferData<Unity\.Netcode\.Test\.SomeInput>"),
                 "Input buffer generic arguments must also be global-qualified");
-            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<InputBufferData<Unity\.NetCode\.Test\.SomeInput>"),
+            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<InputBufferData<Unity\.Netcode\.Test\.SomeInput>"),
                 "Input buffer generic arguments must also be global-qualified");
 
             Assert.AreEqual(0, registrationSource.SyntaxTree.GetDiagnostics().Count(d => d.Severity == DiagnosticSeverity.Error),
@@ -1882,7 +1882,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.Test
             {
                 public struct MyRpcType : IRpcCommand
@@ -1946,8 +1946,8 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
-            namespace Unity.NetCode
+            using Unity.Netcode;
+            namespace Unity.Netcode
             {
                 public struct TestLargeNumberOfFields : IComponentData
                 {
@@ -2076,7 +2076,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public interface MyComponentData : IComponentData
             {
@@ -2136,7 +2136,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             private struct Comp : IComponentData
             {
@@ -2168,7 +2168,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct Approve : IApprovalRpcCommand
             {
@@ -2191,9 +2191,9 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
-            namespace Unity.NetCode
+            namespace Unity.Netcode
             {
                 public interface IRpcCommandSerializerFutureType {}
             }
@@ -2228,7 +2228,7 @@ namespace Unity.NetCode.GeneratorTests
             // Should skip UserDefinedCustomApprovalSerializer but include SomeOtherStruct codegen
             Assert.AreEqual(1, results.GeneratedSources.Length);
             var generatedRpcContents = results.GeneratedSources[0].SourceText.ToString();
-            Assert.IsTrue(generatedRpcContents.Contains("Unity_NetCode_Test_Generated_SomeOtherStructSerializer"));
+            Assert.IsTrue(generatedRpcContents.Contains("Unity_Netcode_Test_Generated_SomeOtherStructSerializer"));
         }
 
         [Test]
@@ -2237,7 +2237,7 @@ namespace Unity.NetCode.GeneratorTests
             var testData = @"
             using System;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public enum TT : byte
             {
@@ -2345,7 +2345,7 @@ namespace Unity.NetCode.GeneratorTests
             var testData = @"
             using System;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Collections;
 
@@ -2371,7 +2371,7 @@ namespace Unity.NetCode.GeneratorTests
             using System;
             using System.Runtime.InteropServices;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Collections;
 
             [StructLayout(LayoutKind.Explicit)]
@@ -2405,7 +2405,7 @@ namespace Unity.NetCode.GeneratorTests
             using System;
             using System.Runtime.InteropServices;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Collections;
 
             public struct Component : IComponentData
@@ -2470,7 +2470,7 @@ namespace Unity.NetCode.GeneratorTests
             using System;
             using System.Runtime.InteropServices;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Collections;
 
             public struct Component : IComponentData
@@ -2519,7 +2519,7 @@ namespace Unity.NetCode.GeneratorTests
             var testData = @"
             using Unity.Collections;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             public struct Data
@@ -2633,7 +2633,7 @@ namespace Unity.NetCode.GeneratorTests
             var testData = $@"
             using Unity.Collections;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             public struct Field
@@ -2684,7 +2684,7 @@ namespace Unity.NetCode.GeneratorTests
             var testData = @"
             using Unity.Collections;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             internal struct Data // Note that we support internal!
@@ -2743,11 +2743,11 @@ namespace Unity.NetCode.GeneratorTests
             //We expect to have 1 helper for Data and one helper for float (silly I know, we can generate directly)
             results.GeneratedSources[0].SyntaxTree.FilePath.EndsWith("_System_Single_CmdSerializer_CommandHelper");
             results.GeneratedSources[1].SyntaxTree.FilePath.EndsWith("_PrimitiveCmdCommandSerializer");
-            results.GeneratedSources[2].SyntaxTree.FilePath.EndsWith("Unity_NetCode_Test_Generated_Data_CmdSerializer_CommandHelper");
+            results.GeneratedSources[2].SyntaxTree.FilePath.EndsWith("Unity_Netcode_Test_Generated_Data_CmdSerializer_CommandHelper");
             results.GeneratedSources[3].SyntaxTree.FilePath.EndsWith("_StructCmdCommandSerializer");
             results.GeneratedSources[4].SyntaxTree.FilePath.EndsWith("_NestedCmdCommandSerializer");
             results.GeneratedSources[5].SyntaxTree.FilePath.EndsWith("_PrimitiveRpcCommandSerializer");
-            results.GeneratedSources[6].SyntaxTree.FilePath.EndsWith("Unity_NetCode_Test_Generated_Data_CmdSerializer_CommandHelper");
+            results.GeneratedSources[6].SyntaxTree.FilePath.EndsWith("Unity_Netcode_Test_Generated_Data_CmdSerializer_CommandHelper");
             results.GeneratedSources[7].SyntaxTree.FilePath.EndsWith("_StructRpcCommandSerializer");
 
             results.GeneratedSources[7].HintName.EndsWith("_NestedRpcCommandSerializer");
@@ -2759,7 +2759,7 @@ namespace Unity.NetCode.GeneratorTests
             var testData = @"
             using Unity.Collections;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             internal struct Data // Note that we support internal!
@@ -2797,7 +2797,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(8, errors.Length);
             Assert.That(errors[0].GetMessage().Contains("Nested FixedLists are not directly supported! Add a struct to wrap the inner FixedList 'FixedList32Bytes' on 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>'!"));
             Assert.That(errors[1].GetMessage().Contains("Unable to correctly generate code for FixedList element 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>' on 'StructComp.NestedFL'!"));
-            Assert.That(errors[2].GetMessage().Contains("Couldn't find the TypeDescriptor for GhostField 'Unity_NetCode_Test_Generated_StructComp.' the type Type:StructComp Key:StructComp (quantized=-1 composite=False smoothing=0 subtype=0) when processing StructComp!"));
+            Assert.That(errors[2].GetMessage().Contains("Couldn't find the TypeDescriptor for GhostField 'Unity_Netcode_Test_Generated_StructComp.' the type Type:StructComp Key:StructComp (quantized=-1 composite=False smoothing=0 subtype=0) when processing StructComp!"));
             Assert.That(errors[3].GetMessage().Contains("Nested FixedLists are not directly supported! Add a struct to wrap the inner FixedList 'FixedList32Bytes' on 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>'!"));
             Assert.That(errors[4].GetMessage().Contains("Unable to correctly generate code for FixedList element 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>' on 'StructCmd.NestedFL'!"));
             Assert.That(errors[5].GetMessage().Contains("StructCmd.NestedFL of type Unity.Collections.FixedList512Bytes<StructCmd.NestedFL> has a capacity greater than 64 elements. Replicated fixed lists can contain at most 64 elements. If the capacity exceed, please use the GhostFixedListCapacity attribute to constrain the maximum allowed length of the list."));
@@ -2811,7 +2811,7 @@ namespace Unity.NetCode.GeneratorTests
             var testData = @"
             using Unity.Collections;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             public unsafe struct Rpc : IRpcCommand
@@ -2899,7 +2899,7 @@ namespace Unity.NetCode.GeneratorTests
             var testData = @"
             using Unity.Collections;
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
 
             public struct NestedProperty
@@ -2936,7 +2936,7 @@ namespace Unity.NetCode.GeneratorTests
             {
                 var testData = $@"
                 using Unity.Entities;
-                using Unity.NetCode;
+                using Unity.Netcode;
 
                 public struct Composite
                 {{
@@ -2962,9 +2962,9 @@ namespace Unity.NetCode.GeneratorTests
             {
                 var tree = CSharpSyntaxTree.ParseText(versionToTest);
                 var customTemplates = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
             using System.Collections.Generic;
-            namespace Unity.NetCode.Generators
+            namespace Unity.Netcode.Generators
             {
                 internal static partial class UserDefinedTemplates
                 {
@@ -3085,7 +3085,7 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_Remotes_RemoteStruct()
         {
             var testData = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.Test.Remotes
             {
                 [Remote]
@@ -3102,7 +3102,7 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_Remotes_RemoteStruct_AttributeFullName()
         {
             var testData = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.Test.Remotes
             {
                 [RemoteAttribute]
@@ -3159,7 +3159,7 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_Remotes_HandleFunction()
         {
             var testData = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.Test.Remotes
             {
                 [Remote]
@@ -3189,7 +3189,7 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_Remotes_RemoteMethod()
         {
             var testData = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
             namespace Unity.Test.Remotes
             {
                 public class RemoteMethod
@@ -3218,7 +3218,7 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_Remotes_GhostRemoteMethod()
         {
             var testData = @"
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public class RemoteMethod : GhostBehaviour
             {

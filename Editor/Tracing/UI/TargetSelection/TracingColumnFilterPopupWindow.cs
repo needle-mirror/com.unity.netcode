@@ -2,9 +2,9 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
-using static Unity.NetCode.Editor.Tracing.TracingColumnFilters;
+using static Unity.Netcode.Editor.Tracing.TracingColumnFilters;
 
-namespace Unity.NetCode.Editor.Tracing
+namespace Unity.Netcode.Editor.Tracing
 {
     /// <summary>
     /// Dropdown popup opened by the arrow of a column's header filter button in <see cref="SelectTracingTargetWindow"/>.

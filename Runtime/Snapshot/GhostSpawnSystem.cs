@@ -4,12 +4,14 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 using UnityEngine.Assertions;
+using UnityEngine.Scripting.APIUpdating;
 using Object = UnityEngine.Object;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>
@@ -42,6 +44,7 @@ namespace Unity.NetCode
     [BurstCompile]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(GhostSpawnSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct GhostSpawnSystem : ISystem
     {
         struct DelayedSpawnGhost
@@ -473,10 +476,7 @@ namespace Unity.NetCode
                 for (int i = 0; i < pendingEntities.Length; i++)
                 {
                     var ghost = ((GameObject)allGOsAsObjects[i]).GetComponent<GhostObject>();
-                    var ghostInfoComponent = EntityManager.GetComponentData<GhostGameObjectLink>(pendingEntities[i]);
-                    ghostInfoComponent.GhostObjectId = ghost.GetEntityId();
-                    EntityManager.SetComponentData(pendingEntities[i], ghostInfoComponent);
-                    ghost.InitializeRuntimeGhostBehaviours(links[i], withInitialValue: false); // withInitialValue=false since this is a spawn from the network, we already have values in ECS components.
+                    ghost.ClientRuntimeInitialize(links[i]);
                 }
             }
 

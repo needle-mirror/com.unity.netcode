@@ -1,11 +1,11 @@
 using System.Collections.Generic;
 using NUnit.Framework;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 using UnityEngine.UIElements.TestFramework;
-using Unity.NetCode.Editor.Tracing.UI.TickInspector;
+using Unity.Netcode.Editor.Tracing.UI.TickInspector;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Tests
+namespace Unity.Netcode.Editor.Tracing.UI.Tests
 {
     /// <summary>
     /// Tests for the metadata foldout that sits above the tick inspector tree, decoupled from tree data.

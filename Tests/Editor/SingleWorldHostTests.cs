@@ -11,7 +11,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 
 // TODO most of these tests should be useless once we have a global flag for single world host testing
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     // little util to make test sequence clearer
     // [AutoStaticsCleanup]

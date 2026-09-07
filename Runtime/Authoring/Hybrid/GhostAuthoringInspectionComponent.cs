@@ -5,8 +5,9 @@ using Unity.Entities;
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.Assemblies;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>MonoBehaviour you may optionally add to any/all GameObjects in a Ghost Prefab, which allows inspecting of (and saving of) "Ghost Meta Data". E.g.</para>
@@ -17,6 +18,7 @@ namespace Unity.NetCode
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.GhostAuthoringInspetionComponent)]
     [AddComponentMenu("Multiplayer/Ghost Authoring Inspection Component", 2)]
+    [MovedFrom(true, "Unity.NetCode")]
     public class GhostAuthoringInspectionComponent : MonoBehaviour, IPrefabOverrideProvider
     {
         // TODO: This doesn't support multi-edit.
@@ -63,14 +65,50 @@ namespace Unity.NetCode
             forceRebuildInspector = true;
         }
 
+        /// <summary>Heals an override serialized before the Unity.NetCode rename in place. True if anything was
+        /// rewritten. <paramref name="compType"/> is the resolved component type (null when unknown), so callers
+        /// don't pay for a second assembly scan.</summary>
+        static bool TryMigrateLegacyOverride(ref ComponentOverride mod, out Type compType)
+        {
+            // Important note: this healing is done only when the prefab is dirtied or when baking. Which means if users don't touch their prefabs for a while, this healing code will still be needed for a while as well. This healing code shouldn't be removed unless we have a way to guarantee users have healed all their prefabs.
+            var migrated = false;
+            compType = FindTypeFromFullTypeNameInAllAssemblies(mod.FullTypeName);
+            if (compType == null)
+            {
+                var currentName = GhostVariantsUtility.ToCurrentFullName(mod.FullTypeName);
+                if (!string.Equals(currentName, mod.FullTypeName, StringComparison.Ordinal))
+                {
+                    compType = FindTypeFromFullTypeNameInAllAssemblies(currentName);
+                    if (compType != null)
+                    {
+                        mod.FullTypeName = currentName;
+                        migrated = true;
+                    }
+                }
+            }
+            if (compType != null && mod.IsVariantOverriden
+                && GhostVariantsUtility.TryMigrateLegacyVariantHash(mod.VariantHash, compType, out var currentHash))
+            {
+                mod.VariantHash = currentHash;
+                migrated = true;
+            }
+            return migrated;
+        }
+
         /// <summary>Logs a Unity error for each entry in <see cref="EnumerateOverrides"/> whose
-        /// <see cref="ComponentOverride.FullTypeName"/> does not resolve to a loaded type.</summary>
+        /// <see cref="ComponentOverride.FullTypeName"/> does not resolve to a loaded type.
+        /// Overrides serialized before the Unity.NetCode rename are migrated in place (and re-saved) first.</summary>
         internal void LogErrorIfComponentOverrideIsInvalid()
         {
             for (var i = 0; i < ComponentOverrides.Length; i++)
             {
                 ref var mod = ref ComponentOverrides[i];
-                var compType = FindTypeFromFullTypeNameInAllAssemblies(mod.FullTypeName);
+                if (TryMigrateLegacyOverride(ref mod, out var compType))
+                {
+                    Debug.Log($"Ghost Prefab '{name}': migrated pre-rename 'Component Override' to '{mod}'.", this);
+                    forceSave = true;
+                    forceBake = true;
+                }
                 if (compType == null)
                 {
                     Debug.LogError($"Ghost Prefab '{name}' has an invalid 'Component Override' targeting an unknown component type '{mod.FullTypeName}'. " +
@@ -402,7 +440,7 @@ namespace Unity.NetCode
                 var currentComp = allComponents[compIdx];
                 foreach (var overrideEntry in savedOverrides)
                 {
-                    if (TypeManager.GetFullNameHash(currentComp.TypeIndex) == TypeManager.CalculateFullNameHash(overrideEntry.FullTypeName))
+                    if (TypeManager.GetFullNameHash(currentComp.TypeIndex) == TypeManager.CalculateFullNameHash(GhostVariantsUtility.ToCurrentFullName(overrideEntry.FullTypeName)))
                     {
                         foundOverride = overrideEntry;
                         break;
@@ -411,6 +449,11 @@ namespace Unity.NetCode
 
                 if (foundOverride.HasOverriden)
                 {
+                    // Data saved before the Unity.NetCode rename may reach players without the editor heal
+                    // having run; TypeCache is unavailable here, so only the default-serializer case remaps.
+                    if (foundOverride.IsVariantOverriden
+                        && GhostVariantsUtility.TryMigrateLegacyVariantHash(foundOverride.VariantHash, currentComp.GetManagedType(), out var migratedHash))
+                        foundOverride.VariantHash = migratedHash;
                     GhostPrefabCreation.ComponentOverrideType overrideType = default;
                     if (foundOverride.IsVariantOverriden) overrideType |= GhostPrefabCreation.ComponentOverrideType.Variant;
                     if (foundOverride.IsPrefabTypeOverriden) overrideType |= GhostPrefabCreation.ComponentOverrideType.PrefabType;

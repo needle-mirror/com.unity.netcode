@@ -1,7 +1,7 @@
 using System;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     internal struct TracingSelectionChange : IEquatable<TracingSelectionChange>
     {

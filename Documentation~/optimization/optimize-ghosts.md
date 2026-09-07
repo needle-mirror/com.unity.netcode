@@ -15,10 +15,10 @@ Therefore, importance is determined at the ghost chunk level, not on each instan
 
 Several factors determine the importance of each ghost chunk:
 
-* You can specify the base [`GhostAuthoringComponent.Importance`](xref:Unity.NetCode.GhostAuthoringComponent.Importance) per ghost type.
-    * Netcode for Entities multiplies this base importance value by `ticksSinceLastSent` (not `ticksSinceLastAcked`), as well as other modifiers such as [`GhostSendSystemData.IrrelevantImportanceDownScale`](xref:Unity.NetCode.GhostSendSystemData.IrrelevantImportanceDownScale) and [`GhostSendSystemData.FirstSendImportanceMultiplier`](xref:Unity.NetCode.GhostSendSystemData.FirstSendImportanceMultiplier).
-* You can also supply your own method to scale importance on a per-chunk, per-connection basis, using [`GhostImportance.BatchScaleImportanceFunction`](xref:Unity.NetCode.GhostImportance.BatchScaleImportanceFunction). For example, this allows you to [deprioritize far away ghosts, in favor of nearby ones](#distance-based-importance).
-* [`GhostAuthoringComponent.MaxSendRate`](xref:Unity.NetCode.GhostAuthoringComponent.MaxSendRate) doesn't directly impact importance values. It's a pre-pass that prevents a ghost chunk from being added to the priority queue at all (for this tick), but is ignored if a structural change occurs on this chunk (so that new spawns and deletions are not delayed).
+* You can specify the base [`GhostAuthoringComponent.Importance`](xref:Unity.Netcode.GhostAuthoringComponent.Importance) per ghost type.
+    * Netcode for Entities multiplies this base importance value by `ticksSinceLastSent` (not `ticksSinceLastAcked`), as well as other modifiers such as [`GhostSendSystemData.IrrelevantImportanceDownScale`](xref:Unity.Netcode.GhostSendSystemData.IrrelevantImportanceDownScale) and [`GhostSendSystemData.FirstSendImportanceMultiplier`](xref:Unity.Netcode.GhostSendSystemData.FirstSendImportanceMultiplier).
+* You can also supply your own method to scale importance on a per-chunk, per-connection basis, using [`GhostImportance.BatchScaleImportanceFunction`](xref:Unity.Netcode.GhostImportance.BatchScaleImportanceFunction). For example, this allows you to [deprioritize far away ghosts, in favor of nearby ones](#distance-based-importance).
+* [`GhostAuthoringComponent.MaxSendRate`](xref:Unity.Netcode.GhostAuthoringComponent.MaxSendRate) doesn't directly impact importance values. It's a pre-pass that prevents a ghost chunk from being added to the priority queue at all (for this tick), but is ignored if a structural change occurs on this chunk (so that new spawns and deletions are not delayed).
 
 Once a packet has reached the bandwidth target, the server sends it. The remaining ghost entities aren't sent on this tick, but they are more likely to be in the next snapshot because of `ticksSinceLastSent` scaling.
 
@@ -31,14 +31,14 @@ The following is an example of how to set up the built-in distance-based importa
 
 #### `GhostImportance`
 
-[`GhostImportance`](xref:Unity.NetCode.GhostImportance) is the configuration component for setting up importance scaling. [`GhostSendSystem`](xref:Unity.NetCode.GhostSendSystem) invokes the `BatchScaleImportanceFunction` only if the `GhostConnectionComponentType` and `GhostImportanceDataType` are created.
+[`GhostImportance`](xref:Unity.Netcode.GhostImportance) is the configuration component for setting up importance scaling. [`GhostSendSystem`](xref:Unity.Netcode.GhostSendSystem) invokes the `BatchScaleImportanceFunction` only if the `GhostConnectionComponentType` and `GhostImportanceDataType` are created.
 
 You can set the following fields on `GhostImportance`:
 
-- [`BatchScaleImportanceFunction`](xref:Unity.NetCode.GhostImportance.BatchScaleImportanceFunction) allows you to write and assign a custom scaling function (to scale the importance, with chunk granularity).
-- [`GhostConnectionComponentType`](xref:Unity.NetCode.GhostImportance.GhostConnectionComponentType) is the type added per connection, allowing you to store per-connection data that's needed in the scaling calculation.
-- [`GhostImportanceDataType`](xref:Unity.NetCode.GhostImportance.GhostImportanceDataType) is an optional singleton component, allowing you to pass in any of your own static data necessary in the scaling calculation.
-- [`GhostImportancePerChunkDataType`](xref:Unity.NetCode.GhostImportance.GhostImportancePerChunkDataType) is the shared component added per chunk, storing any chunk-specific data used in the scaling calculation.
+- [`BatchScaleImportanceFunction`](xref:Unity.Netcode.GhostImportance.BatchScaleImportanceFunction) allows you to write and assign a custom scaling function (to scale the importance, with chunk granularity).
+- [`GhostConnectionComponentType`](xref:Unity.Netcode.GhostImportance.GhostConnectionComponentType) is the type added per connection, allowing you to store per-connection data that's needed in the scaling calculation.
+- [`GhostImportanceDataType`](xref:Unity.Netcode.GhostImportance.GhostImportanceDataType) is an optional singleton component, allowing you to pass in any of your own static data necessary in the scaling calculation.
+- [`GhostImportancePerChunkDataType`](xref:Unity.Netcode.GhostImportance.GhostImportancePerChunkDataType) is the shared component added per chunk, storing any chunk-specific data used in the scaling calculation.
 
 #### Order of operations
 
@@ -55,7 +55,7 @@ The `GhostImportanceDataType` is global, static, singleton data that configures 
 
 ### Distance-based importance
 
-The built-in form of importance scaling in Netcode for Entities is distance-based ([`GhostDistanceImportance.Scale`](xref:Unity.NetCode.GhostDistanceImportance)) and uses tiling to group entities into spatial chunks. The `GhostDistanceData` component describes the size and borders of the tiles entities are grouped into.
+The built-in form of importance scaling in Netcode for Entities is distance-based ([`GhostDistanceImportance.Scale`](xref:Unity.Netcode.GhostDistanceImportance)) and uses tiling to group entities into spatial chunks. The `GhostDistanceData` component describes the size and borders of the tiles entities are grouped into.
 
 #### Distance-based importance in Asteroids
 
@@ -66,7 +66,7 @@ The [Asteroids sample project](https://github.com/Unity-Technologies/EntityCompo
 >[!NOTE]
 > Again, you must add both singleton components to the same entity.
 
-The [`GhostDistancePartitioningSystem`](xref:Unity.NetCode.GhostDistancePartitioningSystem) then splits all the ghosts in the world into chunks, based on the tile size defined above. Using the configurable component [`GhostConnectionPosition`](xref:Unity.NetCode.GhostConnectionPosition) and the Entities concept of [chunks](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/components-chunk-introducing.html), Netcode for Entities can create spatial partitions that enable the fast culling of entire sets of entities based on distance to the connection's character controller (or other notable object).
+The [`GhostDistancePartitioningSystem`](xref:Unity.Netcode.GhostDistancePartitioningSystem) then splits all the ghosts in the world into chunks, based on the tile size defined above. Using the configurable component [`GhostConnectionPosition`](xref:Unity.Netcode.GhostConnectionPosition) and the Entities concept of [chunks](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/components-chunk-introducing.html), Netcode for Entities can create spatial partitions that enable the fast culling of entire sets of entities based on distance to the connection's character controller (or other notable object).
 
 `GhostConnectionPosition` stores the position of a player's entity (`Ship.prefab` in the Asteroids example), which is passed into the `Scale` function via the `GhostSendSystem`, allowing each connection to determine which tiles (chunks) that connection should prioritize.
 
@@ -74,9 +74,10 @@ In Asteroids, this component is added to the connection entity when the (Asteroi
 
 [!code-cs[blobs](../../Tests/Editor/DocCodeSamples/optimizations.cs#GhostDistancePartitioning)]
 
-Which is then updated via the Asteroids server system `UpdateConnectionPositionSystemJob`:
+> [!NOTE]
+> On a [single-world host](../single-world-host-mode.md), RPCs the host sends to itself bypass serialization. The example checks `RpcExecutor.Parameters.IsPassthroughRPC` and reads the data with `RpcExecutor.Parameters.GetPassthroughActionData` in that case, instead of deserializing. Refer to [Communication with RPCs](../rpcs.md) for details.
 
-<!-- TODO-release add a IsPassthroughRPC check in the below sample to not deserialize with single-world host. -->
+Which is then updated via the Asteroids server system `UpdateConnectionPositionSystemJob`:
 
 [!code-cs[blobs](../../Tests/Editor/DocCodeSamples/optimizations.cs#SetImportancePosition)]
 
@@ -103,15 +104,15 @@ Use ghost relevancy to avoid replicating entities that the player can neither se
 > [!NOTE]
 > Ghost group children do not support relevancy (nor importance, MaxSendRate, static-optimization etc.) until they've left the group, refer to the [ghost groups page](../ghost-groups.md) for more information.
 
-The [`GhostRelevancy`](xref:Unity.NetCode.GhostRelevancy) singleton component has the following controls:
+The [`GhostRelevancy`](xref:Unity.Netcode.GhostRelevancy) singleton component has the following controls:
 
-* [`GhostRelevancyMode`](xref:Unity.NetCode.GhostRelevancy.GhostRelevancyMode) defines the behavior of the relevancy subsystem:
+* [`GhostRelevancyMode`](xref:Unity.Netcode.GhostRelevancy.GhostRelevancyMode) defines the behavior of the relevancy subsystem:
     * **Disabled**: The default setting. No relevancy is applied under any circumstances.
     * **SetIsRelevant**: Only ghosts added to the relevancy set (`GhostRelevancySet`) are considered relevant to that client and serialized for the specified connection (where possible: eventual consistency and importance scaling rules still apply).
         * If you have this setting as the default, then no ghosts will be replicated to any client unless they're in the `GhostRelevancySet`. This can be useful when it's rare or impossible for a player to be viewing the entire world.
     * **SetIsIrrelevant**: Ghosts added to relevancy set (`GhostRelevancySet`) are considered not relevant to that client and won't be serialized for the specified connection. In other words, use this mode if you want to specifically ignore entities for a given client.
-* [`GhostRelevancySet`](xref:Unity.NetCode.GhostRelevancy.GhostRelevancySet) stores the connection-ghost pairs. The behavior of the set is defined by `GhostRelevancyMode`.
-* [`DefaultRelevancyQuery`](xref:Unity.NetCode.GhostRelevancy.DefaultRelevancyQuery) is a global rule denoting that all ghost chunks matching this query are always considered relevant to all connections (unless you've added the ghosts in said chunk to the `GhostRelevancySet`). This is useful for creating general relevancy rules (for example: the entities in charge of tracking player scores are always relevant). `GhostRelevancySet` takes precedence over this rule. Refer to the [Asteroids sample](https://github.com/Unity-Technologies/EntityComponentSystemSamples/blob/master/NetcodeSamples/Assets/Samples/Asteroids/Server/Systems/SetAlwaysRelevantSystem.cs) for an example implementation.
+* [`GhostRelevancySet`](xref:Unity.Netcode.GhostRelevancy.GhostRelevancySet) stores the connection-ghost pairs. The behavior of the set is defined by `GhostRelevancyMode`.
+* [`DefaultRelevancyQuery`](xref:Unity.Netcode.GhostRelevancy.DefaultRelevancyQuery) is a global rule denoting that all ghost chunks matching this query are always considered relevant to all connections (unless you've added the ghosts in said chunk to the `GhostRelevancySet`). This is useful for creating general relevancy rules (for example: the entities in charge of tracking player scores are always relevant). `GhostRelevancySet` takes precedence over this rule. Refer to the [Asteroids sample](https://github.com/Unity-Technologies/EntityComponentSystemSamples/blob/master/NetcodeSamples/Assets/Samples/Asteroids/Server/Systems/SetAlwaysRelevantSystem.cs) for an example implementation.
 
 [!code-cs[blobs](../../Tests/Editor/DocCodeSamples/optimizations.cs#Relevancy)]
 
@@ -122,7 +123,7 @@ The [`GhostRelevancy`](xref:Unity.NetCode.GhostRelevancy) singleton component ha
 ### Relevancy fast-path via importance scaling
 
 You can merge the ghost relevancy calculation with the batched importance scaling function pointer (assuming relevancy can be expressed via the same data as importance scaling).
-As shown in the [`GhostDistanceImportance.BatchScaleWithRelevancy` sample code](xref:Unity.NetCode.GhostDistanceImportance.BatchScaleWithRelevancyFunctionPointer), enabling this fast-path requires the following steps:
+As shown in the [`GhostDistanceImportance.BatchScaleWithRelevancy` sample code](xref:Unity.Netcode.GhostDistanceImportance.BatchScaleWithRelevancyFunctionPointer), enabling this fast-path requires the following steps:
 
 1. Enabling relevancy via `SystemAPI.GetSingletonRW<GhostRelevancy>().ValueRW.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;` (or `SetIsIrrelevant`).
 2. Setting the `PrioChunk.isRelevant` flag for each chunk (this flag ignores the `SetIsRelevant` vs `SetIsIrrelevant` distinction, so setting `isRelevant = true` will cause the chunk to be relevant, regardless of which mode we're in).
@@ -143,8 +144,8 @@ By default, all ghosts are serialized once per connection on the server. This is
 
 Preserialization is a feature that allows you to serialize ghost data once and reuse it for all connections on the server. You can enable preserialization in two ways:
 
-1. Enabling [`UsePreserialization`](xref:Unity.NetCode.GhostAuthoringComponent.UsePreSerialization) in the `GhostAuthoringComponent` inspector on your ghost prefab. This causes all ghosts of this type to use preserialization.
-2. Adding the [`PreSerializedGhost`](xref:Unity.NetCode.PreSerializedGhost) component to the ghost entity in the server world. This causes only this specific ghost to use preserialization.
+1. Enabling [`UsePreserialization`](xref:Unity.Netcode.GhostAuthoringComponent.UsePreSerialization) in the `GhostAuthoringComponent` inspector on your ghost prefab. This causes all ghosts of this type to use preserialization.
+2. Adding the [`PreSerializedGhost`](xref:Unity.Netcode.PreSerializedGhost) component to the ghost entity in the server world. This causes only this specific ghost to use preserialization.
 
 When preserialization is enabled the server only serializes the ghost once for all connections. However, preserialized ghosts are serialized regularly on every tick, even if the ghost isn't going to be sent to any client. As a result, preserialization is only recommended for ghosts that are frequently sent to multiple clients (otherwise the CPU cost might be higher than the default behavior of serializing ghosts on demand).
 
@@ -161,7 +162,7 @@ When a `GhostField` changes, Netcode for Entities sends the changes regardless o
 
 ### Limitations with static-optimized ghosts
 
-* Static-optimized ghosts are forced to enable [`UseSingleBaseline`](xref:Unity.NetCode.GhostPrefabCreation.Config.UseSingleBaseline).
+* Static-optimized ghosts are forced to enable [`UseSingleBaseline`](xref:Unity.Netcode.GhostPrefabCreation.Config.UseSingleBaseline).
 * Static optimization isn't supported for ghosts involved in a [ghost group](../ghost-groups.md) (neither the root, nor ghost group children), nor for ghosts containing any replicated child components. In both of these cases, ghosts are treated as __Dynamic__ at runtime.
 * Ghosts that are both static-optimized and interpolated won't run `GhostField` extrapolation (`SmoothingAction.InterpolateAndExtrapolate` is forced into `SmoothingAction.Interpolate`).
 

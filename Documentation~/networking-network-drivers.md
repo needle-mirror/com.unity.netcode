@@ -1,8 +1,8 @@
 # Netcode for Entities multi-driver architecture
 
-Netcode for Entities has a multi-driver architecture, allowing you to use multiple [`NetworkDriver`s](xref:Unity.Networking.Transport.NetworkDriver), stored in the [`NetworkDriverStore`](xref:Unity.NetCode.NetworkDriverStore), at the same time.
+Netcode for Entities has a multi-driver architecture, allowing you to use multiple [`NetworkDriver`s](xref:Unity.Networking.Transport.NetworkDriver), stored in the [`NetworkDriverStore`](xref:Unity.Netcode.NetworkDriverStore), at the same time.
 
-`NetworkDriver` configuration is designed to be customizable and is implemented using a delegate/strategy pattern. Netcode for Entities provides a [default strategy implementation](#default-driver-setup) that can be changed by creating your own custom strategy class that implements the [`INetworkStreamDriverConstructor`](xref:Unity.NetCode.INetworkStreamDriverConstructor) interface.
+`NetworkDriver` configuration is designed to be customizable and is implemented using a delegate/strategy pattern. Netcode for Entities provides a [default strategy implementation](#default-driver-setup) that can be changed by creating your own custom strategy class that implements the [`INetworkStreamDriverConstructor`](xref:Unity.Netcode.INetworkStreamDriverConstructor) interface.
 
 The most common use cases for implementing a custom initialization strategy, or [resetting the `NetworkDriverStore`](#reset-the-networkdriverstore-setup), are usually:
 
@@ -16,7 +16,7 @@ The most common use cases for implementing a custom initialization strategy, or 
 
 ## `NetworkDriverStore`
 
-The [`NetworkDriverStore`](xref:Unity.NetCode.NetworkDriverStore) struct stores `NetworkDriver` instances and, by default, is automatically configured by [`NetworkStreamReceiveSystem`](xref:Unity.NetCode.NetworkStreamReceiveSystem) at world creation time.
+The [`NetworkDriverStore`](xref:Unity.Netcode.NetworkDriverStore) struct stores `NetworkDriver` instances and, by default, is automatically configured by [`NetworkStreamReceiveSystem`](xref:Unity.Netcode.NetworkStreamReceiveSystem) at world creation time.
 
 `NetworkDriverStore` allows up to three drivers to be used, each using a different [`INetworkInterface`](xref:Unity.Networking.Transport.INetworkInterface). While it's possible to listen or connect to different addresses at the same time, the `NetworkDriverStore` interface limits the options to the most common use cases that Netcode for Entities is designed for:
 
@@ -25,7 +25,7 @@ The [`NetworkDriverStore`](xref:Unity.NetCode.NetworkDriverStore) struct stores 
 
 ## Default driver setup
 
-Netcode for Entities provides a default `NetworkDriver` setup, implemented by the [`IPCAndSocketDriverConstructor`](xref:Unity.NetCode.IPCAndSocketDriverConstructor). The driver setup is different for each world type and depends on the [PlayMode Tool](testing/playmode-tool.md) settings.
+Netcode for Entities provides a default `NetworkDriver` setup, implemented by the [`IPCAndSocketDriverConstructor`](xref:Unity.Netcode.IPCAndSocketDriverConstructor). The driver setup is different for each world type and depends on the [PlayMode Tool](testing/playmode-tool.md) settings.
 
 ### Default server configuration
 

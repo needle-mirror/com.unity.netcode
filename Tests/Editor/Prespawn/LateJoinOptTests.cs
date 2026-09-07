@@ -3,14 +3,14 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using UnityEditor;
 using UnityEngine;
-using Unity.NetCode.Tests;
+using Unity.Netcode.Tests;
 using Unity.Networking.Transport;
 using Unity.Transforms;
 
-namespace Unity.NetCode.Tests.PrespawnTests
+namespace Unity.Netcode.Tests.PrespawnTests
 {
     struct ServerOnlyTag : IComponentData
     {

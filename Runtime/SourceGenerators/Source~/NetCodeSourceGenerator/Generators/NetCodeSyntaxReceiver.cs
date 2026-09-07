@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     internal class NetCodeSyntaxReceiver : ISyntaxReceiver
     {

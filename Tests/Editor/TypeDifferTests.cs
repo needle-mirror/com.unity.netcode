@@ -1,7 +1,7 @@
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -71,6 +71,11 @@ namespace Tests.Editor
             public ulong V;
         }
 
+        struct CharHolder
+        {
+            public char C;
+        }
+
         struct WithReferenceField
         {
             public int Value;
@@ -108,6 +113,15 @@ namespace Tests.Editor
             // Only B's high byte changes: with size-accumulated offsets the differ read B at offset
             // 1 instead of 4 and missed its last bytes entirely.
             Assert.IsTrue(RunDiff(new PaddedStruct { A = 1, B = 0 }, new PaddedStruct { A = 1, B = 1 << 24 }), "change in B's high byte not detected");
+        }
+
+        [Test]
+        public void Char_IsDiffedExactly()
+        {
+            // A char has no meaningful distance, so any difference is reported at full strength.
+            Assert.IsFalse(RunDiff(new CharHolder { C = 'a' }, new CharHolder { C = 'a' }));
+            Assert.That(RunDiffAmount(new CharHolder { C = 'a' }, new CharHolder { C = 'b' }),
+                Is.EqualTo(float.PositiveInfinity));
         }
 
         [Test]

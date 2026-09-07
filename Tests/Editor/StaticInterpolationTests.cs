@@ -6,9 +6,10 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     #region Entity setup
     internal class GhostInterpolationConverter : TestNetCodeAuthoring.IConverter

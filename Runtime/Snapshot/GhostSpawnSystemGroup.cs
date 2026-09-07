@@ -1,6 +1,7 @@
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Parent group of all systems that need to process ghost entities after they are spawned.
@@ -11,6 +12,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst=true)]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
     [UpdateBefore(typeof(NetworkReceiveSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class GhostSpawnSystemGroup : ComponentSystemGroup
     {
     }

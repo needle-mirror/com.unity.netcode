@@ -4,9 +4,9 @@ using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Build the ghost baseline for all the pre-spawned ghosts present in the world.

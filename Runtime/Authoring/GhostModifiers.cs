@@ -3,8 +3,9 @@
 // IF YOU CHANGE THIS FILE, REMEMBER TO RECOMPILE THE SOURCE GENERATORS
 
 using System;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Assign to every <see cref="GhostInstance"/>, and denotes which Ghost prefab version this component is allowed to exist on.
@@ -12,6 +13,7 @@ namespace Unity.NetCode
     /// If you cannot change the ComponentType, use the `GhostAuthoringInspectionComponent` to manually override on a specific Ghost prefab.
     /// </summary>
     [Flags]
+    [MovedFrom(true, "Unity.NetCode")]
     public enum GhostPrefabType
     {
         /// <summary>Component will not be added to any Ghost prefab type.</summary>
@@ -54,6 +56,7 @@ namespace Unity.NetCode
     /// Thus, use GhostSendType.Predicted on the Velocity component.
     /// </example>
     [Flags]
+    [MovedFrom(true, "Unity.NetCode")]
     public enum GhostSendType
     {
         /// <summary>The server will never replicate this component to any clients.
@@ -75,6 +78,7 @@ namespace Unity.NetCode
     /// Typically used by <see cref="IInputComponentData"/> structs to replicate each clients inputs ONLY to other players.
     /// </remarks>
     [Flags]
+    [MovedFrom(true, "Unity.NetCode")]
     public enum SendToOwnerType
     {
         /// <summary>Informs the server to not replicate this component to any clients.</summary>
@@ -89,6 +93,7 @@ namespace Unity.NetCode
     }
 
     /// <summary>Denotes how <see cref="GhostFieldAttribute"/> values are deserialized when received from snapshots.</summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum SmoothingAction
     {
         /// <summary>The GhostField value will clamp to the latest snapshot value as it's available.</summary>

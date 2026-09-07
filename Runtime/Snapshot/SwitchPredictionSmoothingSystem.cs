@@ -5,14 +5,16 @@ using Unity.Mathematics;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A struct that is temporarily added to a ghosts entity when it switching between predicted / interpolated mode.
     /// Added by <see cref="GhostPredictionSwitchingSystem"/> while processing the <see cref="GhostPredictionSwitchingQueues"/>.
     /// </summary>
     [WriteGroup(typeof(LocalToWorld))]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SwitchPredictionSmoothing : IComponentData
     {
         /// <summary>
@@ -49,6 +51,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(TransformSystemGroup))]
     [UpdateBefore(typeof(LocalToWorldSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct SwitchPredictionSmoothingSystem : ISystem
     {
         EntityQuery m_SwitchPredictionSmoothingQuery;

@@ -3,7 +3,7 @@ using Unity.Assertions;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A bare pointer typed handle to a <see cref="PredictionBackupRing"/>.

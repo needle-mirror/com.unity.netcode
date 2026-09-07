@@ -13,16 +13,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Burst.Mock\BurstMock.cs">
+    <Compile Include="..\..\..\..\..\..\..\Packages\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Burst.Mock\BurstMock.cs">
       <Link>Mock\Unity.Burst.Mock\BurstMock.cs</Link>
     </Compile>
-    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Collections.Mock\CollectionsMock.cs">
+    <Compile Include="..\..\..\..\..\..\..\Packages\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Collections.Mock\CollectionsMock.cs">
       <Link>Mock\Unity.Collections.Mock\CollectionsMock.cs</Link>
     </Compile>
-    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\EntitiesInternalMock.cs">
+    <Compile Include="..\..\..\..\..\..\..\Packages\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\EntitiesInternalMock.cs">
       <Link>Mock\Unity.Entities.Mock\EntitiesInternalMock.cs</Link>
     </Compile>
-    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\EntitiesMock.cs">
+    <Compile Include="..\..\..\..\..\..\..\Packages\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\EntitiesMock.cs">
       <Link>Mock\Unity.Entities.Mock\EntitiesMock.cs</Link>
     </Compile>
   </ItemGroup>

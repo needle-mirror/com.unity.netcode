@@ -3,7 +3,7 @@ using System;
 using System.Runtime.InteropServices;
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.NetCode.Tests;
+using Unity.Netcode.Tests;
 using UnityEngine;
 using Unity.Mathematics;
 using Unity.Transforms;
@@ -11,6 +11,7 @@ using UnityEngine.TestTools;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
+using Unity.Netcode.NetcodeTime;
 using Unity.Physics;
 using Unity.Physics.Extensions;
 using Unity.Physics.Systems;
@@ -19,7 +20,7 @@ using Collider = Unity.Physics.Collider;
 using RaycastHit = Unity.Physics.RaycastHit;
 using SphereCollider = Unity.Physics.SphereCollider;
 
-namespace Unity.NetCode.Physics.Tests
+namespace Unity.Netcode.Physics.Tests
 {
     internal class LagCompensationTestPlayerConverter : TestNetCodeAuthoring.IConverter
     {
@@ -37,7 +38,7 @@ namespace Unity.NetCode.Physics.Tests
     {
     }
 
-    [NetCodeDisableCommandCodeGen]
+    [NetcodeDisableCommandCodeGen]
     internal struct LagCompensationTestCommand : ICommandData, ICommandDataSerializer<LagCompensationTestCommand>
     {
         public NetworkTick Tick {get; set;}

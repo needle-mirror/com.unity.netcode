@@ -5,7 +5,7 @@
 using NUnit.Framework;
 using Unity.Entities;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class PacketDumpTests
     {

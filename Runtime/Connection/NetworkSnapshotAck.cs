@@ -4,11 +4,13 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -18,6 +20,7 @@ namespace Unity.NetCode
     {}
 
     /// <summary>Client and Server Component. One per NetworkId entity, stores SnapshotAck and Ping info for a client.</summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkSnapshotAck : IComponentData
     {
         internal void UpdateReceivedByRemote(NetworkTick tick, uint mask, out int numSnapshotErrorsRequiringReset)

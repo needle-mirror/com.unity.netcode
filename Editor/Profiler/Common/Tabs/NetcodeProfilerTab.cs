@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using Unity.NetCode.Editor.Analytics;
+using Unity.Netcode.Editor.Analytics;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// The base class for Netcode profiler tabs.

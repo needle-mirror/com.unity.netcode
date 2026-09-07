@@ -5,7 +5,7 @@ using Unity.Collections;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests.NetDebugTests
+namespace Unity.Netcode.Tests.NetDebugTests
 {
     struct Message
     {
@@ -47,7 +47,7 @@ namespace Unity.NetCode.Tests.NetDebugTests
         public void Bytes4096()
         {
             using var logListener = new LogListener();
-            var netDebug = new Unity.NetCode.NetDebug();
+            var netDebug = new Unity.Netcode.NetDebug();
             netDebug.Initialize();
             Assert.DoesNotThrow(() => netDebug.LogError(new FixedString4096Bytes("TestMessage")));
             Assert.That(logListener.Results.Count, Is.EqualTo(1));
@@ -61,7 +61,7 @@ namespace Unity.NetCode.Tests.NetDebugTests
         public void Bytes512()
         {
             using var logListener = new LogListener();
-            var netDebug = new Unity.NetCode.NetDebug();
+            var netDebug = new Unity.Netcode.NetDebug();
             netDebug.Initialize();
             Assert.DoesNotThrow(() => netDebug.LogError(new FixedString512Bytes("TestMessage")));
             Assert.That(logListener.Results.Count, Is.EqualTo(1));

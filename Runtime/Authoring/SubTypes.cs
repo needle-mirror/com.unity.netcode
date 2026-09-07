@@ -1,4 +1,5 @@
-namespace Unity.NetCode
+using UnityEngine.Scripting.APIUpdating;
+namespace Unity.Netcode
 {
     /// <summary>
     /// Hold a list of constant int that can be used across the project to specify
@@ -25,6 +26,7 @@ namespace Unity.NetCode
     /// by restarting the IDE, but Rider or VSCode does not work the same way. By using the Assembly Definition Reference, we
     /// are actually doing in principle the same job and completion works, making the user experience a little more pleasant.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public static partial class GhostFieldSubType
     {
         /// <summary>

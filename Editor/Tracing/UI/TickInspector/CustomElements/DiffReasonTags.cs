@@ -1,8 +1,8 @@
 using System.Collections.Generic;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
+namespace Unity.Netcode.Editor.Tracing.UI.TickInspector
 {
     // A row of diff-reason tag: red while the reason's tag is selected in the filters and grey while deselected.
     class DiffReasonTags : VisualElement

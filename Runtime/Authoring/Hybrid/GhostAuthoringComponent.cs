@@ -3,8 +3,9 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Entities.Hybrid.Baking;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>
@@ -23,6 +24,7 @@ namespace Unity.NetCode
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.GhostAuthoringComponent)]
     [AddComponentMenu("Multiplayer/Ghost Authoring Component", 1)]
+    [MovedFrom(true, "Unity.NetCode")]
     public class GhostAuthoringComponent: BaseGhostSettings
     {
         /// <summary>

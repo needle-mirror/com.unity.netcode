@@ -2,10 +2,10 @@ using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.StateSave;
 using UnityEngine.Assertions;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     internal struct StateID : IEquatable<StateID>
     {

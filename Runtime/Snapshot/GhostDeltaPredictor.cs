@@ -1,6 +1,7 @@
 using Unity.Mathematics;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>
@@ -12,6 +13,7 @@ namespace Unity.NetCode
     /// I.e. Small deltas have good compression ratios.
     /// </para>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostDeltaPredictor
     {
         private int predictFrac;

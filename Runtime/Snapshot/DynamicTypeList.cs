@@ -5,7 +5,7 @@ using Unity.Collections;
 using System.Runtime.InteropServices;
 using Unity.Assertions;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// This struct stores all component types we're reading from and writing to, in netcode serialization jobs.

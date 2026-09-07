@@ -6,13 +6,15 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Burst;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct WarnAboutStaleRpcSystem : ISystem
     {
         [BurstCompile]
@@ -30,7 +32,7 @@ namespace Unity.NetCode
                 if (!command.IsConsumed && ++command.Age >= netDebug.MaxRpcAgeFrames)
                 {
                     // TODO - Add RPC name once they become available in jobs.
-                    var warning = (FixedString512Bytes) $"[{worldName}] NetCode RPC {entity.ToFixedString()} has not been consumed or destroyed for '{command.Age}' (MaxRpcAgeFrames) frames! Assumed unhandled. Either a) call .Consume(), or b) remove the ReceiveRpcCommandRequestComponent component, or c) destroy the entity.";
+                    var warning = (FixedString512Bytes) $"[{worldName}] Netcode RPC {entity.ToFixedString()} has not been consumed or destroyed for '{command.Age}' (MaxRpcAgeFrames) frames! Assumed unhandled. Either a) call .Consume(), or b) remove the ReceiveRpcCommandRequestComponent component, or c) destroy the entity.";
                     netDebug.LogWarning(warning);
 
                     command.Consume();

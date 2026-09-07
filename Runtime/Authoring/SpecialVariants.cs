@@ -1,10 +1,12 @@
-namespace Unity.NetCode
+using UnityEngine.Scripting.APIUpdating;
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>Special universal component variant that can be assigned to any component and/or buffer when configuring
     /// the GhostComponentSerializerCollectionSystemGroup. Mostly used for stripping components from the server-side ghost prefabs.</para>
     /// <para>To use this for your own types: Set it as the default in your own <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/> method.</para>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed class ClientOnlyVariant
     {
     }
@@ -13,6 +15,7 @@ namespace Unity.NetCode
     /// the GhostComponentSerializerCollectionSystemGroup. Mostly used for stripping components from the client-side ghost prefabs.</para>
     /// <para>To use this for your own types: Set it as the default in your own <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/> method.</para>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed class ServerOnlyVariant
     {
     }
@@ -23,6 +26,7 @@ namespace Unity.NetCode
     /// the prefab, but at runtime it is <b>not</b> serialized (and thus <b>not</b> sent to the clients).
     /// </summary>
     /// <remarks>`DontSerializeVariant` is the default variant for all child entities, and is available for all serialized types automatically.</remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed class DontSerializeVariant
     {
     }

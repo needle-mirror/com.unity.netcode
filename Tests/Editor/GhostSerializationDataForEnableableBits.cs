@@ -5,7 +5,7 @@ using UnityEngine;
 // ReSharper disable InconsistentNaming
 // ReSharper disable ParameterHidesMember
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostTypeConverter : TestNetCodeAuthoring.IConverter
     {

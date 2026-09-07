@@ -2,11 +2,11 @@ using System;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Transforms;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostPrefabCreationTests
     {

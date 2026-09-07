@@ -12,15 +12,18 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.NetCode.EntitiesInternalAccess;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Struct used to uniquely identify a ghost given its id and spawning time.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SpawnedGhost : IEquatable<SpawnedGhost>
     {
         /// <summary>
@@ -83,6 +86,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Inter-op struct used to pass arguments to the ghost component serializers (see <see cref="GhostComponentSerializer"/>).
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostDeserializerState
     {
         /// <summary>
@@ -94,7 +98,7 @@ namespace Unity.NetCode
         /// </summary>
         public NetworkTick SnapshotTick;
         /// <summary>
-        /// The NetworkId of the client owning the ghost (if the ghost has an <see cref="NetCode.GhostOwner"/>)
+        /// The NetworkId of the client owning the ghost (if the ghost has an <see cref="Unity.Netcode.GhostOwner"/>)
         /// </summary>
         public int GhostOwner;
         /// <summary>
@@ -134,6 +138,7 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(GhostCollectionSystem))]
     [UpdateAfter(typeof(NetDebugSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe partial struct GhostReceiveSystem : ISystem
     {
         EntityQuery m_ConnectionsQuery;

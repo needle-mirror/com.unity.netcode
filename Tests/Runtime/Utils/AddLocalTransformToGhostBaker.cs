@@ -2,7 +2,7 @@
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     /// <summary>Ensures that the baked ghost prespawn has a LocalTransform component.</summary>
     internal class AddLocalTransformToGhostBaker : MonoBehaviour

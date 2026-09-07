@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Unity.Collections;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     internal struct FrameID : IEquatable<FrameID>, IComparer<FrameID>
     {

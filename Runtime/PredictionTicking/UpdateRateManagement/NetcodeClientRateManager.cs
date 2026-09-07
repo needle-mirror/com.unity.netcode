@@ -1,9 +1,10 @@
 using Unity.Core;
 using Unity.Entities;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Store the previous tick and fraction. Used by client to calculated the network elapsed deltatime
@@ -56,7 +57,7 @@ namespace Unity.NetCode
             if (m_DidPushTime)
             {
                 if (ClientServerBootstrap.ServerWorld != null)
-                    Netcode.Instance.m_ActiveWorld = (NetcodeWorld)ClientServerBootstrap.ServerWorld;
+                    Netcode.Instance.m_ActiveWorld = ClientServerBootstrap.ServerWorld;
                 group.World.PopTime();
                 m_DidPushTime = false;
                 return false;

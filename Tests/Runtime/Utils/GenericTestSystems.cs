@@ -1,6 +1,7 @@
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [DisableAutoCreation]
     internal abstract partial class BaseCallbackSystem : SystemBase

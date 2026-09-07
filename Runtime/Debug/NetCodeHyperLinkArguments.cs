@@ -1,6 +1,6 @@
 using Unity.Collections;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     internal class NetCodeHyperLinkArguments
     {

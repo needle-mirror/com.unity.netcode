@@ -3,7 +3,7 @@ using NUnit.Framework;
 using Unity.Entities;
 using Unity.Networking.Transport;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]

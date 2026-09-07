@@ -1,8 +1,8 @@
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEditor;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
+namespace Unity.Netcode.Editor.Tracing.UI.TickInspector
 {
     /// <summary>
     /// A heterogeneous tree row: <see cref="SetNode"/> drives the icon, label and action buttons from the
@@ -71,7 +71,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
 
         void OnPlayModeStateChanged(PlayModeStateChange _) => RefreshButtonStates();
 
-        public void SetNode(TickInspectorNode node)
+        public void SetNode(TickInspectorNode node, bool collapsed = false)
         {
             m_Node = node;
             ApplyVariantForType(node.NodeType);
@@ -86,7 +86,9 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
             ShowRow();
             SetText(node.DisplayName);
             m_Root.EnableInClassList(TickInspectorUssClasses.TreeViewItemHasDiff, node.HasDiff);
-            m_DiffTagContainer.SetReasons(node.DiffReasonFlags, node.SelectedDiffReasons);
+            var reasonFlags = collapsed ? node.InclusiveDiffReasonFlags : node.DiffReasonFlags;
+
+            m_DiffTagContainer.SetReasons(reasonFlags, node.SelectedDiffReasons);
             RefreshButtonStates();
         }
 

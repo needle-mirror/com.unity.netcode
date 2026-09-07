@@ -3,10 +3,11 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Burst;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
 using Unity.Networking.Transport.Utilities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode.NetcodeTime
 {
 #if UNITY_EDITOR || NETCODE_DEBUG
     internal struct NetworkTimeSystemStats : IComponentData
@@ -58,6 +59,7 @@ namespace Unity.NetCode
     /// The component should be used for pure inspection or backup the data.
     /// Please don't change the the state values direclty.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkTimeSystemData : IComponentData
     {
         /// <summary>
@@ -191,6 +193,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(InitializationSystemGroup))]
     [UpdateAfter(typeof(UpdateWorldTimeSystem))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct NetworkTimeSystem : ISystem, ISystemStartStop
     {
         /// <summary>

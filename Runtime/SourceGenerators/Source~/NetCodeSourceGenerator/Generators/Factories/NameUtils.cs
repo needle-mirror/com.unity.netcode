@@ -1,6 +1,6 @@
 using Microsoft.CodeAnalysis;
 
-namespace Unity.NetCode.Generators;
+namespace Unity.Netcode.Generators;
 
 internal class NameUtils
 {

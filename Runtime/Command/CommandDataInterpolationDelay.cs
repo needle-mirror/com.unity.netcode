@@ -1,6 +1,7 @@
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>Optional component used to access the interpolation delay in order to implement lag compensation on the server.
@@ -17,6 +18,7 @@ namespace Unity.NetCode
     /// As such, the component is updated only for entities that are predicted, and that have at least one input command buffer.
     /// </remarks>
     [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct CommandDataInterpolationDelay : IComponentData
     {
         /// <summary>

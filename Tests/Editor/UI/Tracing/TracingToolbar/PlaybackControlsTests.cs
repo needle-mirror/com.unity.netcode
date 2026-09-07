@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Collections;
-using Unity.NetCode.Editor.Tracing.UI.TracingToolbar;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Editor.Tracing.UI.TracingToolbar;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 using UnityEngine.UIElements.TestFramework;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Tests
+namespace Unity.Netcode.Editor.Tracing.UI.Tests
 {
     [TestFixture]
     class PlaybackControlsTests : UITestFixture

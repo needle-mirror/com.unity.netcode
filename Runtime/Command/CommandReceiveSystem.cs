@@ -10,8 +10,10 @@ using Unity.Burst;
 using Unity.Burst.CompilerServices;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Group that contains all systems that receives commands. Only present in server world.
@@ -19,6 +21,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation, WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateAfter(typeof(NetworkStreamReceiveSystem))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class CommandReceiveSystemGroup : ComponentSystemGroup
     {
     }
@@ -70,6 +73,7 @@ namespace Unity.NetCode
     /// </summary>
     /// <typeparam name="TCommandDataSerializer">Unmanaged CommandDataSerializer of type ICommandDataSerializer.</typeparam>
     /// <typeparam name="TCommandData">Unmanaged CommandData of type ICommandData.</typeparam>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct CommandReceiveSystem<TCommandDataSerializer, TCommandData>
         where TCommandData : unmanaged, ICommandData
         where TCommandDataSerializer : unmanaged, ICommandDataSerializer<TCommandData>

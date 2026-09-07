@@ -3,11 +3,11 @@ using System.Threading.Tasks;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine.UIElements;
-using Unity.NetCode.Editor.Tracing.UI.TracingToolbar;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Editor.Tracing.UI.TracingToolbar;
+using Unity.Netcode.Tracing;
 
 
-namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
+namespace Unity.Netcode.Editor.Tracing.UI.TickInspector
 {
     /// <summary>
     /// The visual container for everything related to tick inspection.

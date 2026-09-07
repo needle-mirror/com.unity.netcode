@@ -3,7 +3,7 @@ using Unity.Mathematics;
 using Unity.Physics;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Component used to enable predicted physics automatic world changing(<see cref="PredictedPhysicsNonGhostWorld"/>) and lag compensation (<see cref="EnableLagCompensation"/>) and
@@ -14,7 +14,7 @@ namespace Unity.NetCode
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.NetCodePhysicsConfig)]
     [AddComponentMenu("Multiplayer/NetCode Physics Config", 4)]
-    public sealed class NetCodePhysicsConfig : MonoBehaviour
+    public sealed class NetcodePhysicsConfig : MonoBehaviour
     {
         /// <summary>
         /// Configure how the PhysicsSystemGroup should update inside the <see cref="PredictedFixedStepSimulationSystemGroup"/>.
@@ -57,9 +57,9 @@ namespace Unity.NetCode
         public bool DeepCopyStaticColliders;
     }
 
-    class NetCodePhysicsConfigBaker : Baker<NetCodePhysicsConfig>
+    class NetCodePhysicsConfigBaker : Baker<NetcodePhysicsConfig>
     {
-        public override void Bake(NetCodePhysicsConfig authoring)
+        public override void Bake(NetcodePhysicsConfig authoring)
         {
             var entity = GetEntity(TransformUsageFlags.Dynamic);
             if (authoring.EnableLagCompensation)

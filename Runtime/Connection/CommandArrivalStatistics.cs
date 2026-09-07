@@ -1,12 +1,14 @@
 using Unity.Collections;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Stores statistics pertaining to the frequency and reliability of received commands from a client.
     /// Thus, only valid on the server.
     /// May help you diagnose input/command issues.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct CommandArrivalStatistics
     {
         // TODO - Add support for num commands EXPECTED to arrive, thus allowing users to see command losses.

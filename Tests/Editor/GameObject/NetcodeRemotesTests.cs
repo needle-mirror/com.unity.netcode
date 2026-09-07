@@ -4,14 +4,14 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.Tests;
+using Unity.Netcode.Tests;
 using Unity.Networking.Transport;
 using UnityEngine;
 using UnityEngine.TestTools;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct TestRemoteInterface : IRemote
     {

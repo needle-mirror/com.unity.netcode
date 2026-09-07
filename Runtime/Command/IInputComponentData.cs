@@ -2,9 +2,10 @@ using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A special component data interface used for storing player inputs.
@@ -15,6 +16,7 @@ namespace Unity.NetCode
     /// like command data and will be stored in a buffer synchronized between client and
     /// server. This is compatible with netcode features like prediction.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public interface IInputComponentData : IComponentData
     {
         /// <inheritdoc cref="ICommandData.ToFixedString"/>
@@ -28,6 +30,7 @@ namespace Unity.NetCode
     /// <remarks> When this type is used it's ensured that single input events like jumping or
     /// triggers will be properly detected exactly once by the server.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct InputEvent
     {
         /// <summary>
@@ -66,7 +69,8 @@ namespace Unity.NetCode
     /// style inputs. This is used internally by code generation, don't use this directly.
     /// </summary>
     [Obsolete("The IInputBufferData interface has been deprecated. It was meant for internal use and any reference to it is considered an error. " +
-              "Please always use ICommandData instead.", false)]
+              "Please always use ICommandData instead.", true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public interface IInputBufferData : ICommandData
     {
         /// <summary>
@@ -91,7 +95,7 @@ namespace Unity.NetCode
      /// </summary>
      /// <typeparam name="TInputBufferData">input buffer data</typeparam>
      /// <typeparam name="TInputComponentData">Input component data</typeparam>
-     [Obsolete("CopyInputToCommandBuffer has been deprecated. There is no replacement, being the method meant to be used only by code-generated systems.", false)]
+     [Obsolete("CopyInputToCommandBuffer has been deprecated. There is no replacement, being the method meant to be used only by code-generated systems.", true)]
      public partial struct CopyInputToCommandBuffer<TInputBufferData, TInputComponentData>
          where TInputBufferData : unmanaged, IInputBufferData
          where TInputComponentData : unmanaged, IInputComponentData
@@ -99,7 +103,7 @@ namespace Unity.NetCode
          /// <summary>
          /// For internal use only, simplify the creation of system jobs that copies <see cref="IInputComponentData"/> data to the underlying <see cref="ICommandData"/> buffer.
          /// </summary>
-         [Obsolete("CopyInputToBufferJob has been deprecated.", false)]
+         [Obsolete("CopyInputToBufferJob has been deprecated.", true)]
          public struct CopyInputToBufferJob
          {
              /// <summary>
@@ -147,7 +151,7 @@ namespace Unity.NetCode
      /// </summary>
      /// <typeparam name="TInputBufferData">Input buffer data</typeparam>
      /// <typeparam name="TInputComponentData">Input component data</typeparam>
-     [Obsolete("ApplyCurrentInputBufferElementToInputData has been deprecated. There is no replacement, being the method meant to be used only by code-generated systems.", false)]
+     [Obsolete("ApplyCurrentInputBufferElementToInputData has been deprecated. There is no replacement, being the method meant to be used only by code-generated systems.", true)]
      public partial struct ApplyCurrentInputBufferElementToInputData<TInputBufferData, TInputComponentData>
          where TInputBufferData : unmanaged, IInputBufferData
          where TInputComponentData : unmanaged, IInputComponentData
@@ -156,7 +160,7 @@ namespace Unity.NetCode
          /// Helper struct that should be used to implement jobs that copies commands from an <see cref="ICommandData"/> buffer
          /// to the respective <see cref="IInputComponentData"/>.
          /// </summary>
-         [Obsolete("ApplyInputDataFromBufferJob has been deprecated.", false)]
+         [Obsolete("ApplyInputDataFromBufferJob has been deprecated.", true)]
          public struct ApplyInputDataFromBufferJob
          {
              /// <summary>
@@ -193,6 +197,7 @@ namespace Unity.NetCode
     [DontSupportPrefabOverrides]
     [GhostComponent(SendDataForChildEntity = true)]
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct InputBufferData<T> : ICommandData where T: unmanaged, IInputComponentData
     {
         /// <summary>
@@ -225,6 +230,7 @@ namespace Unity.NetCode
     /// <see cref="IInputComponentData"/> events when copy to/from the underlying <see cref="InputBufferData{T}"/>
     /// </summary>
     /// <typeparam name="T">Input component type</typeparam>
+    [MovedFrom(true, "Unity.NetCode")]
     public interface IInputEventHelper<T> where T: unmanaged, IInputComponentData
     {
         /// <summary>

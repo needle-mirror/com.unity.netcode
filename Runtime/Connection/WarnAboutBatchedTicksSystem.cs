@@ -6,12 +6,15 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Burst;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct WarnAboutBatchedTicksSystem : ISystem
     {
         private float m_RollingAverage;

@@ -1,4 +1,4 @@
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Context object passed to info text providers for evaluating conditions.

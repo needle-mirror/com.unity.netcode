@@ -2,7 +2,7 @@ using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Transforms;
 
 namespace DocumentationCodeSamples
@@ -115,7 +115,7 @@ namespace DocumentationCodeSamples
         #endregion
 
         #region ManualSerialization
-        [NetCodeDisableCommandCodeGen]
+        [NetcodeDisableCommandCodeGen]
         public struct MyCommand : ICommandData, ICommandDataSerializer<MyCommand>
         {
             public NetworkTick Tick { get; set; }

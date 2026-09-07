@@ -2,9 +2,9 @@ using Microsoft.CodeAnalysis;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-using Unity.NetCode.Roslyn;
+using Unity.Netcode.Roslyn;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     // The RemotesSerializer instances are created by CodeGenerator. The class itself is not threadsafe,
     // but since every SourceGenerator has its own Context it is safe use.
@@ -50,7 +50,7 @@ namespace Unity.NetCode.Generators
             if ( typeInfo.IsAutoInvokeRemote )
             {
                 replacements["REMOTES_HANDLER_ID"] = ComputeRemoteHash( context ).ToString();
-                replacements["REMOTES_AUTO_INVOKE_HANDLE_ARGS"] = typeInfo.IsGhostBehaviourMethod ? "em.World" : "";
+                replacements["REMOTES_AUTO_INVOKE_HANDLE_ARGS"] = typeInfo.IsGhostBehaviourMethod ? "(NetcodeWorld)em.World" : "";
                 m_CommandGenerator.GenerateFragment("REMOTES_AUTO_INVOKE", replacements);
             }
 
@@ -120,12 +120,12 @@ namespace Unity.NetCode.Generators
 
                 // TODO: there is more we can do here, we never need to generate the system to process this remote on the server/client if its not needed
                 // this is not an optimization it will also make sure no one can call the function remotely by packet messing since the system to process it simply won't exist
-                var remotesAttribute = Roslyn.Extensions.GetAttribute(typeInfo.MethodSymbol, "Unity.NetCode", "RemoteAttribute");
+                var remotesAttribute = Roslyn.Extensions.GetAttribute(typeInfo.MethodSymbol, "Unity.Netcode", "RemoteAttribute");
                 if ( remotesAttribute != null )
                 {
                     foreach ( var ca in remotesAttribute.ConstructorArguments )
                     {
-                        if (Roslyn.Extensions.GetFullTypeName(ca.Type) == "Unity.NetCode.Directionality")
+                        if (Roslyn.Extensions.GetFullTypeName(ca.Type) == "Unity.Netcode.Directionality")
                         {
                             switch (ca.Value)
                             {
@@ -209,7 +209,7 @@ namespace Unity.NetCode.Generators
 
         public static string GetGhostBehaviourFullTypeName()
         {
-            return "Unity.NetCode.GhostBehaviour";
+            return "Unity.Netcode.GhostBehaviour";
         }
     }
 }

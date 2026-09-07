@@ -1,6 +1,7 @@
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Prediction group's rate manager. Since the parent simulation group is in charge of tick rate, this is mostly a passthrough in charge of setting the right flags on networkTime

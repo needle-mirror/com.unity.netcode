@@ -9,9 +9,9 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using Hash128 = Unity.Entities.Hash128;
 
-namespace Unity.NetCode.Hybrid
+namespace Unity.Netcode.Hybrid
 {
-    public enum NetCodeClientTarget
+    public enum NetcodeClientTarget
     {
         [Tooltip("Build a client-only player.")]
         Client = 0,
@@ -25,7 +25,7 @@ namespace Unity.NetCode.Hybrid
     /// scene using this setting.
     /// </summary>
     [FilePath("ProjectSettings/NetCodeClientSettings.asset", FilePathAttribute.Location.ProjectFolder)]
-    public class NetCodeClientSettings : ScriptableSingleton<NetCodeClientSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
+    public class NetcodeClientSettings : ScriptableSingleton<NetcodeClientSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
     {
         NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.Client;
 
@@ -36,7 +36,7 @@ namespace Unity.NetCode.Hybrid
         private string[] AdditionalScriptingDefines = Array.Empty<string>();
 
         [SerializeField]
-        public NetCodeClientTarget ClientTarget = NetCodeClientTarget.ClientAndServer;
+        public NetcodeClientTarget ClientTarget = NetcodeClientTarget.ClientAndServer;
 
         static Entities.Hash128 s_Guid;
         /// <inheritdoc/>
@@ -138,8 +138,8 @@ namespace Unity.NetCode.Hybrid
 
         protected override void DoReloadAsset()
         {
-            ReloadAsset(NetCodeClientSettings.instance);
-            ReloadAsset(NetCodeClientAndServerSettings.instance);
+            ReloadAsset(NetcodeClientSettings.instance);
+            ReloadAsset(NetcodeClientAndServerSettings.instance);
         }
 
         public override void OnActivate(DotsGlobalSettings.PlayerType type, VisualElement rootElement)
@@ -160,16 +160,16 @@ namespace Unity.NetCode.Hybrid
         {
             // The ScriptableSingleton<T> is not directly editable by default.
             // Change the hideFlags to make the SerializedObject editable.
-            NetCodeClientSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
-            NetCodeClientAndServerSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
+            NetcodeClientSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
+            NetcodeClientAndServerSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
         }
 
         static void OnDetachFromPanel(DetachFromPanelEvent evt)
         {
-            NetCodeClientSettings.instance.hideFlags = HideFlags.HideAndDontSave;
-            NetCodeClientAndServerSettings.instance.hideFlags = HideFlags.HideAndDontSave;
-            NetCodeClientSettings.instance.Save();
-            NetCodeClientAndServerSettings.instance.Save();
+            NetcodeClientSettings.instance.hideFlags = HideFlags.HideAndDontSave;
+            NetcodeClientAndServerSettings.instance.hideFlags = HideFlags.HideAndDontSave;
+            NetcodeClientSettings.instance.Save();
+            NetcodeClientAndServerSettings.instance.Save();
         }
 
         VisualElement UpdateUI()
@@ -189,7 +189,7 @@ namespace Unity.NetCode.Hybrid
             targetS.AddToClassList("target-Settings");
 
             // PropertyField didn't seem to work here.
-            var field = new EnumField("NetCode Client Target", NetCodeClientSettings.instance.ClientTarget);
+            var field = new EnumField("NetCode Client Target", NetcodeClientSettings.instance.ClientTarget);
             field.tooltip = "Denotes whether or not Server data and logic is included in a client build (when making a client build). Doing so allows the client executable to self-host (i.e. \"Client Host\") a multiplayer game.";
             targetS.Add(field);
 
@@ -199,7 +199,7 @@ namespace Unity.NetCode.Hybrid
             propField.RegisterCallback<ChangeEvent<string>>(
                 evt =>
                 {
-                    NetCodeClientSettings.instance.GetFilterSettings()?.SetDirty();
+                    NetcodeClientSettings.instance.GetFilterSettings()?.SetDirty();
                 });
             targetS.Add(propField);
 
@@ -211,15 +211,15 @@ namespace Unity.NetCode.Hybrid
             field.RegisterCallback<ChangeEvent<Enum>>(evt =>
             {
                 m_rootElement.Remove(targetElement);
-                var oldFlags = NetCodeClientSettings.instance.hideFlags;
-                var serializedObject = new SerializedObject(NetCodeClientSettings.instance);
+                var oldFlags = NetcodeClientSettings.instance.hideFlags;
+                var serializedObject = new SerializedObject(NetcodeClientSettings.instance);
                 var serializedProperty = serializedObject.FindProperty("ClientTarget");
-                serializedProperty.enumValueIndex = (int)(NetCodeClientTarget)evt.newValue;
+                serializedProperty.enumValueIndex = (int)(NetcodeClientTarget)evt.newValue;
                 var hideFlags = serializedObject.FindProperty("m_ObjectHideFlags");
                 hideFlags.intValue = (int)HideFlags.HideAndDontSave;
                 if (serializedObject.ApplyModifiedProperties())
-                    NetCodeClientSettings.instance.Save();
-                NetCodeClientSettings.instance.hideFlags = oldFlags;
+                    NetcodeClientSettings.instance.Save();
+                NetcodeClientSettings.instance.hideFlags = oldFlags;
                 var newTargetElement = UpdateUI();
                 m_rootElement.Add(newTargetElement);
             });
@@ -232,16 +232,16 @@ namespace Unity.NetCode.Hybrid
         public override string[] GetExtraScriptingDefines()
         {
             List<string> extraDefines = new List<string>(GetSettingAsset().GetAdditionalScriptingDefines());
-            var netCodeClientTarget = NetCodeClientSettings.instance.ClientTarget;
+            var netCodeClientTarget = NetcodeClientSettings.instance.ClientTarget;
 #if !NETCODE_NDEBUG
             if (EditorUserBuildSettings.development)
                 extraDefines.Add("NETCODE_DEBUG");
 #endif
             switch (netCodeClientTarget)
             {
-                case NetCodeClientTarget.ClientAndServer:
+                case NetcodeClientTarget.ClientAndServer:
                     return extraDefines.ToArray();
-                case NetCodeClientTarget.Client:
+                case NetcodeClientTarget.Client:
                     extraDefines.Add("UNITY_CLIENT");
                     return extraDefines.ToArray();
                 default:
@@ -251,11 +251,11 @@ namespace Unity.NetCode.Hybrid
 
         protected override IEntitiesPlayerSettings DoGetSettingAsset()
         {
-            var netCodeClientSettings = NetCodeClientSettings.instance;
-            if (netCodeClientSettings.ClientTarget == NetCodeClientTarget.Client)
+            var netCodeClientSettings = NetcodeClientSettings.instance;
+            if (netCodeClientSettings.ClientTarget == NetcodeClientTarget.Client)
                 return netCodeClientSettings;
             else
-                return NetCodeClientAndServerSettings.instance;
+                return NetcodeClientAndServerSettings.instance;
         }
     }
 }

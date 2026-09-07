@@ -12,7 +12,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GameObjectGhostFieldTests
     {
@@ -389,7 +389,7 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(321, clientHelper.SomeBridgedVar.Value.value, "field should have been rolled back");
 
             var interpolatedPrefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("interpolated ghost", autoRegister: false);
-            interpolatedPrefab.Ghost.DefaultGhostMode = GhostMode.Interpolated;
+            interpolatedPrefab.GetComponent<GhostObject>().DefaultGhostMode = GhostMode.Interpolated;
             Netcode.RegisterPrefab(interpolatedPrefab.gameObject);
             var serverInterp = GameObject.Instantiate(interpolatedPrefab);
             serverInterp.SomeGhostField.Value = 888;

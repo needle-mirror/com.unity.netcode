@@ -5,14 +5,14 @@
 
 using System.Collections;
 using NUnit.Framework;
-using Unity.NetCode.Editor;
+using Unity.Netcode.Editor;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     /// <summary>
     /// Test helper that exposes NetcodeProfilerTab's protected members for testing

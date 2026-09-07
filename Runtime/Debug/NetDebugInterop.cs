@@ -10,7 +10,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.LowLevel.Unsafe
+namespace Unity.Netcode.LowLevel.Unsafe
 {
     [GenerateBurstMonoInterop("NetDebugInterop")]
     [BurstCompile]

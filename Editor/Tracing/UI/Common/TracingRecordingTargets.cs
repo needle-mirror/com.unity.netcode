@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using Unity.Entities;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     /// <summary>
     /// Snapshot of the tracing targets the current recording was started with. Selection changes apply to
@@ -13,14 +13,14 @@ namespace Unity.NetCode.Editor.Tracing.UI
     {
         static readonly HashSet<string> s_Systems = new();
         static readonly HashSet<string> s_Components = new();
-        
+
         public static bool IsCaptured { get; private set; }
 
         // Raised when the snapshot is captured or reset, so indicators can re-evaluate.
         public static event Action Changed;
-        
+
         public static IReadOnlyCollection<string> RecordedSystems => s_Systems;
-        
+
         public static IReadOnlyCollection<string> RecordedComponents => s_Components;
 
         // Snapshots the current config as the target set of the recording that is starting.
@@ -35,7 +35,7 @@ namespace Unity.NetCode.Editor.Tracing.UI
                 Changed?.Invoke();
                 return;
             }
-            
+
             foreach (var sysIndex in config.SystemTypesToTrace)
                 s_Systems.Add(TracingTargetNames.System(sysIndex));
             foreach (var ct in config.RequiredTypesToTrace)
@@ -72,10 +72,10 @@ namespace Unity.NetCode.Editor.Tracing.UI
             IsCaptured = false;
             Changed?.Invoke();
         }
-        
+
         public static bool IsUntracedTarget(string name, bool isSystem)
             => IsCaptured && !(isSystem ? s_Systems : s_Components).Contains(name);
-        
+
         public static bool SelectionDiffersFromRecording()
         {
             if (!IsCaptured)

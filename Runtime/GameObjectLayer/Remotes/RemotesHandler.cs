@@ -5,7 +5,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation,
      WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
@@ -56,10 +56,10 @@ namespace Unity.NetCode
 #endif // NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
     class RemoteHandler
     {
-        // When you call invoke with no arguments we send to all 
-        private List<World> GetAllClientAndServerWorlds()
+        // When you call invoke with no arguments we send to all
+        private List<NetcodeWorld> GetAllClientAndServerWorlds()
         {
-            List<World> worlds = new List<World>(ClientServerBootstrap.ServerWorlds);
+            List<NetcodeWorld> worlds = new List<NetcodeWorld>(ClientServerBootstrap.ServerWorlds);
 
             foreach (var w in ClientServerBootstrap.ClientWorlds)
             {
@@ -72,22 +72,22 @@ namespace Unity.NetCode
             return worlds;
         }
 
-        private List<Connection> GetWorldTargetConnections( World world, Directionality direction)
+        private List<Connection> GetWorldTargetConnections( NetcodeWorld world, Directionality direction)
         {
             List<Connection> connections = new List<Connection>();
 
             if (world.IsServer() && (direction == Directionality.ServerToClient || direction == Directionality.Undefined))
             {
-                connections.AddRange(((NetcodeWorld)world).AllConnections);
+                connections.AddRange(world.AllConnections);
                 if (world.IsHost())
                 {
-                    connections.Add(((NetcodeWorld)world).LocalConnection);
+                    connections.Add(world.LocalConnection);
                 }
             }
 
             if (world.IsClient() && (direction == Directionality.ClientToServer || direction == Directionality.Undefined))
             {
-                connections.Add(((NetcodeWorld)world).LocalConnection);
+                connections.Add(world.LocalConnection);
             }
 
             return connections;
@@ -107,7 +107,7 @@ namespace Unity.NetCode
         /// <param name="remote">The remote to send</param>
         /// <param name="target">The world to send the remote on all of that worlds connections</param>
         /// <param name="direction">The direction the remote is intended to be sent</param>
-        public void Invoke<T>(T remote, World target, Directionality direction) where T : unmanaged, IRemote
+        public void Invoke<T>(T remote, NetcodeWorld target, Directionality direction) where T : unmanaged, IRemote
         {
             Invoke<T>(remote, GetWorldTargetConnections(target, direction));
         }
@@ -119,7 +119,7 @@ namespace Unity.NetCode
         /// <param name="remote">The remote to send</param>
         /// <param name="target">The worlds to send the remote on all of that worlds connections</param>
         /// /// <param name="direction">The direction the remote is intended to be sent</param>
-        public void Invoke<T>(T remote, List<World> targets, Directionality direction) where T : unmanaged, IRemote
+        public void Invoke<T>(T remote, List<NetcodeWorld> targets, Directionality direction) where T : unmanaged, IRemote
         {
             foreach (var t in targets)
             {
@@ -180,7 +180,7 @@ namespace Unity.NetCode
         /// <typeparam name="T">The type of the Remote to Query.</typeparam>
         /// <param name="worlds">The list of worlds to query for received remotes</param>
         /// <param name="remotes">A list of all the received remotes.</param>
-        public void Query<T>(List<World> worlds, List<T> remotes) where T : unmanaged, IRemote
+        public void Query<T>(List<NetcodeWorld> worlds, List<T> remotes) where T : unmanaged, IRemote
         {
             foreach (var w in worlds)
             {
@@ -194,7 +194,7 @@ namespace Unity.NetCode
         /// <typeparam name="T">The type of the Remote to Query.</typeparam>
         /// <param name="worlds">The connection to query for received remotes</param>
         /// <returns>A list of all the received remotes.</returns>
-        public List<T> Query<T>(List<World> worlds) where T : unmanaged, IRemote
+        public List<T> Query<T>(List<NetcodeWorld> worlds) where T : unmanaged, IRemote
         {
             List<T> remotes = new List<T>();
             Query<T>(worlds, remotes);
@@ -207,7 +207,7 @@ namespace Unity.NetCode
         /// <typeparam name="T">The type of the Remote to Query.</typeparam>
         /// <param name="target">The connection to query for received remotes</param>
         /// <param name="remotes">A list of all the received remotes.</param>
-        public void Query<T>(World world, List<T> remotes) where T : unmanaged, IRemote
+        public void Query<T>(NetcodeWorld world, List<T> remotes) where T : unmanaged, IRemote
         {
             Query<T>(GetWorldTargetConnections(world, Directionality.Undefined), remotes);
         }
@@ -218,7 +218,7 @@ namespace Unity.NetCode
         /// <typeparam name="T">The type of the Remote to Query.</typeparam>
         /// <param name="world">The world to query for received remotes</param>
         /// <returns>A list of all the received remotes.</returns>
-        public List<T> Query<T>(World world) where T : unmanaged, IRemote
+        public List<T> Query<T>(NetcodeWorld world) where T : unmanaged, IRemote
         {
             return Query<T>(GetWorldTargetConnections(world, Directionality.Undefined));
         }
@@ -275,7 +275,7 @@ namespace Unity.NetCode
                         remotes.Add(target.World.EntityManager.GetComponentData<T>(e));
                         target.World.EntityManager.DestroyEntity(e);
                     }
-                }                
+                }
             }
         }
 
@@ -303,7 +303,7 @@ namespace Unity.NetCode
         /// <param name="id">The id of the remote</param>
         /// <param name="invokeDelegate">the method to invoke when a remote with this id is received</param>
         /// <param name="world">the world to be registered into</param>
-        public void RegisterAutoInvokeType(RemoteInvokeID id, AutoHandleDelegate invokeDelegate, World world)
+        public void RegisterAutoInvokeType(RemoteInvokeID id, AutoHandleDelegate invokeDelegate, NetcodeWorld world)
         {
             world.GetExistingSystemManaged<RemotesAutoInvokeSystem>().m_InvokeFunctions.TryAdd(id, invokeDelegate);
         }
@@ -315,7 +315,7 @@ namespace Unity.NetCode
         /// <param name="id">the id of the entity to find the atached gameobject for</param>
         /// <param name="spawnTick">the spawnTick of the entity to find the atached gameobject for</param>
         /// /// <returns>The gameobject if found, null otherwise</returns>
-        public GameObject ResolveGameObject( World world, int id, uint spawnTick )
+        public GameObject ResolveGameObject( NetcodeWorld world, int id, uint spawnTick )
         {
             // TODO: We need to cache this query and possibly others, since managing this cache isn't trivial (need to account for the same world being taken down and back up again)
             //       we might want some central place we do this since getting the SpawnedGhostEntityMap will be useful in a bunch of places and we can manage this internally in one place for the netcode package

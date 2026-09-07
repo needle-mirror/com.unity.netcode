@@ -6,14 +6,16 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using UnityEngine.Assertions;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.LowLevel.Unsafe
+namespace Unity.Netcode.LowLevel.Unsafe
 {
     /// <summary>
     /// Contains helper methods to write custom chunk serializers.
     /// See <see cref="GhostPrefabCustomSerializer"/> for more information about what a custom
     /// chunk serializer function pointer should be used for.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.LowLevel.Unsafe")]
     public static unsafe class CustomGhostSerializerHelpers
     {
         /// <summary>
@@ -215,6 +217,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
     /// Extension methods for all unmanaged types implementing the
     /// <see cref="IGhostSerializer"/> interface.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.LowLevel.Unsafe")]
     static public class GhostCustomSerializerExtensions
     {
         /// <summary>

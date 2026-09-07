@@ -1,6 +1,6 @@
 using System;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Describes the direction a remote is sent.

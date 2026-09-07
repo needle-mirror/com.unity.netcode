@@ -1,7 +1,8 @@
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     abstract partial class GhostRigidbodyGameObjectToEntitySyncSystemBase : SystemBase
     {

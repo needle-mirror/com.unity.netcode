@@ -1,8 +1,10 @@
 using System.Runtime.InteropServices;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using Unity.Physics;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Singleton entity that allow to configure the NetCode LagCompensation system.
@@ -11,6 +13,7 @@ namespace Unity.NetCode
     /// exist in both client and server worlds, but in the client world HistorySize can
     /// be different from the server - usually 1 is enough on the client.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct LagCompensationConfig : IComponentData
     {
         /// <summary>

@@ -3,8 +3,9 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Scenes;
 using Unity.Burst;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// The ClientTrackLoadedPrespawnSections is responsible for tracking when a scene section is unloaded and
@@ -14,6 +15,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PrespawnGhostSystemGroup))]
     [UpdateAfter(typeof(PrespawnGhostInitializationSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct ClientTrackLoadedPrespawnSections : ISystem
     {
         private EntityQuery m_UnloadedSubscenes;

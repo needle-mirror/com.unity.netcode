@@ -1,8 +1,8 @@
 using Unity.Entities;
 using UnityEngine;
-using Unity.NetCode.HostMigration;
+using Unity.Netcode.HostMigration;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class NonGhostMigrationDataAuthoring : MonoBehaviour
     {

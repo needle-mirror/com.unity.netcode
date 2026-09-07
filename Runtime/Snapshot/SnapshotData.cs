@@ -1,16 +1,18 @@
 using System;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Networking.Transport.Utilities;
 using Unity.Profiling;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Component present only for ghosts spawned by the client, tracking the latest <see cref="SnapshotDataBuffer"/>
     /// history slot used to store the incoming ghost snapshots from the server.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SnapshotData : IComponentData
     {
         /// <summary>
@@ -57,7 +59,7 @@ namespace Unity.NetCode
             /// </summary>
             public SendToOwnerType RequiredOwnerSendMask;
             /// <summary>
-            /// The network id of the client owning the ghost. 0 if the ghost does not have a <see cref="NetCode.GhostOwner"/>.
+            /// The network id of the client owning the ghost. 0 if the ghost does not have a <see cref="Unity.Netcode.GhostOwner"/>.
             /// </summary>
             public int GhostOwner;
 
@@ -314,6 +316,7 @@ namespace Unity.NetCode
     /// Typically around 1-12kb per entity. Thus, we always allocate on the heap.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SnapshotDataBuffer : IBufferElementData
     {
         /// <summary>
@@ -337,6 +340,7 @@ namespace Unity.NetCode
     /// The serialized element size is aligned to the 16 bytes boundary
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SnapshotDynamicDataBuffer : IBufferElementData
     {
         /// <summary>
@@ -348,6 +352,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Helper class for managing ghost buffers data. Internal use only.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe struct SnapshotDynamicBuffersHelper
     {
         /// <summary>

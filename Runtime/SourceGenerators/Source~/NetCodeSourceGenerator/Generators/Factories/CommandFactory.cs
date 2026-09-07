@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using System;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     internal class CommandFactory
     {
@@ -26,7 +26,7 @@ namespace Unity.NetCode.Generators
                     continue;
 
                 var disableCommandCodeGen = Roslyn.Extensions.GetAttribute(candidateSymbol,
-                    "Unity.NetCode", "NetCodeDisableCommandCodeGenAttribute");
+                    "Unity.Netcode", "NetcodeDisableCommandCodeGenAttribute");
                 if (disableCommandCodeGen != null)
                     continue;
                 var typeNamespace = Roslyn.Extensions.GetFullyQualifiedNamespace(candidateSymbol);

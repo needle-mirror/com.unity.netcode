@@ -1,7 +1,7 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Networking.Transport;
 
 namespace DocumentationCodeSamples
@@ -13,7 +13,7 @@ namespace DocumentationCodeSamples
         {
             public override bool Initialize(string defaultWorldName)
             {
-                // This will enable auto connect.
+                // Auto connect is enabled by default (port 7979). Override the port here, or set 0 to disable auto connect.
                 AutoConnectPort = 7979;
                 // Create the default client and server worlds, depending on build type in a player or the PlayMode Tools in the editor
                 CreateDefaultClientServerWorlds();
@@ -46,7 +46,7 @@ namespace DocumentationCodeSamples
         // Example System:
         [UpdateAfter(typeof(NetworkReceiveSystemGroup))]
         [BurstCompile]
-        public partial struct NetCodeConnectionEventListener : ISystem
+        public partial struct NetcodeConnectionEventListener : ISystem
         {
             [BurstCompile]
             public void OnUpdate(ref SystemState state)

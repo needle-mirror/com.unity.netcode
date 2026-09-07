@@ -1,4 +1,4 @@
-namespace Unity.NetCode.Editor.Tracing.UI.Timeline
+namespace Unity.Netcode.Editor.Tracing.UI.Timeline
 {
     static class TimelineUssClasses
     {

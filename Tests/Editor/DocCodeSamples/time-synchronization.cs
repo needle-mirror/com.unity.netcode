@@ -1,5 +1,6 @@
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
+using Unity.Netcode.NetcodeTime;
 
 namespace DocumentationCodeSamples
 {

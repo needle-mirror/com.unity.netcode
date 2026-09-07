@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Threading;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.StateSave;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     internal struct WorldID : IEquatable<WorldID>, IComparer<WorldID>
     {
@@ -131,7 +131,7 @@ namespace Unity.NetCode.Tracing
         /// The caller owns frame budgeting and can yield/resume between ticks.
         /// Yields the fraction of diff work done so far in ]0,1] so the caller can report progress.
         /// </summary>
-        public static IEnumerable<float> ProcessDiff(TracingDataAccess.ProcessedWorldsData processedWorldsData, TracingConfig config, CancellationToken ct)
+        public static IEnumerable<float> ProcessDiff(TracingDataAccess.ProcessedWorldsData processedWorldsData, CancellationToken ct)
         {
             bool foundTick = false;
             // Allocator needs to be persistent since processing can take more than four frames
@@ -151,7 +151,7 @@ namespace Unity.NetCode.Tracing
 
                     foundTick = true;
                     var tickToTest = frameToTest.PerTickData[authoritativeTickKvp.Key];
-                    if (tickToTest.ProcessDiff(authoritativeTickKvp.Value, config))
+                    if (tickToTest.ProcessDiff(authoritativeTickKvp.Value))
                     {
                         frameToTest.PerTickData[authoritativeTickKvp.Key] = tickToTest;
                         // Bubble the tick's aggregates up so frames and worlds can be filtered without re-walking children.
@@ -187,16 +187,25 @@ namespace Unity.NetCode.Tracing
 
                 var frameToTest = processedWorldsData.ClientWorldData.PerFrameData[frameKey];
                 var frameHasBatchDiff = false;
+                var frameHasPartialTick = false;
                 foreach (var tickID in frameToTest.TickIDs)
                 {
-                    if (!batchCoveredTicks.Contains(tickID)
-                        || processedWorldsData.ServerWorldData.PerTickData.ContainsKey(tickID))
-                        continue;
-
                     var tickToTest = frameToTest.PerTickData[tickID];
                     if (tickToTest.TraceType != TraceType.Default)
                         continue;
-                    if (tickToTest.NetworkTime.IsPartialTick && config.IgnorePartialTicks)
+
+                    // A partial tick re-predicts with only a fraction of the delta time (and e.g. physics
+                    // doesn't step at all), so mismatches with the server's full tick are expected. Flag
+                    // every partial tick so views can call that out and filter on it.
+                    if (tickToTest.NetworkTime.IsPartialTick)
+                    {
+                        tickToTest.DiffInfo.AddDiff(DiffInfo.DiffReasons.PartialTick);
+                        frameToTest.PerTickData[tickID] = tickToTest;
+                        frameHasPartialTick = true;
+                    }
+
+                    if (!batchCoveredTicks.Contains(tickID)
+                        || processedWorldsData.ServerWorldData.PerTickData.ContainsKey(tickID))
                         continue;
 
                     tickToTest.DiffInfo.AddDiff(DiffInfo.DiffReasons.BatchedTick);
@@ -204,12 +213,19 @@ namespace Unity.NetCode.Tracing
                     frameHasBatchDiff = true;
                 }
 
+                // The precise reasons propagate to the frame and world roll-ups so views can filter on them.
                 if (frameHasBatchDiff)
                 {
                     frameToTest.DiffInfo.AddDiff(DiffInfo.DiffReasons.BatchedTick);
-                    processedWorldsData.ClientWorldData.PerFrameData[frameKey] = frameToTest;
                     processedWorldsData.ClientWorldData.DiffInfo.AddDiff(DiffInfo.DiffReasons.BatchedTick);
                 }
+                if (frameHasPartialTick)
+                {
+                    frameToTest.DiffInfo.AddDiff(DiffInfo.DiffReasons.PartialTick);
+                    processedWorldsData.ClientWorldData.DiffInfo.AddDiff(DiffInfo.DiffReasons.PartialTick);
+                }
+                if (frameHasBatchDiff || frameHasPartialTick)
+                    processedWorldsData.ClientWorldData.PerFrameData[frameKey] = frameToTest;
 
                 processedWork++;
                 yield return (float)processedWork / totalWork;

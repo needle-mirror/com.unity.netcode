@@ -26,7 +26,7 @@ If you select __Play__, then select __Window__ > __Entities__ > __Hierarchy__, y
 
 ## Establish a connection
 
-To enable communication between the client and server, you need to establish a [connection](network-connection.md). In Netcode for Entities, the simplest way of achieving this is to use the auto-connect feature. You can use the auto-connect feature by inheriting from the `ClientServerBootstrap`, then setting the `AutoConnectPort` to your chosen port.
+To enable communication between the client and server, you need to establish a [connection](network-connection.md). In Netcode for Entities, the simplest way of achieving this is to use the auto-connect feature, which is enabled by default (`AutoConnectPort` defaults to 7979). To use your own port, inherit from the `ClientServerBootstrap` and set the `AutoConnectPort` to your chosen port.
 
 Create a file called *Game.cs* in your __Assets__ folder and add the following code to the file:
 

@@ -6,7 +6,7 @@ using NUnit.Framework;
 using UnityEditorInternal;
 using UnityEngine.Profiling;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     // Drives a NetCodeTestWorld until ProfilerDriver has integrated `frameCount` new frames,
     // not until N yields have happened — under editor load (e.g. CI) one yield does not always

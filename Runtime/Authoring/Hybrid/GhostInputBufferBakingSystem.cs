@@ -1,6 +1,6 @@
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     // Needs to run before GhostAuthoringBakingSystem so the buffer is there before ghost processing, putting it in the normal baking group ensures that since GhostAuthoringBakingSystem is in PostBakingSystemGroup
     [UpdateInGroup(typeof(BakingSystemGroup))]

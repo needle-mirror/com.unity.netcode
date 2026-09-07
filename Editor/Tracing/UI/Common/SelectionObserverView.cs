@@ -1,8 +1,8 @@
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using System.Threading.Tasks;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     /// <summary>
     /// Base class for views that update based on selections in other views.

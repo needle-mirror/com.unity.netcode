@@ -7,12 +7,13 @@ using Unity.Entities;
 using UnityEngine.Scripting.APIUpdating;
 
 #if NETCODE_DEBUG
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// The name of ghost prefab. Used for debugging purpose to pretty print ghost names. Available only once the
     /// NETCODE_DEBUG define is set.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PrefabDebugName : IComponentData
     {
         /// <summary>

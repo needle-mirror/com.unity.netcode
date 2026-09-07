@@ -4,14 +4,13 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// The base class for all Monobehaviours in need to access Ghost features.
     /// </summary>
     /// TODO-release@CodeUXOptim We could potentially have code analyzers warning about missing partial on a GhostBehaviour, similar to partial on systems in entities. If we don't it might not be too bad, since users would still get compile errors telling them they need to add the partial keyword
     // TODO-release come back to this, we might not need this
-    [RequireComponent(typeof(GhostObject))]
     // [MultiplayerRoleRestricted]
 #if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
     public
@@ -98,7 +97,6 @@ namespace Unity.NetCode
         /// </remarks>
         /// <param name="tickedDeltaTime"></param>
         public virtual void GatherInput(float tickedDeltaTime) { }
-        internal GhostObject m_Ghost;
 
         /// <summary>
         /// Access to the <see cref="Ghost"/> for this GhostBehaviour. Only valid after the object is fully spawned and initialized.
@@ -108,38 +106,52 @@ namespace Unity.NetCode
         // GhostInstance isn't great, since there's a component named like this :(.
         // this way, from a GhostBehaviour, I would call this.Ghost.GhostId for example. "Adapter" doesn't sound "unified", it sounds like it's a "helper" class
         // and not a first class citizen. For GO users, that'll be their main point of access to Netcode features.
-        public GhostObject Ghost
-        {
-            get
-            {
-                if (m_Ghost == null)
-                {
-                    m_Ghost = GetComponent<GhostObject>();
-                }
-
-                return m_Ghost;
-            }
-        }
+        [field: HideInInspector]
+        [field: SerializeField]
+        public GhostObject Ghost { get; private set; }
 
         private bool m_IsPrefab;
 
         public virtual void Awake()
         {
+            // Components added by script will have Awake called before the prefab has a chance to register
+            // This means components added in tests will run Awake before their Ghost is registered.
+            // We need access to the Ghost to check if we're a Prefab or not.
+            if (Ghost == null)
+            {
+                Ghost = GetComponentInParent<GhostObject>();
+
+                if (Ghost == null || !Ghost.IsPrefab())
+                {
+                    // Log an error if there is no GhostObject attached to this GhostBehaviour or if Ghost was null on a non-prefab object (means it was never registered)
+                    Debug.LogError($"Detected {nameof(GhostBehaviour)} that is not registered to a {nameof(GhostObject)}! Ensure this {nameof(GhostBehaviour)} has a root {nameof(GhostObject)} and that your GameObject is spawned from a prefab. {this.GetType().Name}", this);
+                    return;
+                }
+            }
+
             m_IsPrefab = Ghost.IsPrefab();
-            if(m_IsPrefab)
+            if (m_IsPrefab)
             {
                 return;
             }
             // TODO-release with entities integration, this shouldn't be needed anymore, the lifecycle would be controlled by the engine
+            // Increments the ref-counter for the underlying entity, needs to be matched by a release in OnDestroy
+            // This ensures the underlying entity isn't removed while this ghostBehaviour is active.
             Ghost.InternalAcquireEntityReference();
         }
 
         public virtual void OnDestroy()
         {
-            if (m_IsPrefab)
+            if (m_IsPrefab || Ghost == null)
             {
                 return;
             }
+            if (Ghost.gameObject != gameObject && !Ghost.IsDestroying)
+            {
+                // TODO-MTT-15689 figure out how we want to handle this situation.
+                Debug.LogWarning("Child object is being destroyed before related parent object. This might cause issues.", Ghost);
+            }
+            // Release this reference to the entity to decrement the underlying ref-counter.
             Ghost.InternalReleaseEntityReference();
         }
 
@@ -161,10 +173,12 @@ namespace Unity.NetCode
         // Note: if you update this logic, make sure to also update GhostField's Setter logic as well
         public bool CanWriteState => Ghost.IsPredictedGhost;
 
-        internal void InitializePrefabWithEntityComponents()
+        internal void InitializePrefabWithEntityComponents(GhostEntityMapping.EntityLink link, GhostObject ghost)
         {
-            var prefabEntity = this.Ghost.EntityLink.Entity;
-            var World = this.Ghost.EntityLink.World;
+            Ghost = ghost;
+
+            var prefabEntity = link.Entity;
+            var world = link.World;
 
             var typesFixedList = new FixedList128Bytes<ComponentType>();
 
@@ -174,7 +188,7 @@ namespace Unity.NetCode
                 if (typesFixedList.Length == 0) return;
 
                 var compSet = new ComponentTypeSet(typesFixedList);
-                World.EntityManager.AddComponent(prefabEntity, compSet);
+                world.EntityManager.AddComponent(prefabEntity, compSet);
             }
 
             foreach (var generatedType in GetComponentTypes())

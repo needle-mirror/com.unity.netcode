@@ -5,10 +5,11 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct FixedListComplexData
     {
@@ -1170,7 +1171,7 @@ namespace Unity.NetCode.Tests
                 if ((i % 4) == 0)
                 {
                     serverData.Value2.Length = 35;
-                    LogAssert.Expect(LogType.Error, new Regex("The Unity\\.NetCode\\.Tests.MoreThan64Elements.Value2 length \\(35\\) exceed that fixed list serializable "));
+                    LogAssert.Expect(LogType.Error, new Regex("The Unity\\.Netcode\\.Tests.MoreThan64Elements.Value2 length \\(35\\) exceed that fixed list serializable "));
                 }
                 else
                 {

@@ -13,7 +13,7 @@ public class SystemApiQueryAnalyzerTests
     {
         const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct TestComponent : IComponentData
             {
@@ -46,7 +46,7 @@ public class SystemApiQueryAnalyzerTests
     {
         const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct TestComponent : IComponentData
             {
@@ -72,7 +72,7 @@ public class SystemApiQueryAnalyzerTests
     {
         const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct TestComponent : IComponentData
             {
@@ -98,7 +98,7 @@ public class SystemApiQueryAnalyzerTests
     {
         const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct TestComponent : IComponentData
             {

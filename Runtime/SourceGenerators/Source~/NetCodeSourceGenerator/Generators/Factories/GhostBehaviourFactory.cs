@@ -1,15 +1,15 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 
-namespace Unity.NetCode.Generators;
+namespace Unity.Netcode.Generators;
 
 internal class GhostBehaviourFactory
 {
     public static void Generate(IReadOnlyList<SyntaxNode> ghostBehaviourCandidates, CodeGenerator.Context codeGenContext, GeneratorExecutionContext executionContext)
     {
-        var netVarType = codeGenContext.executionContext.Compilation.GetTypeByMetadataName("Unity.NetCode.GhostField`1");
-        var netVarBridgeType = codeGenContext.executionContext.Compilation.GetTypeByMetadataName("Unity.NetCode.GhostComponentRef`1");
-        var inputType = codeGenContext.executionContext.Compilation.GetTypeByMetadataName("Unity.NetCode.IInputComponentData");
+        var netVarType = codeGenContext.executionContext.Compilation.GetTypeByMetadataName("Unity.Netcode.GhostField`1");
+        var netVarBridgeType = codeGenContext.executionContext.Compilation.GetTypeByMetadataName("Unity.Netcode.GhostComponentRef`1");
+        var inputType = codeGenContext.executionContext.Compilation.GetTypeByMetadataName("Unity.Netcode.IInputComponentData");
 
         foreach (var syntaxNode in ghostBehaviourCandidates)
         {

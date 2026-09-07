@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     static class NetcodeProfilerConstants
     {

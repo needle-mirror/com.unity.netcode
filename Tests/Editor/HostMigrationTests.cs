@@ -10,13 +10,14 @@ using Unity.Networking.Transport;
 using Unity.Transforms;
 using Unity.Scenes;
 using UnityEngine;
-using Unity.NetCode.Tests.PrespawnTests;
+using Unity.Netcode.Tests.PrespawnTests;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine.SceneManagement;
-using Unity.NetCode.LowLevel.Unsafe;
-using Unity.NetCode.HostMigration;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.HostMigration;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
@@ -840,9 +841,9 @@ namespace Unity.NetCode.Tests
                 //   Unity.NetCode.GhostInstance - 12 bytes
                 //   Unity.NetCode.GhostOwner - 4 bytes
                 //   Unity.Transforms.LocalTransform - 32 bytes
-                //   Unity.NetCode.Tests.HostMigrationTests+SomeData - 152 bytes
+                //   Unity.Netcode.Tests.HostMigrationTests+SomeData - 152 bytes
                 //   Unity.NetCode.AutoCommandTarget - 1 bytes
-                //   Unity.NetCode.InputBufferData`1<Unity.NetCode.Tests.HMRemoteInput> - 320 (Should be skipped)
+                //   Unity.NetCode.InputBufferData`1<Unity.Netcode.Tests.HMRemoteInput> - 320 (Should be skipped)
                 using var hostMigrationDataQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<HostMigrationStorage>());
                 var hostMigrationData = hostMigrationDataQuery.ToComponentDataArray<HostMigrationStorage>(Allocator.Temp);
                 Assert.AreEqual(1, hostMigrationData.Length);
@@ -1060,7 +1061,7 @@ namespace Unity.NetCode.Tests
                 using var newServerConnectionsQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId));
                 var newServerConnections = newServerConnectionsQuery.ToEntityArray(Allocator.Temp);
                 for (int i = 0; i < newServerConnections.Length; ++i)
-                    testWorld.ServerWorld.EntityManager.AddComponent<NetCode.NetworkStreamInGame>(newServerConnections[i]);
+                    testWorld.ServerWorld.EntityManager.AddComponent<Unity.Netcode.NetworkStreamInGame>(newServerConnections[i]);
                 for (int i = 1; i < clientCount; ++i)
                 {
                     using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
@@ -1299,7 +1300,7 @@ namespace Unity.NetCode.Tests
                 // Tick the world a bunch to get the data flowing
                 testWorld.TickMultiple(64);
 
-                var prespawns = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(Unity.NetCode.Tests.SomeData), typeof(GhostInstance)).ToComponentDataArray<GhostInstance>(Allocator.Temp);
+                var prespawns = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(Unity.Netcode.Tests.SomeData), typeof(GhostInstance)).ToComponentDataArray<GhostInstance>(Allocator.Temp);
 
                 // check out client has the correct compoenents in it and its a prespawn
                 Assert.AreEqual(1, prespawns.Length, "Number of expected prespawns doesn't match.");
@@ -1320,7 +1321,7 @@ namespace Unity.NetCode.Tests
                     var prespawnGhostData = ghostCollectionPrefabSerializers[prespawns[0].ghostType];
 
                     // Modify the snapshot buffer data on the client
-                    var prespawnEntities = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(Unity.NetCode.Tests.SomeData), typeof(GhostInstance)).ToEntityArray(Allocator.Temp);
+                    var prespawnEntities = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(Unity.Netcode.Tests.SomeData), typeof(GhostInstance)).ToEntityArray(Allocator.Temp);
 
                     SnapshotData entitySnapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(prespawnEntities[0]);
 

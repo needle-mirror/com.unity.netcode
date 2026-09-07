@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Unity.Entities;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     internal static class TracingTargetNames
     {

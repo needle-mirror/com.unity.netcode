@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     /// <summary>
     /// To be able to register callbacks before Awake is called. You can't register a callback directly on a prefab, the callback will be lost on the object
@@ -42,7 +42,7 @@ namespace Unity.NetCode.Tests
         {
             OnFixedPrediction?.Invoke(self);
         }
-		
+
         public void TriggerOnDestroy(GameObject self)
         {
             OnDestroy?.Invoke(self);

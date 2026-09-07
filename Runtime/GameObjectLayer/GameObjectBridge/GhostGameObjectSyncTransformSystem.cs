@@ -11,7 +11,7 @@ using UnityEngine.Jobs;
 
 // Systems in this namespace are in charge of the GO<-->Entity transform syncing. They implicitely sync transforms for users. As soon as you have a GhostObject, the transform is synced
 // With future TransformRef work, this won't be required.
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     #region Authoritative transform syncing
 

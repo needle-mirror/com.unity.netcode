@@ -1,12 +1,13 @@
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.NetCode;
-using Unity.NetCode.Tests;
+using Unity.Netcode;
+using Unity.Netcode.NetcodeTime;
+using Unity.Netcode.Tests;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]

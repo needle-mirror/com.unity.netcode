@@ -2,7 +2,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Transforms;
 using UnityEngine;
 
@@ -11,7 +11,7 @@ namespace DocumentationCodeSamples
     partial class networked_cube
     {
         #region EstablishConnection
-        // Create a custom bootstrap, which enables auto-connect.
+        // Create a custom bootstrap to configure auto-connect (enabled by default, on port 7979).
         // The bootstrap can also be used to configure other settings as well as to
         // manually decide which worlds (client and server) to create based on user input
         [UnityEngine.Scripting.Preserve]
@@ -19,7 +19,7 @@ namespace DocumentationCodeSamples
         {
             public override bool Initialize(string defaultWorldName)
             {
-                AutoConnectPort = 7979; // Enabled auto connect
+                AutoConnectPort = 7979; // Auto connect is on by default; set your chosen port (0 disables it)
                 return base.Initialize(defaultWorldName); // Use the regular bootstrap
             }
         }

@@ -1,6 +1,7 @@
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>Component that automates command "reading and sending" (for clients) or "writing, using, and broadcasting" (for the server).</para>
@@ -17,6 +18,7 @@ namespace Unity.NetCode
     /// </remarks>
     [DontSupportPrefabOverrides]
     [GhostComponent(SendDataForChildEntity = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct AutoCommandTarget : IComponentData
     {
         /// <summary>

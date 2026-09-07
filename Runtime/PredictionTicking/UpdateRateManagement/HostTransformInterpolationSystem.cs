@@ -5,9 +5,10 @@ using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Use this component to signal whether you want Netcode to smooth your single world host transforms for you or not.
@@ -16,12 +17,7 @@ namespace Unity.NetCode
     /// Note: This WriteGroup overrides smoothing applied by Unity.Physics.
     /// </summary>
     [WriteGroup(typeof(LocalToWorld))]
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-    public
-#else
-    internal
-#endif
-        struct NetcodeSmoothHostLocalToWorld : IComponentData
+    public struct NetcodeSmoothHostLocalToWorld : IComponentData
     {
         internal float3 LastPosition;
         internal float3 CurrentPosition;

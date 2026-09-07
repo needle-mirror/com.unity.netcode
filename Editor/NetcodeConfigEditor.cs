@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
-using Unity.NetCode.Hybrid;
+using Unity.Netcode.Hybrid;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -9,36 +9,34 @@ using UnityEngine;
 using UnityEngine.Assertions;
 using Debug = UnityEngine.Debug;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
-    /// <summary>Editor script managing the creation and registration of <see cref="NetCodeConfig"/> Global ScriptableObject.</summary>
-    [CustomEditor(typeof(NetCodeConfig), true, isFallback = false)]
+    /// <summary>Editor script managing the creation and registration of <see cref="NetcodeConfig"/> Global ScriptableObject.</summary>
+    [CustomEditor(typeof(NetcodeConfig), true, isFallback = false)]
     internal class NetcodeConfigEditor : UnityEditor.Editor
     {
-        private const string k_LiveEditingWarning = " Therefore, be aware that the Global config is applied project-wide automatically:\n - Note that this can be overridden by any C# code that modifies these NetCode configuration singleton components manually. "+nameof(NetCodeConfig)+" only serves as a seed to the in world settings and is set at world creation time before all systems OnCreate.\n";
+        private const string k_LiveEditingWarning = " Therefore, be aware that the Global config is applied project-wide automatically:\n - Note that this can be overridden by any C# code that modifies these NetCode configuration singleton components manually. "+nameof(NetcodeConfig)+" only serves as a seed to the in world settings and is set at world creation time before all systems OnCreate.\n";
         private static readonly GUILayoutOption s_ButtonWidth = GUILayout.Width(90);
         const string k_DefaultConfigPath = "Assets/NetcodeConfig.asset";
 
-        private static NetCodeConfig SavedConfig
+        private static NetcodeConfig SavedConfig
         {
-            get => NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig;
+            get => NetcodeClientAndServerSettings.instance.GlobalNetcodeConfig;
             set
             {
                 if (SavedConfig == value) return;
-                NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig = value;
-                EditorUtility.SetDirty(NetCodeClientAndServerSettings.instance);
+                NetcodeClientAndServerSettings.instance.GlobalNetcodeConfig = value;
+                EditorUtility.SetDirty(NetcodeClientAndServerSettings.instance);
                 LoadAllNetCodeConfigsAndSetGlobalFlags();
-                NetCodeClientAndServerSettings.instance.Save();
+                NetcodeClientAndServerSettings.instance.Save();
             }
         }
 
         internal static void CreateNetcodeSettingsAsset()
         {
             var assetPath = AssetDatabase.GenerateUniqueAssetPath(k_DefaultConfigPath);
-            var netCodeConfig = CreateInstance<NetCodeConfig>();
-#pragma warning disable 618 // IsGlobalConfig is obsolete (RemovedAfter 6.8), but still used to resolve the build config deterministically.
-            netCodeConfig.IsGlobalConfig = true; // Prevent warning when first creating it.
-#pragma warning restore 618
+            var netCodeConfig = CreateInstance<NetcodeConfig>();
+            netCodeConfig.m_IsGlobalConfig = true;
             AssetDatabase.CreateAsset(netCodeConfig, assetPath);
             Selection.activeObject = SavedConfig = netCodeConfig; // can't use LoadAsset as that doesn't work when starting the engine for the first time
             Assert.IsNotNull(SavedConfig);
@@ -64,11 +62,11 @@ namespace Unity.NetCode.Editor
                 // For a couple of minor netcode package versions, we saved this config into the preloaded assets.
                 // Now that we use our custom ProjectSettings, we don't need this anymore, but we do need to support auto-upgrading.
                // UNFORTUNATE SIDE EFFECT: If you don't have a global config, this loads ALL Preloaded assets in the Editor, on first boot!
-               if (PlayerSettings.GetPreloadedAssets() is NetCodeConfig[] { Length: > 0 } netCodeConfigs)
+               if (PlayerSettings.GetPreloadedAssets() is NetcodeConfig[] { Length: > 0 } netCodeConfigs)
                {
                    var found = netCodeConfigs[0];
                    SavedConfig = found;
-                   Debug.LogWarning($"The Global NetCodeConfig ('{found.name}') is now saved into the {nameof(NetCodeClientAndServerSettings)} ProjectAsset! Please ensure you save that file to source control (if applicable). It is now safe to remove this asset from the Preloaded Assets list, if you'd like to. It'll get added automatically during builds. This corrective logic will be removed after Netcode 1.x.");
+                   Debug.LogWarning($"The Global NetcodeConfig ('{found.name}') is now saved into the {nameof(NetcodeClientAndServerSettings)} ProjectAsset! Please ensure you save that file to source control (if applicable). It is now safe to remove this asset from the Preloaded Assets list, if you'd like to. It'll get added automatically during builds. This corrective logic will be removed after Netcode 1.x.");
                }
 
                var foundConfigs = GetNetcodeConfigs();
@@ -82,7 +80,7 @@ namespace Unity.NetCode.Editor
                }
             }
 
-            NetCodeConfig.Global = SavedConfig;
+            NetcodeConfig.Global = SavedConfig;
         }
 
         /// <summary>Internal method to register the provider (with IMGUI for drawing).</summary>
@@ -102,11 +100,11 @@ namespace Unity.NetCode.Editor
                     Links();
 
                     GUILayout.BeginHorizontal();
-                    var inst = NetCodeClientAndServerSettings.instance;
+                    var inst = NetcodeClientAndServerSettings.instance;
                     {
                         EditorGUI.BeginChangeCheck();
                         GUI.enabled = !Application.isPlaying;
-                        if (inst.GlobalNetCodeConfig == null)
+                        if (inst.GlobalNetcodeConfig == null)
                         {
                             var configs = GetNetcodeConfigs();
                             if (configs.Count == 0)
@@ -120,7 +118,7 @@ namespace Unity.NetCode.Editor
                                 SavedConfig = netCodeConfigs[0];
                             }
                         }
-                        inst.GlobalNetCodeConfig = EditorGUILayout.ObjectField(new GUIContent($"Required {nameof(NetCodeConfig)}", "Select the asset that NetCode will use, by default."), inst.GlobalNetCodeConfig, typeof(NetCodeConfig), allowSceneObjects: false) as NetCodeConfig;
+                        inst.GlobalNetcodeConfig = EditorGUILayout.ObjectField(new GUIContent($"Required {nameof(NetcodeConfig)}", "Select the asset that NetCode will use, by default."), inst.GlobalNetcodeConfig, typeof(NetcodeConfig), allowSceneObjects: false) as NetcodeConfig;
 
                         if (GUILayout.Button("Create & Set", s_ButtonWidth))
                         {
@@ -136,7 +134,7 @@ namespace Unity.NetCode.Editor
 
                     if (!SavedConfig)
                     {
-                        EditorGUILayout.HelpBox($"No Global NetCodeConfig is set. This is invalid. Note that even with a {nameof(NetCodeConfig)} you can still override ECS component based settings once the world is created. This config only seeds the initial settings component. Please raise a bug with the netcode team as you shouldn't be in this state.", MessageType.Error);
+                        EditorGUILayout.HelpBox($"No Global NetCodeConfig is set. This is invalid. Note that even with a {nameof(NetcodeConfig)} you can still override ECS component based settings once the world is created. This config only seeds the initial settings component. Please raise a bug with the netcode team as you shouldn't be in this state.", MessageType.Error);
                     }
 
                     EditorGUILayout.Separator();
@@ -160,14 +158,14 @@ namespace Unity.NetCode.Editor
             };
             return provider;
         }
-        static List<NetCodeConfig> GetNetcodeConfigs()
+        static List<NetcodeConfig> GetNetcodeConfigs()
         {
-            var netcodeConfigs = AssetDatabase.FindAssets($"t:{nameof(NetCodeConfig)}");
-            var configs = new List<NetCodeConfig>();
+            var netcodeConfigs = AssetDatabase.FindAssets($"t:{nameof(NetcodeConfig)}");
+            var configs = new List<NetcodeConfig>();
             foreach (var netcodeConfig in netcodeConfigs)
             {
                 var assetPath = AssetDatabase.GUIDToAssetPath(netcodeConfig);
-                configs.Add(AssetDatabase.LoadAssetAtPath<NetCodeConfig>(assetPath));
+                configs.Add(AssetDatabase.LoadAssetAtPath<NetcodeConfig>(assetPath));
             }
             return configs;
         }
@@ -185,17 +183,15 @@ namespace Unity.NetCode.Editor
 
         // TODO (6.8): Once multiple NetCodeConfigs support are fully removed and non-global configs are stripped from builds via
         // HideFlags.DontSaveInBuild, IsGlobalConfig (and therefore this whole method) can be deleted.
-        private static void ValidateConfig(NetCodeConfig config)
+        private static void ValidateConfig(NetcodeConfig config)
         {
             var isActuallyGlobalConfig = (config == SavedConfig);
-#pragma warning disable 618 // IsGlobalConfig is obsolete (RemovedAfter 6.8), but still used to resolve the build config deterministically.
-            if (isActuallyGlobalConfig != config.IsGlobalConfig)
+            if (isActuallyGlobalConfig != config.m_IsGlobalConfig)
             {
-                Debug.LogWarning($"Detected individual NetCodeConfig asset ('{AssetDatabase.GetAssetPath(config) ?? config.name}') with incorrect `IsGlobalConfig` flag! Was '{config.IsGlobalConfig}', updated to '{isActuallyGlobalConfig}'. Check for modifications to the {nameof(NetCodeClientAndServerSettings)}.asset, and commit all changed netcode files. These warnings are expected when modifying the Global NetCodeConfig, and are harmless.", config);
-                config.IsGlobalConfig = isActuallyGlobalConfig;
+                Debug.LogWarning($"Netcode automatically updated which NetCodeConfig asset ('{AssetDatabase.GetAssetPath(config) ?? config.name}') is treated as the Global config. Check for modifications to the {nameof(NetcodeClientAndServerSettings)}.asset, and commit all changed netcode files. These warnings are expected when modifying the Global NetCodeConfig, and are harmless.", config);
+                config.m_IsGlobalConfig = isActuallyGlobalConfig;
                 EditorUtility.SetDirty(config);
             }
-#pragma warning restore 618
         }
 
         private static readonly GUIContent s_ClientServerTickRate = new GUIContent("ClientServerTickRate", "General multiplayer settings.\n\nServer Authoritative - Thus, when a client connects, the server will send an RPC clobbering any existing client values.");
@@ -208,32 +204,28 @@ namespace Unity.NetCode.Editor
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
-            var config = (NetCodeConfig)target;
+            var config = (NetcodeConfig)target;
 
             ValidateConfig(config);
 
-#pragma warning disable 618 // IsGlobalConfig is obsolete (RemovedAfter 6.8), but still used to resolve the build config deterministically.
-            if (config.IsGlobalConfig)
-                EditorGUILayout.HelpBox("You have selected this as your Global config." + k_LiveEditingWarning, MessageType.Info);
-#pragma warning restore 618
+            if (config.m_IsGlobalConfig)
+                EditorGUILayout.HelpBox("This config is currently configured as your Global config." + k_LiveEditingWarning, MessageType.Info);
             if (Application.isPlaying)
                 EditorGUILayout.HelpBox("Live tweaking is not supported for disabled values.", MessageType.Warning);
 
             //.
             GUI.enabled = !Application.isPlaying;
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.EnableClientServerBootstrap)));
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.HostWorldModeSelection)));
-#endif
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.EnableClientServerBootstrap)));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.HostWorldModeSelection)));
             //.
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ClientServerTickRate)), s_ClientServerTickRate);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.ClientServerTickRate)), s_ClientServerTickRate);
             GUI.enabled = true;
             ValidateClientServerTickRate(config.ClientServerTickRate);
             GUILayout.Space(k_SpaceBetweenConfigs);
 
             //.
             GUI.enabled = true; // we can always edit a ClientTickRate config.
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ClientTickRate)), s_ClientTickRate);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.ClientTickRate)), s_ClientTickRate);
             GUI.enabled = ClientServerBootstrap.ClientWorld != null || !Application.isPlaying; // But the "apply" button is only applicable if there's a world to apply to while in playmode
             if (!GUI.enabled)
                 EditorGUILayout.HelpBox("No client world available to live tweak.", MessageType.Info);
@@ -243,7 +235,7 @@ namespace Unity.NetCode.Editor
                 {
                     var em = world.EntityManager;
                     var ent = em.CreateEntityQuery(typeof(ClientTickRate)).GetSingletonEntity();
-                    em.SetComponentData(ent, NetCodeConfig.Global.ClientTickRate);
+                    em.SetComponentData(ent, NetcodeConfig.Global.ClientTickRate);
                 }
             }
 
@@ -251,7 +243,7 @@ namespace Unity.NetCode.Editor
 
             //.
             GUI.enabled = true; // we can always edit a GhostSendSystemData config.
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.GhostSendSystemData)), s_GhostSendSystemData);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.GhostSendSystemData)), s_GhostSendSystemData);
             GUI.enabled = ClientServerBootstrap.ServerWorld != null || !Application.isPlaying; // But the "apply" button is only applicable if there's a world to apply to while in playmode
             if (!GUI.enabled)
                 EditorGUILayout.HelpBox("No server world available to live tweak.", MessageType.Info);
@@ -262,7 +254,7 @@ namespace Unity.NetCode.Editor
                 {
                     var em = world.EntityManager;
                     var ent = em.CreateEntityQuery(typeof(GhostSendSystemData)).GetSingletonEntity();
-                    em.SetComponentData(ent, NetCodeConfig.Global.GhostSendSystemData);
+                    em.SetComponentData(ent, NetcodeConfig.Global.GhostSendSystemData);
                 }
             }
             GUILayout.Space(k_SpaceBetweenConfigs);
@@ -273,25 +265,21 @@ namespace Unity.NetCode.Editor
             if (s_TransportSettingsFoldedOut)
             {
                 EditorGUI.indentLevel += 2;
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ConnectTimeoutMS)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.MaxConnectAttempts)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.DisconnectTimeoutMS)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.HeartbeatTimeoutMS)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ReconnectionTimeoutMS)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ClientSendQueueCapacity)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ClientReceiveQueueCapacity)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ServerSendQueueCapacity)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ServerReceiveQueueCapacity)));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.MaxMessageSize)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.ConnectTimeoutMS)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.MaxConnectAttempts)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.DisconnectTimeoutMS)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.HeartbeatTimeoutMS)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.ReconnectionTimeoutMS)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.ClientSendQueueCapacity)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.ClientReceiveQueueCapacity)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.ServerSendQueueCapacity)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.ServerReceiveQueueCapacity)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetcodeConfig.MaxMessageSize)));
                 GUI.enabled = true;
                 EditorGUI.indentLevel -= 2;
             }
             GUI.enabled = true;
             GUILayout.Space(k_SpaceBetweenConfigs); // space between various configs
-#if NETCODE_TRACING_TOOL
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.TracingConfig)));
-#endif
-            GUILayout.Space(k_SpaceBetweenConfigs);
 
             //.
             Links();
@@ -400,7 +388,7 @@ namespace Unity.NetCode.Editor
                 {
                     // This can happen if users delete their single netcodeconfig after the editor was launched and before making a build.
                     // In this case, we log an error and generate a default config.
-                    Debug.LogError($"No {nameof(NetCodeConfig)} asset found, generating a new one. This will not fail this build.");
+                    Debug.LogError($"No {nameof(NetcodeConfig)} asset found, generating a new one. This will not fail this build.");
                     InitializeNetCodeConfigEditorBugFix();
                 }
 
@@ -438,7 +426,7 @@ namespace Unity.NetCode.Editor
             }
 
             /// <summary>
-            /// Decides on the single global <see cref="NetCodeConfig"/> for the build (the one selected in Project Settings),
+            /// Decides on the single global <see cref="NetcodeConfig"/> for the build (the one selected in Project Settings),
             /// fixes up the deprecated <c>IsGlobalConfig</c> flag on every config so the runtime can resolve deterministically,
             /// warns the user if more than one config exists, and emits analytics tracking the config count.
             /// </summary>
@@ -446,7 +434,7 @@ namespace Unity.NetCode.Editor
             /// TODO (6.8): Once users have stopped shipping multiple configs, this should additionally mark every non-global
             /// config with <c>HideFlags.DontSaveInBuild</c> so they are excluded from the build entirely (leaving only the
             /// single global config loaded at runtime). At that point the <c>IsGlobalConfig</c> field and the deterministic
-            /// sort in <see cref="NetCodeConfig.CompareTo"/> can be removed.
+            /// sort in <see cref="NetcodeConfig.CompareTo"/> can be removed.
             /// </remarks>
             static void MessageAndResolveMultipleConfigs()
             {

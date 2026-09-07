@@ -3,8 +3,9 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine.Scripting;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// The default serialization strategy for the <see cref="Unity.Transforms.LocalTransform"/> components provided by the NetCode package.
@@ -12,6 +13,7 @@ namespace Unity.NetCode
     [Preserve]
     [GhostComponentVariation(typeof(Transforms.LocalTransform), "Transform - 3D")]
     [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct TransformDefaultVariant
     {
         /// <summary>
@@ -41,6 +43,7 @@ namespace Unity.NetCode
     [Preserve]
     [GhostComponentVariation(typeof(Transforms.LocalTransform), "PositionOnly - 3D")]
     [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PositionOnlyVariant
     {
         /// <summary>
@@ -57,6 +60,7 @@ namespace Unity.NetCode
     [Preserve]
     [GhostComponentVariation(typeof(Transforms.LocalTransform), "RotationOnly - 3D")]
     [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct RotationOnlyVariant
     {
         /// <summary>
@@ -72,6 +76,7 @@ namespace Unity.NetCode
     [Preserve]
     [GhostComponentVariation(typeof(Transforms.LocalTransform), "PositionAndRotation - 3D")]
     [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PositionRotationVariant
     {
         /// <summary>
@@ -95,6 +100,7 @@ namespace Unity.NetCode
     [Preserve]
     [GhostComponentVariation(typeof(Transforms.LocalTransform), "PositionScale - 3D")]
     [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PositionScaleVariant
     {
         /// <summary>
@@ -117,6 +123,7 @@ namespace Unity.NetCode
     [Preserve]
     [GhostComponentVariation(typeof(Transforms.LocalTransform), "RotationScale - 3D")]
     [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct RotationScaleVariant
     {
         /// <summary>
@@ -143,6 +150,7 @@ namespace Unity.NetCode
     /// </summary>
     [GhostComponentVariation(typeof(LocalTransform), "Transform 3D - Unquantized")]
     [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.AllClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct TransformVariantMaxPrecision : IComponentData
     {
         /// <summary>
@@ -169,6 +177,7 @@ namespace Unity.NetCode
     /// </summary>
     [GhostComponentVariation(typeof(LocalTransform), "Transform 3D - 0.1 mm Precision")]
     [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.AllClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct TransformVariantMediumPrecision : IComponentData
     {
         /// <summary>
@@ -208,6 +217,7 @@ namespace Unity.NetCode
                        WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
     [CreateAfter(typeof(GhostComponentSerializerCollectionSystemGroup))]
     [UpdateInGroup(typeof(DefaultVariantSystemGroup), OrderLast = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed partial class TransformDefaultVariantSystem : SystemBase
     {
         protected override void OnCreate()

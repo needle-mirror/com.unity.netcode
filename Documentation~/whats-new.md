@@ -6,7 +6,7 @@ For a full list of changes, see the [Changelog](xref:changelog). For information
 
 ## Added
 
-* Added a new unified `NetCodePhysicsConfig` to configure in one place all the netcode physics settings. LagCompensationConfig and PredictedPhysicsConfig are generated from these settings at conversion time.
+* Added a new unified `NetcodePhysicsConfig` to configure in one place all the netcode physics settings. LagCompensationConfig and PredictedPhysicsConfig are generated from these settings at conversion time.
 * Added a new API, `GhostPrefabCreation.ConvertToGhostPrefab` which can be used to create ghost prefabs from code without having an asset for them.
 * Added a support for creating multiple network drivers. It is now possible to have a server that listen to the same port using different network interfaces (ex: IPC, Socket, WebSocket at the same time).
 * Added: A new NetworkTime component that contains all the time and tick information for the client/server simulation. Please look at the upgrade guide for more information on how to update your project.

@@ -9,14 +9,17 @@ using Unity.Entities;
 using Unity.Physics;
 using Unity.Physics.Systems;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
 [assembly: InternalsVisibleTo("Unity.NetCode.Physics.Editor.Tests")]
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
 
     /// <summary>
     /// A singleton component from which you can get a physics collision world for a previous tick.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct PhysicsWorldHistorySingleton : IComponentData
     {
         /// <summary>
@@ -45,7 +48,7 @@ namespace Unity.NetCode
             m_History.GetCollisionWorldFromTick(tick, interpolationDelay, out collWorld, out expectedTick, out returnedTick);
         }
 
-        /// <inheritdoc cref="GetCollisionWorldFromTick(Unity.NetCode.NetworkTick,uint,ref Unity.Physics.PhysicsWorld,out Unity.Physics.CollisionWorld,out Unity.NetCode.NetworkTick,out Unity.NetCode.NetworkTick)"/>
+        /// <inheritdoc cref="GetCollisionWorldFromTick(NetworkTick,uint,ref Unity.Physics.PhysicsWorld,out Unity.Physics.CollisionWorld,out NetworkTick,out NetworkTick)"/>
         public void GetCollisionWorldFromTick(NetworkTick tick, uint interpolationDelay, ref PhysicsWorld physicsWorld, out CollisionWorld collWorld)
         {
             GetCollisionWorldFromTick(tick, interpolationDelay, ref physicsWorld, out collWorld, out _, out _);
@@ -323,6 +326,7 @@ namespace Unity.NetCode
             collWorld = m_buffer.GetWorldAt(index, Size, out _);
         }
 
+        // Kept as a warning (not error: true) until MTT-15833 makes the ref-based overload usable from unit tests: https://jira.unity3d.com/browse/MTT-15833
         [Obsolete("Prefer the more explicit CloneCollisionWorld (where args are passed by ref, and PhysicsWorldHistorySingleton is injected).")]
         public void CloneCollisionWorld(int index, in CollisionWorld collWorld, in LagCompensationConfig config = default, NetworkTick tick = default)
         {
@@ -459,7 +463,7 @@ namespace Unity.NetCode
             }
         }
 
-        /// <inheritdoc cref="GetCollisionWorldFromTick(Unity.NetCode.NetworkTick,uint,out Unity.Physics.CollisionWorld,out Unity.NetCode.NetworkTick)"/>
+        /// <inheritdoc cref="GetCollisionWorldFromTick(NetworkTick,uint,out Unity.Physics.CollisionWorld,out NetworkTick)"/>
         public void GetCollisionWorldFromTick(NetworkTick tick, uint interpolationDelay, out CollisionWorld collWorld)
         {
             GetCollisionWorldFromTick(tick, interpolationDelay, out collWorld, out _, out _);
@@ -478,6 +482,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(PhysicsSystemGroup), OrderLast = true)]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct PhysicsWorldHistory : ISystem
     {
         /// <summary>

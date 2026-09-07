@@ -9,7 +9,7 @@ using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Assertions;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [BurstCompile]
     internal struct SimpleRpcCommand : IComponentData, IRpcCommandSerializer<SimpleRpcCommand>
@@ -339,7 +339,7 @@ namespace Unity.NetCode.Tests
     {
         public Entity entity;
 
-        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in Unity.NetCode.Tests.RpcWithEntity data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in Unity.Netcode.Tests.RpcWithEntity data)
         {
             if (state.GhostFromEntity.HasComponent(data.entity))
             {

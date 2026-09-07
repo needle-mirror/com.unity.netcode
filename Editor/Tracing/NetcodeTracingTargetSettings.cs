@@ -6,7 +6,7 @@ using UnityEngine;
 #if UNITY_USE_SETTINGS_MANAGER
 using UnityEditor.SettingsManagement;
 #endif
-namespace Unity.NetCode.Editor.Tracing
+namespace Unity.Netcode.Editor.Tracing
 {
     /// <summary>
     /// Package-scoped storage for ECS tracing target selection (systems and components).
@@ -14,7 +14,7 @@ namespace Unity.NetCode.Editor.Tracing
     /// <c>ProjectSettings/Packages/com.unity.netcode/Tracing.json</c>. Without it, the same selection is stored in
     /// <c>ProjectSettings/Packages/com.unity.netcode/TracingTargetSelection.json</c>.
     /// </summary>
-    static class NetCodeTracingTargetSettings
+    static class NetcodeTracingTargetSettings
     {
         internal const string k_PackageId = "com.unity.netcode";
         const string k_SettingsFileName = "Tracing";

@@ -5,12 +5,12 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.Hybrid;
+using Unity.Netcode.Hybrid;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [WriteGroup(typeof(LocalToWorld))]
     struct TestWriteGroupComponent : IComponentData

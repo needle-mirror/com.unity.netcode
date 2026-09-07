@@ -1,7 +1,7 @@
 #if ENABLE_UNITY_NETCODE_PHYSICS
 using Unity.Core;
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Physics;
 using Unity.Physics.Systems;
 

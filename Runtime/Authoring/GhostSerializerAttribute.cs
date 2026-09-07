@@ -1,12 +1,14 @@
 using System;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// For internal use only.
     /// Markup for the generate component/buffer code-generated serializer, added automatically by the code-generation system.
     /// </summary>
     [AttributeUsage(AttributeTargets.Struct)]
+    [MovedFrom(true, "Unity.NetCode")]
     public class GhostSerializerAttribute : Attribute
     {
         /// <summary>

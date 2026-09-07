@@ -3,10 +3,12 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>
@@ -38,6 +40,7 @@ namespace Unity.NetCode
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct GhostDespawnSystem : ISystem
     {
         NativeQueue<DelayedDespawnGhost> m_InterpolatedDespawnQueue;
@@ -200,6 +203,7 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(GhostDespawnSystem))]
     [UpdateAfter(typeof(PredictedGhostDespawnSystem))]
     [UpdateAfter(typeof(GhostReceiveSystem))] // for the despawns on disconnect
+    [UpdateBefore(typeof(GhostSpawnClassificationSystemGroup))] // runs before classification jobs reading the ghost map are scheduled. Was previously implicit through creation order.
     internal partial class GhostGameObjectDespawnManagedSystem : SystemBase
     {
         EntityQuery m_DelayedDespawnQuery;
@@ -217,6 +221,8 @@ namespace Unity.NetCode
 
         protected override void OnUpdate()
         {
+            // GetSingletonRW doesn't complete in-flight jobs registered against the singleton type (e.g. classification jobs reading the ghost map), so complete them before the main thread Remove below.
+            EntityManager.CompleteDependencyBeforeRW<SpawnedGhostEntityMap>();
             var spawnedGhostMap = SystemAPI.GetSingletonRW<SpawnedGhostEntityMap>().ValueRO.SpawnedGhostMapRW;
             var trackingEntity = m_DelayedDespawnQuery.GetSingletonEntity();
             var despawnTrackingBufferRO = EntityManager.GetBuffer<GameObjectDespawnTracking>(trackingEntity, isReadOnly: true);

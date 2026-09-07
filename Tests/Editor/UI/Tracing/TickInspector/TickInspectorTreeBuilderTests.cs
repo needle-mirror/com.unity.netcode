@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.NetCode.Editor.Tracing.UI.TickInspector;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Editor.Tracing.UI.TickInspector;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Tests
+namespace Unity.Netcode.Editor.Tracing.UI.Tests
 {
     /// <summary>
     /// Unit tests for <see cref="TickInspectorTreeBuilder"/> — the heterogeneous tree shape
@@ -196,8 +196,8 @@ namespace Unity.NetCode.Editor.Tracing.UI.Tests
             Assert.That(result.ItemsToExpand, Is.Empty);
         }
 
-        [Test(Description = "A ghost row never reddens or tags for its components' reasons — reasons stay " +
-                            "on their own rows — and the ghost still auto-expands to the diffing component.")]
+        [Test(Description = "A ghost row never reddens for its components' reasons; they reach it only via " +
+                            "the collapsed-row tags, and the ghost still auto-expands to the diffing component.")]
         public void Build_KeepsComponentReasonsOnTheComponentRows()
         {
             var ghosts = new Dictionary<int, GhostComponentData>
@@ -210,8 +210,9 @@ namespace Unity.NetCode.Editor.Tracing.UI.Tests
 
             var ghost = Children(result.Roots[0])[0];
             Assert.That(ghost.data.HasDiff, Is.False, "a ghost must not redden for a component's diff");
-            Assert.That(ghost.data.DiffReasonFlags, Is.EqualTo(DiffInfo.DiffReasons.Undefined),
-                "a component's reasons never surface on the ghost row");
+            Assert.That(ghost.data.DiffReasonFlags, Is.EqualTo(DiffInfo.DiffReasons.Undefined));
+            Assert.That(ghost.data.InclusiveDiffReasonFlags & DiffInfo.DiffReasons.ComponentData, Is.EqualTo(DiffInfo.DiffReasons.ComponentData),
+                "the collapsed-row tags still surface the subtree's reasons");
             Assert.That(result.ItemsToExpand, Has.Member(ghost.id), "the ghost still auto-expands to the diffing component");
 
             var components = Children(ghost);
@@ -219,6 +220,33 @@ namespace Unity.NetCode.Editor.Tracing.UI.Tests
             var strComp = components.Find(c => c.data.DisplayName == "String");  // clean
             Assert.That(intComp.data.DiffReasonFlags, Is.EqualTo(DiffInfo.DiffReasons.ComponentData));
             Assert.That(strComp.data.DiffReasonFlags, Is.EqualTo(DiffInfo.DiffReasons.Undefined));
+        }
+
+        [Test(Description = "Inclusive reasons climb the whole chain, so a collapsed group summarises a " +
+                            "component's reason several levels down without owning it.")]
+        public void Build_BubblesSubtreeReasonsUpToAncestorRows()
+        {
+            var ghosts = new Dictionary<int, GhostComponentData>
+            {
+                { 1, MakeGhost("Player", hasDiff: false, (typeof(int), true)) },
+            };
+            var systems = new List<ManagedSystemData>
+            {
+                MakeSystem("PredictionGroup", 1, k_NoParent, isGroup: true, maxExecutionOrder: 2),
+                MakeSystem("MoveSystem", 2, 1, ghosts: ghosts, hasDiff: true),
+            };
+
+            var result = TickInspectorTreeBuilder.Build(systems);
+
+            var group = result.Roots[0];
+            Assert.That(group.data.DiffReasonFlags, Is.EqualTo(DiffInfo.DiffReasons.Undefined),
+                "the group owns no reason of its own");
+            Assert.That(group.data.InclusiveDiffReasonFlags & DiffInfo.DiffReasons.ComponentData, Is.EqualTo(DiffInfo.DiffReasons.ComponentData),
+                "the collapsed group summarises the component's reason from two levels down");
+
+            var system = Children(group)[0];
+            Assert.That(system.data.DiffReasonFlags, Is.EqualTo(DiffInfo.DiffReasons.Undefined));
+            Assert.That(system.data.InclusiveDiffReasonFlags & DiffInfo.DiffReasons.ComponentData, Is.EqualTo(DiffInfo.DiffReasons.ComponentData));
         }
 
         [Test]

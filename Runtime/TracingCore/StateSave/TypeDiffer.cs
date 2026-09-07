@@ -8,7 +8,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
 
     [BurstCompile]
@@ -107,7 +107,7 @@ namespace Unity.NetCode.Tracing
         /// <summary>
         /// True when <paramref name="type"/> can be compared with a single MemCmp: it contains no floating point fields
         /// </summary>
-        static bool TryGetMemCmpSize(Type type, out int size)
+        internal static bool TryGetMemCmpSize(Type type, out int size)
         {
             size = 0;
             if (!type.IsValueType || type == typeof(float) || type == typeof(double))
@@ -335,6 +335,7 @@ namespace Unity.NetCode.Tracing
             {
                 { typeof(bool), new PortableFunctionPointer<DiffDelegate>(DiffBool) },
                 { typeof(byte), new PortableFunctionPointer<DiffDelegate>(DiffByte) },
+                { typeof(char), new PortableFunctionPointer<DiffDelegate>(DiffChar) },
                 { typeof(sbyte), new PortableFunctionPointer<DiffDelegate>(DiffSbyte) },
                 { typeof(double), new PortableFunctionPointer<DiffDelegate>(DiffDouble) },
                 { typeof(float), new PortableFunctionPointer<DiffDelegate>(DiffFloat) },
@@ -359,6 +360,7 @@ namespace Unity.NetCode.Tracing
 
          [BurstCompile][AOT.MonoPInvokeCallback(typeof(DiffDelegate))] public static unsafe float DiffBool(byte* a, byte* b) => *(bool*)a != *(bool*)b ? float.PositiveInfinity : 0f;
          [BurstCompile][AOT.MonoPInvokeCallback(typeof(DiffDelegate))] public static unsafe float DiffByte(byte* a, byte* b) => math.abs(*(byte*)b - *(byte*)a);
+         [BurstCompile][AOT.MonoPInvokeCallback(typeof(DiffDelegate))] public static unsafe float DiffChar(byte* a, byte* b) => *(char*)a != *(char*)b ? float.PositiveInfinity : 0f;
          [BurstCompile][AOT.MonoPInvokeCallback(typeof(DiffDelegate))] public static unsafe float DiffSbyte(byte* a, byte* b) => math.abs(*(sbyte*)b - *(sbyte*)a);
          [BurstCompile][AOT.MonoPInvokeCallback(typeof(DiffDelegate))] public static unsafe float DiffDouble(byte* a, byte* b) => (float)math.abs(*(double*)b - *(double*)a);
          [BurstCompile][AOT.MonoPInvokeCallback(typeof(DiffDelegate))] public static unsafe float DiffFloat(byte* a, byte* b) => math.abs(*(float*)b - *(float*)a);

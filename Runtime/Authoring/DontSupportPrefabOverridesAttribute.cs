@@ -1,6 +1,7 @@
 using System;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Use this attribute to prevent a GhostComponent from supporting any kind of variants or PrefabType overrides.
@@ -8,6 +9,7 @@ namespace Unity.NetCode
     /// Mutually exclusive to <see cref="SupportsPrefabOverridesAttribute"/>.
     /// </summary>
     [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class)]
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed class DontSupportPrefabOverridesAttribute : Attribute
     {
     }

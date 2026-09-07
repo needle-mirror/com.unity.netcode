@@ -4,7 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.CodeAnalysis;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     internal static class Debug
     {

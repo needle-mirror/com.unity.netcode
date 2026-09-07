@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     class BarChart : VisualElement
     {

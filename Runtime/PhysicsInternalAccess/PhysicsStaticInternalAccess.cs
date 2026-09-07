@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace Unity.NetCode.PhysicsInternalAccess
+namespace Unity.Netcode.PhysicsInternalAccess
 {
     internal static class PhysicsStaticInternalAccess
     {

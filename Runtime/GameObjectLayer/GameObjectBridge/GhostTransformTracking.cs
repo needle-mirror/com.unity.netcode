@@ -4,7 +4,7 @@ using Unity.Entities;
 using UnityEngine;
 using UnityEngine.Jobs;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Single access point for tracking lists. This is required because of the way TransformAccessArray works, since it needs an index based access. So we need to manage an entity list

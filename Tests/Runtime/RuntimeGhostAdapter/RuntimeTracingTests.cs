@@ -4,12 +4,12 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.StateSave;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.LowLevel.StateSave;
+using Unity.Netcode.Tracing;
 using Unity.Transforms;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     class RuntimeTracingTests
     {
@@ -25,7 +25,6 @@ namespace Unity.NetCode.Tests
             TracingDataAccess.ResetStaticState();
             TracingDataAccess.Config.Data.AddRequiredTypeToTrace(ComponentType.ReadOnly<LocalTransform>());
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(TypeManager.GetSystemTypeIndex<GhostBehaviourPredictionSystem>());
-            NetCodeConfig.Global.TracingConfig.IgnorePartialTicks = false;
 
             await testWorld.ConnectAsync(enableGhostReplication: true);
 
@@ -72,6 +71,8 @@ namespace Unity.NetCode.Tests
             foreach (var kvp in diffInfo.AggregatesRO)
             {
                 var reasons = kvp.Key.Reasons;
+                // PartialTick only tags expected partial-tick mismatches, it's not a divergence by itself.
+                reasons &= ~DiffInfo.DiffReasons.PartialTick;
                 if ((reasons & DiffInfo.DiffReasons.ComponentData) != 0 && !(kvp.Value > epsilon))
                     reasons &= ~DiffInfo.DiffReasons.ComponentData;
                 Assert.That(reasons, Is.EqualTo(DiffInfo.DiffReasons.Undefined), $"{worldName} has a diff above epsilon: {kvp.Key} amount:{kvp.Value:E3}");

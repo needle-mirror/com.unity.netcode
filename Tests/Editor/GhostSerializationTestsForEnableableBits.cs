@@ -4,10 +4,11 @@ using System.Reflection;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     /// <summary>
     /// Used to test different baked values.

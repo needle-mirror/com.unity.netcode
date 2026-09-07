@@ -3,14 +3,14 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Networking.Transport;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     ///     Contains a single, discrete 'NetworkConnection' connect / disconnect event.
     ///     For more details, refer to <see cref="NetworkStreamDriver.ConnectionEventsForTick"/>.
     /// </summary>
     [DebuggerDisplay("{ToFixedString()}")]
-    public struct NetCodeConnectionEvent
+    public struct NetcodeConnectionEvent
     {
         /// <summary>
         ///     The <see cref="NetworkId" /> of the client whom this event was raised on the behalf of.

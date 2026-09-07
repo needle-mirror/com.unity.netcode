@@ -4,7 +4,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// System group where it's safe to access and destroy a Netcode tracked GameObject from a system. Underlying entity should be spawned, ghost fields should be up to date with snapshot values

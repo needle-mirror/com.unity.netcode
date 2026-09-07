@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using NUnit.Framework;
 
-namespace Unity.NetCode.GeneratorTests
+namespace Unity.Netcode.GeneratorTests
 {
     class BaseTest
     {

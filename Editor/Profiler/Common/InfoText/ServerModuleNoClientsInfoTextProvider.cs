@@ -1,6 +1,6 @@
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Info text provider shown in the server module when profiling a Server or Dedicated Server build

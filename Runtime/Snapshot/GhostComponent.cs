@@ -2,8 +2,9 @@ using Unity.Entities;
 using Unity.Collections;
 using System;
 using Unity.Burst;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -67,6 +68,7 @@ namespace Unity.NetCode
     /// Component signaling an entity which is replicated over the network
     /// </summary>
     [DontSupportPrefabOverrides]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostInstance : IComponentData, IEquatable<GhostInstance>
     {
         /// <summary>
@@ -128,6 +130,7 @@ namespace Unity.NetCode
     /// A tag added to child entities in a ghost with multiple entities. It should also be added to ghosts in a group if the ghost is not the root of the group.
     /// </summary>
     [DontSupportPrefabOverrides]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostChildEntity : IComponentData
     {}
 
@@ -136,6 +139,7 @@ namespace Unity.NetCode
     /// </summary>
     [DontSupportPrefabOverrides]
     [Serializable]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostType : IComponentData,
         IEquatable<GhostType>
     {
@@ -285,6 +289,7 @@ namespace Unity.NetCode
     /// even if they have the same archetype (regardless of component data).
     /// </summary>
     [DontSupportPrefabOverrides]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostTypePartition : ISharedComponentData
     {
         /// <summary>
@@ -302,6 +307,7 @@ namespace Unity.NetCode
     /// <seealso cref="GhostMode"/>
     /// <seealso cref="GhostModeMask"/>
     [DontSupportPrefabOverrides]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PredictedGhost : IComponentData
     {
         /// <summary>
@@ -361,6 +367,7 @@ namespace Unity.NetCode
     /// you can implement a custom spawn classification system. See <see cref="GhostSpawnClassificationSystem"/> for further details.
     /// </para>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PredictedGhostSpawnRequest : IComponentData, IEnableableComponent
     {
     }
@@ -373,6 +380,7 @@ namespace Unity.NetCode
     /// Note: If you query for <see cref="GhostInstance"/>'s without excluding this component, your query will return placeholder
     /// ghosts (unless manually excluded).
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PendingSpawnPlaceholder : IComponentData
     {
     }
@@ -380,6 +388,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Utility methods for working with GhostComponents.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class GhostComponentUtilities
     {
         /// <summary>

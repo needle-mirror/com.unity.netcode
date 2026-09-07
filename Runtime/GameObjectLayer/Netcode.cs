@@ -5,15 +5,16 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
 using UnityEngine;
-using static Unity.NetCode.NetCodeConfig.HostWorldMode;
+using static Unity.Netcode.NetcodeConfig.HostWorldMode;
 
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Main point of access to Netcode APIs. All global calls and configuration should be available from here.
@@ -35,7 +36,7 @@ namespace Unity.NetCode
         {
             get
             {
-                var activeWorld = (NetcodeWorld)ClientServerBootstrap.ClientWorld;
+                var activeWorld = ClientServerBootstrap.ClientWorld;
                 return activeWorld.ExistsAndIsCreated() && activeWorld.IsClient() && activeWorld.LocalConnection.GetConnectionState() >= ConnectionState.State.Connecting;
             }
         }
@@ -48,7 +49,7 @@ namespace Unity.NetCode
         {
             get
             {
-                var activeWorld = (NetcodeWorld)ClientServerBootstrap.ServerWorld;
+                var activeWorld = ClientServerBootstrap.ServerWorld;
                 return activeWorld.ExistsAndIsCreated() && activeWorld.IsServer() && activeWorld.Listening();
             }
         }
@@ -175,9 +176,7 @@ namespace Unity.NetCode
 #if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
                     GameObjectsUsed = true,
 #endif
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-                    SingleWorldHostUsed = true,
-#endif
+                    SingleWorldHostUsed = NetcodeConfig.Global.HostWorldModeSelection == NetcodeConfig.HostWorldMode.SingleWorld,
                 };
                 Analytics.NetCodeAnalytics.SendAnalytic(new Analytics.GameObjectBridgeAnalytic(analytics));
             }
@@ -295,15 +294,15 @@ namespace Unity.NetCode
         // These seem trivial but they are overriden in NetcodeTestWorld so that they can be cleaned up automatically in tests
         internal virtual NetcodeWorld CreateServerWorld()
         {
-            return (NetcodeWorld)ClientServerBootstrap.CreateServerWorld("Server");
+            return ClientServerBootstrap.CreateServerWorld("Server");
         }
         internal virtual NetcodeWorld CreateClientWorld()
         {
-            return (NetcodeWorld)ClientServerBootstrap.CreateClientWorld("Client");
+            return ClientServerBootstrap.CreateClientWorld("Client");
         }
         internal virtual NetcodeWorld CreateSingleWorldHost()
         {
-            return (NetcodeWorld)ClientServerBootstrap.CreateSingleWorldHost("Host");
+            return ClientServerBootstrap.CreateSingleWorldHost("Host");
         }
 
 
@@ -312,18 +311,18 @@ namespace Unity.NetCode
             // in order priority get a series of potential worlds to be the default "active world"
             foreach (var serverWorld in ClientServerBootstrap.ServerWorlds)
             {
-                yield return (NetcodeWorld)serverWorld;
+                yield return serverWorld;
             }
 
             foreach (var clientWorld in ClientServerBootstrap.ClientWorlds)
             {
                 if (clientWorld.IsHost()) continue; // we've already covered this world in the first loop
-                yield return (NetcodeWorld)clientWorld;
+                yield return clientWorld;
             }
 
             foreach (var thinClientWorld in ClientServerBootstrap.ThinClientWorlds)
             {
-                yield return (NetcodeWorld)thinClientWorld;
+                yield return thinClientWorld;
             }
         }
 
@@ -332,7 +331,7 @@ namespace Unity.NetCode
         #region Prefabs
 
         /// <inheritdoc cref="PrefabsRegistry.RegisterPrefab" />
-        public static void RegisterPrefab(GameObject prefab, World forWorld)
+        public static void RegisterPrefab(GameObject prefab, NetcodeWorld forWorld)
         {
             PrefabsRegistry.RegisterPrefab(prefab, forWorld);
         }
@@ -394,7 +393,7 @@ namespace Unity.NetCode
         {
             get
             {
-                var netWorld = (NetcodeWorld)ClientServerBootstrap.ClientWorld;
+                var netWorld = ClientServerBootstrap.ClientWorld;
                 if (!netWorld.ExistsAndIsCreated())
                     return default;
                 return netWorld.LocalConnection;
@@ -437,7 +436,7 @@ namespace Unity.NetCode
         /// NetworkEndpoint.LoopbackIpv4.WithPort(8888); // will connect to 127.0.0.1:8888 (local connection)
         /// NetworkEndpoint.Parse("123.123.123.123", 1234); // will connect to 123.123.123.123:1234
         /// </code>
-        /// To specify connection timeouts, see <see cref="NetCodeConfig.MaxConnectAttempts"/> and <see cref="NetCodeConfig.ConnectTimeoutMS"/>
+        /// To specify connection timeouts, see <see cref="NetcodeConfig.MaxConnectAttempts"/> and <see cref="NetcodeConfig.ConnectTimeoutMS"/>
         /// </summary>
         /// <remarks>
         /// You can override driver creation using <see cref="INetworkStreamDriverConstructor"/> and assign it to <see cref="NetworkStreamReceiveSystem.DriverConstructor"/>.
@@ -448,7 +447,7 @@ namespace Unity.NetCode
         {
             // We don't override the driver constructor to let users override that themselves. We just use whatever is there.
             using var a = new TemporarilyDisableAutoConnect();
-            var world = ClientServerBootstrap.ClientWorld as NetcodeWorld;
+            var world = ClientServerBootstrap.ClientWorld;
             if (!world.ExistsAndIsCreated())
             {
                 world = Instance.CreateClientWorld();
@@ -472,7 +471,7 @@ namespace Unity.NetCode
         public static bool Listen(NetworkEndpoint endpoint)
         {
             using var a = new TemporarilyDisableAutoConnect();
-            var world = ClientServerBootstrap.ServerWorld as NetcodeWorld;
+            var world = ClientServerBootstrap.ServerWorld;
             if (!world.ExistsAndIsCreated())
             {
                 world = Instance.CreateServerWorld();
@@ -482,28 +481,23 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Starts a server for client hosting. This will start listening for connections while also having a local client.
-        /// The default is a single world, but this can be configured to use a <see cref="NetCodeConfig.HostWorldMode.BinaryWorlds"/> setup.
+        /// The default is a single world, but this can be configured to use a <see cref="NetcodeConfig.HostWorldMode.BinaryWorlds"/> setup.
         /// Accepts a <see cref="NetworkEndpoint"/> which can be created like this
         /// <code>
         /// NetworkEndpoint.AnyIpv4.WithPort(8888); // will listen on 0.0.0.0:8888
         /// NetworkEndpoint.Parse("123.123.123.123", 1234); // will listen on 123.123.123.123:1234
         /// </code>
         /// </summary>
-        /// <param name="endpoint"></param>
-        /// <param name="hostWorldMode">Creates a single world when in <see cref="NetCodeConfig.HostWorldMode.SingleWorld"/> mode.</param>
+        /// <param name="endpoint">Endpoint to listen on.</param>
+        /// <param name="hostWorldMode">Creates a single world when in <see cref="NetcodeConfig.HostWorldMode.SingleWorld"/> mode.</param>
         /// <remarks>
         /// You can override driver creation using <see cref="INetworkStreamDriverConstructor"/> and assign it to <see cref="NetworkStreamReceiveSystem.DriverConstructor"/>.
         /// </remarks>
         /// <returns>true if successfully listen on specified endpoint. Failure can happen if the port is already used for example.</returns>
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-        public
-#else
-        internal
-#endif
-        static Connection StartAsHost(NetworkEndpoint endpoint, NetCodeConfig.HostWorldMode hostWorldMode = SingleWorld)
+        public static Connection StartAsHost(NetworkEndpoint endpoint, NetcodeConfig.HostWorldMode hostWorldMode = SingleWorld)
         {
             using var a = new TemporarilyDisableAutoConnect();
-            var serverWorld = ClientServerBootstrap.ServerWorld as NetcodeWorld;
+            var serverWorld = ClientServerBootstrap.ServerWorld;
             if (!serverWorld.ExistsAndIsCreated())
             {
                 if (hostWorldMode == SingleWorld)
@@ -526,7 +520,7 @@ namespace Unity.NetCode
                 return serverWorld.LocalConnection;
             }
 
-            var clientWorld = ClientServerBootstrap.ClientWorld as NetcodeWorld;
+            var clientWorld = ClientServerBootstrap.ClientWorld;
             if (!clientWorld.ExistsAndIsCreated())
             {
                 clientWorld = Instance.CreateClientWorld();
@@ -567,7 +561,7 @@ namespace Unity.NetCode
         /// <returns></returns>
         public static bool Listening()
         {
-            var netWorld = (NetcodeWorld)ClientServerBootstrap.ServerWorld;
+            var netWorld = ClientServerBootstrap.ServerWorld;
             if (!netWorld.ExistsAndIsCreated())
                 return false;
             return netWorld.Listening();
@@ -578,7 +572,7 @@ namespace Unity.NetCode
         /// </summary>
         public static void RequestDisconnectFromServer()
         {
-            var netWorld = (NetcodeWorld)ClientServerBootstrap.ClientWorld;
+            var netWorld = ClientServerBootstrap.ClientWorld;
             netWorld.AssertIsClientOnly();
             netWorld.RequestDisconnectFromServer();
         }
@@ -588,7 +582,7 @@ namespace Unity.NetCode
         /// </summary>
         public static void RequestDisconnectAllClients()
         {
-            var netWorld = (NetcodeWorld)ClientServerBootstrap.ServerWorld;
+            var netWorld = ClientServerBootstrap.ServerWorld;
             netWorld.AssertIsServer();
             netWorld.RequestDisconnectAllClients();
         }

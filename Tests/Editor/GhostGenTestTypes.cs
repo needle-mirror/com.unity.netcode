@@ -7,7 +7,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     // This test class is coupled with GhostGenTestUtils, which holds the types used
     internal class GhostGenTestTypes

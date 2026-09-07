@@ -3,14 +3,16 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Networking.Transport;
+using UnityEngine.Scripting.APIUpdating;
 using Debug = UnityEngine.Debug;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Am singleton entity returned by the <see cref="DriverMigrationSystem.StoreWorld"/>
     /// that can be used to load a previously stored driver state into another world.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct MigrationTicket : IComponentData
     {
         /// <summary>
@@ -26,6 +28,7 @@ namespace Unity.NetCode
     /// </summary>
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class DriverMigrationSystem : SystemBase
     {
         /// <summary>
@@ -93,7 +96,7 @@ namespace Unity.NetCode
         /// <param name="sourceWorld">The world we want to store.</param>
         /// <remarks>Only entities with the type `NetworkStreamConnection` are migrated over to the new World.</remarks>
         /// <returns>A ticket that can be used to retrieve the stored NetworkDriver data.</returns>
-        public int StoreWorld(World sourceWorld)
+        public int StoreWorld(NetcodeWorld sourceWorld)
         {
             var ticket = ++m_TicketCounter;
 
@@ -127,7 +130,7 @@ namespace Unity.NetCode
         /// <returns>A prepared world that is ready to have its systems added.</returns>
         /// <remarks>This function needs to be called before any systems are initialized on the world we want to migrate to.</remarks>
         /// <exception cref="ArgumentException">Is thrown incase a invalid world is supplied. Only Netcode worlds work.</exception>
-        public World LoadWorld(int ticket, World newWorld = null)
+        public NetcodeWorld LoadWorld(int ticket, NetcodeWorld newWorld = null)
         {
             if (driverMap.TryGetValue(ticket, out var driver))
             {

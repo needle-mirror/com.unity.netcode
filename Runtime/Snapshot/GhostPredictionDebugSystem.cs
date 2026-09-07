@@ -1,17 +1,19 @@
 using Unity.Assertions;
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Mathematics;
 using Unity.Transforms;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
 #if UNITY_EDITOR || NETCODE_DEBUG
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
@@ -19,6 +21,7 @@ namespace Unity.NetCode
     [UpdateBefore(typeof(GhostPredictionSmoothingSystem))]
     [UpdateBefore(typeof(GhostPredictionHistorySystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe partial struct GhostPredictionDebugSystem : ISystem
     {
         NativeList<float> m_PredictionErrors;

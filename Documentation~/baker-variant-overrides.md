@@ -2,14 +2,14 @@
 
 Use `GhostVariantBakedOverride` to set per-component overrides at baking time.
 
-[`GhostVariantBakedOverride`](xref:Unity.NetCode.GhostVariantBakedOverride) is a baking-only buffer you can use to set the same per-component overrides as [`GhostAuthoringInspectionComponent`](xref:Unity.NetCode.GhostAuthoringInspectionComponent) (variant, `GhostPrefabType`, `GhostSendType`) directly from a baker without adding an inspection component to the GameObject.
+[`GhostVariantBakedOverride`](xref:Unity.Netcode.GhostVariantBakedOverride) is a baking-only buffer you can use to set the same per-component overrides as [`GhostAuthoringInspectionComponent`](xref:Unity.Netcode.GhostAuthoringInspectionComponent) (variant, `GhostPrefabType`, `GhostSendType`) directly from a baker without adding an inspection component to the GameObject.
 
 For more information about baking, refer to the [Baking overview](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/baking-overview.html) in the Unity Entities documentation.
 
 
 ## Usage
 
-From a baker, add the `GhostVariantBakedOverride` buffer to your primary entity and append entries using the extension methods on [`GhostVariantOverrideBakerExtensions`](xref:Unity.NetCode.GhostVariantOverrideBakerExtensions):
+From a baker, add the `GhostVariantBakedOverride` buffer to your primary entity and append entries using the extension methods on [`GhostVariantOverrideBakerExtensions`](xref:Unity.Netcode.GhostVariantOverrideBakerExtensions):
 
 ```c#
 public class MyAuthoringBaker : Baker<MyAuthoring>
@@ -39,7 +39,7 @@ To retarget (for example, when a child baker needs to override a component on th
 overrides.AppendDontSerializeOverride(typeof(LocalTransform), targetGameObject: rootGo);
 ```
 
-Unity Entities baking forbids cross-baker writes to the same primary entity, so the buffer must always be associated with the baker's primary entity even when retargeting elsewhere. The aggregator in [`GhostAuthoringBakingSystem`](xref:Unity.NetCode.GhostAuthoringBakingSystem) reads the linked entity group at bake time and routes each entry to its declared target.
+Unity Entities baking forbids cross-baker writes to the same primary entity, so the buffer must always be associated with the baker's primary entity even when retargeting elsewhere. The aggregator in [`GhostAuthoringBakingSystem`](xref:Unity.Netcode.GhostAuthoringBakingSystem) reads the linked entity group at bake time and routes each entry to its declared target.
 
 ## Precedence
 
@@ -57,5 +57,5 @@ An inspection component override always takes precedence over a package-supplied
 ## Additional resources
 
 * [Creating replication schemas with `GhostComponentVariationAttribute`](ghost-variants.md)
-* [`GhostVariantBakedOverride` API documentation](xref:Unity.NetCode.GhostVariantBakedOverride)
-* [`GhostVariantOverrideBakerExtensions` API documentation](xref:Unity.NetCode.GhostVariantOverrideBakerExtensions)
+* [`GhostVariantBakedOverride` API documentation](xref:Unity.Netcode.GhostVariantBakedOverride)
+* [`GhostVariantOverrideBakerExtensions` API documentation](xref:Unity.Netcode.GhostVariantOverrideBakerExtensions)

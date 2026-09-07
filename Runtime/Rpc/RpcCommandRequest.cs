@@ -9,8 +9,9 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -25,13 +26,11 @@ namespace Unity.NetCode
     public struct ReceiveRpcCommandRequestComponent : IComponentData
     {}
 
+    // TODO-now rename this? Refactor this for RPCs?
     /// <summary>
     /// Specifies which targets an RPC should be broadcast to.
     /// </summary>
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-    public
-#endif
-    enum RpcBroadcastTargets
+    public enum RpcBroadcastTargets
     {
         /// <summary>
         /// Sends an RPC to all remote connections.
@@ -56,6 +55,7 @@ namespace Unity.NetCode
     /// <summary>
     /// A component used to signal that an RPC is supposed to be sent to a remote connection and should *not* be processed.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SendRpcCommandRequest : IComponentData
     {
         /// <summary>
@@ -66,16 +66,12 @@ namespace Unity.NetCode
         /// <summary>
         /// Specifies which targets an RPC should be broadcast to. Refer to <see cref="RpcBroadcastTargets"/> for details. Defaults to <see cref="RpcBroadcastTargets.All"/>.
         /// </summary>
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-        public
-#else
-        internal
-#endif
-        RpcBroadcastTargets BroadcastTargets;
+        public RpcBroadcastTargets BroadcastTargets;
     }
     /// <summary>
     /// A component used to signal that an RPC has been received from a remote connection and should be processed.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ReceiveRpcCommandRequest : IComponentData
     {
         /// <summary>
@@ -124,6 +120,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(RpcSystem))]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class RpcCommandRequestSystemGroup : ComponentSystemGroup
     {
         EntityQuery m_Query;
@@ -145,6 +142,7 @@ namespace Unity.NetCode
     /// </summary>
     /// <typeparam name="TActionSerializer">Unmanaged type of <see cref="IRpcCommandSerializer{TActionRequest}"/></typeparam>
     /// <typeparam name="TActionRequest">Unmanaged type of <see cref="IComponentData"/></typeparam>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct RpcCommandRequest<TActionSerializer, TActionRequest>
         where TActionRequest : unmanaged, IComponentData
         where TActionSerializer : unmanaged, IRpcCommandSerializer<TActionRequest>
@@ -189,7 +187,7 @@ namespace Unity.NetCode
             internal byte isServer;
             internal byte isHost;
             internal FixedString128Bytes worldName;
-            internal NativeArray<NetCodeConnectionEvent>.ReadOnly connectionEventsForTick;
+            internal NativeArray<NetcodeConnectionEvent>.ReadOnly connectionEventsForTick;
             [ReadOnly] internal NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly ghostMap;
 
             // Process all send requests
@@ -213,7 +211,7 @@ namespace Unity.NetCode
                         if (!AnyDisconnectEvents(connectionEventsForTick))
                             netDebug.LogWarning(msg);
                         else netDebug.DebugLog(msg);
-                        static bool AnyDisconnectEvents(NativeArray<NetCodeConnectionEvent>.ReadOnly eventsForTickLocal)
+                        static bool AnyDisconnectEvents(NativeArray<NetcodeConnectionEvent>.ReadOnly eventsForTickLocal)
                         {
                             foreach (var evt in eventsForTickLocal)
                                 if (evt.State == ConnectionState.State.Disconnected)
@@ -282,7 +280,7 @@ namespace Unity.NetCode
                             netDebug.LogError(msg);
 #endif
                         return;
-                    
+
                     }
                     // TODO - If cleanup components are removed (and/or structural changes disallowed),
                     // add error if you assign an incorrect Entity to the TargetConnection by checking entityExists.
@@ -317,11 +315,11 @@ namespace Unity.NetCode
     #endif
                         return;
                     }
-                    
+
                     VerifyAndScheduleRpcToQueue(connectionEntity, isBroadcast, action, networkStreamConnection, buffer);
                 }
             }
-            
+
             private void VerifyAndScheduleRpcToQueue<T>(Entity connectionEntity, bool isBroadcast, TActionRequest action, NetworkStreamConnection networkStreamConnection, DynamicBuffer<T> buffer) where T : unmanaged, IBufferElementData
             {
                 var isHandshakeOrApproval = networkStreamConnection.IsHandshakeOrApproval;

@@ -6,8 +6,9 @@ using Unity.Entities;
 using Unity.Networking.Transport;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// ClientServerBootstrap is responsible for configuring and creating the server and client worlds at runtime when
@@ -26,6 +27,7 @@ namespace Unity.NetCode
     /// We provide suppressible error warnings for this case via `WarnAboutApplicationRunInBackground`.
     /// </remarks>
     [UnityEngine.Scripting.Preserve]
+    [MovedFrom(true, "Unity.NetCode")]
     public class ClientServerBootstrap : ICustomBootstrap
     {
         /// <summary>
@@ -39,31 +41,31 @@ namespace Unity.NetCode
         /// A reference to the server world, assigned during the default server world creation. If there
         /// were multiple worlds created this will be the first one.
         /// </summary>
-        public static World ServerWorld => ServerWorlds != null && ServerWorlds.Count > 0 && ServerWorlds[0].IsCreated ? ServerWorlds[0] : null;
+        public static NetcodeWorld ServerWorld => ServerWorlds != null && ServerWorlds.Count > 0 && ServerWorlds[0].IsCreated ? ServerWorlds[0] : null;
 
         /// <summary>
         /// A reference to the client world, assigned during the default client world creation. If there
         /// were multiple worlds created this will be the first one.
         /// </summary>
-        public static World ClientWorld => ClientWorlds != null && ClientWorlds.Count > 0 && ClientWorlds[0].IsCreated ? ClientWorlds[0] : null;
+        public static NetcodeWorld ClientWorld => ClientWorlds != null && ClientWorlds.Count > 0 && ClientWorlds[0].IsCreated ? ClientWorlds[0] : null;
 
         /// <summary>
         /// A list of all server worlds created during the default creation flow. If this type of world
         /// is created manually (i.e. not via the bootstrap APIs), then this list needs to be manually populated.
         /// </summary>
-        public static List<World> ServerWorlds => ClientServerTracker.ServerWorlds;
+        public static List<NetcodeWorld> ServerWorlds => ClientServerTracker.ServerWorlds;
 
         /// <summary>
         /// A list of all client worlds (excluding thin client worlds!) created during the default creation flow. If this type of world
         /// is created manually (i.e. not via the bootstrap APIs), then this list needs to be manually populated.
         /// </summary>
-        public static List<World> ClientWorlds => ClientServerTracker.ClientWorlds;
+        public static List<NetcodeWorld> ClientWorlds => ClientServerTracker.ClientWorlds;
 
         /// <summary>
         /// A list of all thin client worlds created during the default creation flow. If this type of world
         /// is created manually  (i.e. not via the bootstrap APIs), then this list needs to be manually populated.
         /// </summary>
-        public static List<World> ThinClientWorlds => ClientServerTracker.ThinClientWorlds;
+        public static List<NetcodeWorld> ThinClientWorlds => ClientServerTracker.ThinClientWorlds;
 
         private static int s_NextThinClientId;
 
@@ -210,8 +212,8 @@ namespace Unity.NetCode
             var automaticNetcodeBootstrap = DiscoverAutomaticNetcodeBootstrap(logNonErrors);
             var automaticBootstrapSettingValue = automaticNetcodeBootstrap
                 ? automaticNetcodeBootstrap.ForceAutomaticBootstrapInScene
-                : (NetCodeConfig.Global ? NetCodeConfig.Global.EnableClientServerBootstrap : NetCodeConfig.AutomaticBootstrapSetting.EnableAutomaticBootstrap);
-            return automaticBootstrapSettingValue == NetCodeConfig.AutomaticBootstrapSetting.EnableAutomaticBootstrap;
+                : (NetcodeConfig.Global ? NetcodeConfig.Global.EnableClientServerBootstrap : NetcodeConfig.AutomaticBootstrapSetting.EnableAutomaticBootstrap);
+            return automaticBootstrapSettingValue == NetcodeConfig.AutomaticBootstrapSetting.EnableAutomaticBootstrap;
         }
 
         /// <summary>
@@ -221,13 +223,12 @@ namespace Unity.NetCode
         /// </summary>
         protected virtual void CreateDefaultClientServerWorlds()
         {
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-            if (NetCodeConfig.Global != null && NetCodeConfig.Global.HostWorldModeSelection == NetCodeConfig.HostWorldMode.SingleWorld && RequestedPlayType == PlayType.ClientAndServer)
+            var hostWorldMode = NetcodeConfig.Global != null ? NetcodeConfig.Global.HostWorldModeSelection : NetcodeConfig.HostWorldMode.SingleWorld;
+            if (hostWorldMode == NetcodeConfig.HostWorldMode.SingleWorld && RequestedPlayType == PlayType.ClientAndServer)
             {
                 CreateSingleWorldHost("HostWorld");
             }
             else
-#endif
             {
                 if (RequestedPlayType == PlayType.Server || RequestedPlayType == PlayType.ClientAndServer)
                     CreateServerWorld("ServerWorld");
@@ -249,14 +250,14 @@ namespace Unity.NetCode
         /// to add new clients dynamically.
         /// </summary>
         /// <returns>Newly created thin client world instance.</returns>
-        public static World CreateThinClientWorld()
+        public static NetcodeWorld CreateThinClientWorld()
         {
             return CreateThinClientWorld("");
         }
 
         /// <param name="name">Name for the thin client world.</param>
         /// <inheritdoc cref="CreateThinClientWorld()"/>
-        public static World CreateThinClientWorld(string name)
+        public static NetcodeWorld CreateThinClientWorld(string name)
         {
             // in order to not create breaking changes, we can't just add an optional param for the name, we need to create overloads
             var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ThinClientSimulation);
@@ -265,7 +266,7 @@ namespace Unity.NetCode
 
         /// <param name="systems">List of systems to be included.</param>
         /// <inheritdoc cref="CreateThinClientWorld()"/>
-        public static World CreateThinClientWorld(NativeList<SystemTypeIndex> systems)
+        public static NetcodeWorld CreateThinClientWorld(NativeList<SystemTypeIndex> systems)
         {
             return CreateThinClientWorld(systems, "");
         }
@@ -273,7 +274,7 @@ namespace Unity.NetCode
         /// <param name="systems">List of systems to be included.</param>
         /// <param name="name">Name for the thin client world.</param>
         /// <inheritdoc cref="CreateThinClientWorld()"/>
-        public static World CreateThinClientWorld(NativeList<SystemTypeIndex> systems, string name)
+        public static NetcodeWorld CreateThinClientWorld(NativeList<SystemTypeIndex> systems, string name)
         {
             // in order to not create breaking changes, we can't just add an optional param for the name, we need to create overloads
 #if UNITY_SERVER && !UNITY_EDITOR
@@ -293,13 +294,8 @@ namespace Unity.NetCode
             return world;
         }
 
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
         /// <inheritdoc cref="CreateSingleWorldHost(string,Unity.Collections.NativeList{Unity.Entities.SystemTypeIndex})"/>
-        public static World CreateSingleWorldHost(string name)
-#else
-        internal static World CreateSingleWorldHost(string name)
-
-#endif
+        public static NetcodeWorld CreateSingleWorldHost(string name)
         {
             var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.Presentation);
             return CreateSingleWorldHost(name, systems);
@@ -310,12 +306,10 @@ namespace Unity.NetCode
         /// Can be used in custom implementations of `Initialize` as well as at runtime,
         /// to add new clients dynamically.
         /// </summary>
-        /// <returns></returns>
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-        public static World CreateSingleWorldHost(string name, NativeList<SystemTypeIndex> systems)
-#else
-        internal static World CreateSingleWorldHost(string name, NativeList<SystemTypeIndex> systems)
-#endif
+        /// <param name="name">The host world name.</param>
+        /// <param name="systems">List of systems to be included.</param>
+        /// <returns>Newly created host world instance.</returns>
+        public static NetcodeWorld CreateSingleWorldHost(string name, NativeList<SystemTypeIndex> systems)
         {
 #if (UNITY_CLIENT || UNITY_SERVER) && !UNITY_EDITOR
                 throw new NotImplementedException();
@@ -338,7 +332,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="name">The client world name</param>
         /// <returns>Client world instance.</returns>
-        public static World CreateClientWorld(string name)
+        public static NetcodeWorld CreateClientWorld(string name)
         {
             var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.Presentation);
             return CreateClientWorld(name, systems);
@@ -347,7 +341,7 @@ namespace Unity.NetCode
         /// <param name="name">The client world name</param>
         /// <param name="systems">List of systems to be included.</param>
         /// <inheritdoc cref="CreateClientWorld(string)"/>
-        public static World CreateClientWorld(string name, NativeList<SystemTypeIndex> systems)
+        public static NetcodeWorld CreateClientWorld(string name, NativeList<SystemTypeIndex> systems)
         {
 #if UNITY_SERVER && !UNITY_EDITOR
             throw new PlatformNotSupportedException("This executable was built using a 'server-only' build target (likely DGS). Thus, cannot create client worlds.");
@@ -417,10 +411,11 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Returns true if user code has specified both an <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/> set.
+        /// Returns true if a non-zero <see cref="AutoConnectPort"/> and a valid <see cref="DefaultConnectAddress"/> are set.
+        /// Both have valid defaults, so this is true unless a custom bootstrap overrides them.
         /// </summary>
         /// <param name="autoConnectEp">The resulting combined <see cref="NetworkEndpoint"/>.</param>
-        /// <returns>True if user code has specified both an <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.</returns>
+        /// <returns>True if a non-zero <see cref="AutoConnectPort"/> and a valid <see cref="DefaultConnectAddress"/> are set.</returns>
         public static bool HasDefaultAddressAndPortSet(out NetworkEndpoint autoConnectEp)
         {
             if (AutoConnectPort != 0 && DefaultConnectAddress != NetworkEndpoint.AnyIpv4)
@@ -440,7 +435,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="name">The server world name.</param>
         /// <returns>Server world instance.</returns>
-        public static World CreateServerWorld(string name)
+        public static NetcodeWorld CreateServerWorld(string name)
         {
             var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ServerSimulation);
             return CreateServerWorld(name, systems);
@@ -448,7 +443,7 @@ namespace Unity.NetCode
 
         /// <param name="systems">List of systems to be included.</param>
         /// <inheritdoc cref="CreateServerWorld(string)"/>
-        public static World CreateServerWorld(string name, NativeList<SystemTypeIndex> systems)
+        public static NetcodeWorld CreateServerWorld(string name, NativeList<SystemTypeIndex> systems)
         {
 #if UNITY_CLIENT && !UNITY_SERVER && !UNITY_EDITOR
             throw new PlatformNotSupportedException("This executable was built using a 'client-only' build target. Thus, cannot create a server world. In your ProjectSettings, change your 'Client Build Target' to `ClientAndServer` to support creating client-hosted servers.");
@@ -467,13 +462,14 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// The default port to use for auto connection. The default value is zero, which means do not auto connect.
+        /// The port used for auto connection. Defaults to 7979, which means auto connection is enabled by default.
+        /// Set this to 0 (in a custom bootstrap, before creating your worlds) to disable auto connection.
         /// If this is set to a valid port, any call to `CreateClientWorld` - including `CreateDefaultWorlds` and `Initialize` -
         /// will try to connect to the specified port and address, assuming `DefaultConnectAddress` is valid.
         /// Any call to `CreateServerWorld` - including `CreateDefaultWorlds` and `Initialize` - will listen on the specified
         /// port and listen address.
         /// </summary>
-        public static ushort AutoConnectPort = 0;
+        public static ushort AutoConnectPort = 7979;
         /// <summary>
         /// <para>The default address to connect to when using auto connect (`AutoConnectPort` is not zero).
         /// If this value is `NetworkEndPoint.AnyIpv4` auto connect will not be used, even if the port is specified.
@@ -575,14 +571,14 @@ namespace Unity.NetCode
 
         static class ClientServerTracker
         {
-            internal static List<World> ServerWorlds;
-            internal static List<World> ClientWorlds;
-            internal static List<World> ThinClientWorlds;
+            internal static List<NetcodeWorld> ServerWorlds;
+            internal static List<NetcodeWorld> ClientWorlds;
+            internal static List<NetcodeWorld> ThinClientWorlds;
             static ClientServerTracker()
             {
-                ServerWorlds = new List<World>();
-                ClientWorlds = new List<World>();
-                ThinClientWorlds = new List<World>();
+                ServerWorlds = new List<NetcodeWorld>();
+                ClientWorlds = new List<NetcodeWorld>();
+                ThinClientWorlds = new List<NetcodeWorld>();
             }
 
             internal static void Clear()
@@ -599,7 +595,7 @@ namespace Unity.NetCode
         /// then all <see cref="ThinClientWorlds"/>).
         /// </summary>
         /// <returns>An IEnumerable.</returns>
-        public static IEnumerable<World> AllNetCodeWorldsEnumerator()
+        public static IEnumerable<NetcodeWorld> AllNetCodeWorldsEnumerator()
         {
             foreach (var server in ServerWorlds)
                 yield return server;
@@ -611,7 +607,7 @@ namespace Unity.NetCode
         /// then all <see cref="ThinClientWorlds"/>.
         /// </summary>
         /// <returns>An IEnumerable.</returns>
-        public static IEnumerable<World> AllClientWorldsEnumerator()
+        public static IEnumerable<NetcodeWorld> AllClientWorldsEnumerator()
         {
             foreach (var client in ClientWorlds)
                 yield return client;
@@ -636,6 +632,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Netcode-specific extension methods for worlds.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class ClientServerWorldExtensions
     {
         /// <summary>
@@ -700,23 +697,23 @@ namespace Unity.NetCode
         /// <returns>Whether <paramref name="world"/> is a client+server world.</returns>
         public static bool IsHost(this World world)
         {
-            return IsClient(world) && IsServer(world);
+            return world.IsClient() && world.IsServer();
         }
 
         /// <inheritdoc cref="IsHost(World)"/>
         public static bool IsHost(this WorldUnmanaged world)
         {
-            return IsClient(world) && IsServer(world);
+            return world.IsClient() && world.IsServer();
         }
 
         internal static bool IsNetcode(this World world)
         {
-            return IsClient(world) || IsServer(world) || IsThinClient(world);
+            return world.IsClient() || world.IsServer() || world.IsThinClient();
         }
 
         internal static bool IsNetcode(this WorldUnmanaged world)
         {
-            return IsClient(world) || IsServer(world) || IsThinClient(world);
+            return world.IsClient() || world.IsServer() || world.IsThinClient();
         }
     }
 
@@ -742,7 +739,7 @@ namespace Unity.NetCode
             var predictionGroup = state.World.GetExistingSystemManaged<PredictedSimulationSystemGroup>();
             predictionGroup.RateManager = new NetcodeServerPredictionRateManager(predictionGroup);
             ++ClientServerBootstrap.WorldCounts.Data.serverWorlds;
-            ClientServerBootstrap.ServerWorlds.Add(state.World);
+            ClientServerBootstrap.ServerWorlds.Add((NetcodeWorld)state.World);
             if (ClientServerBootstrap.WillServerAutoListen)
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Listen(ClientServerBootstrap.DefaultListenAddress.WithPort(ClientServerBootstrap.AutoConnectPort));
@@ -758,7 +755,7 @@ namespace Unity.NetCode
                 return;
 
             --ClientServerBootstrap.WorldCounts.Data.serverWorlds;
-            ClientServerBootstrap.ServerWorlds.Remove(state.World);
+            ClientServerBootstrap.ServerWorlds.Remove((NetcodeWorld)state.World);
 
             Netcode.SetSuccessorActiveWorld((NetcodeWorld)state.World);
         }
@@ -786,7 +783,7 @@ namespace Unity.NetCode
             predictionGroup.SetRateManagerCreateAllocator(new NetcodeClientPredictionRateManager(predictionGroup));
 
             ++ClientServerBootstrap.WorldCounts.Data.clientWorlds;
-            ClientServerBootstrap.ClientWorlds.Add(state.World);
+            ClientServerBootstrap.ClientWorlds.Add((NetcodeWorld)state.World);
             if (ClientServerBootstrap.TryFindAutoConnectEndPoint(out var autoConnectEp))
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(state.EntityManager, autoConnectEp);
@@ -800,7 +797,7 @@ namespace Unity.NetCode
                 return;
 
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
-            ClientServerBootstrap.ClientWorlds.Remove(state.World);
+            ClientServerBootstrap.ClientWorlds.Remove((NetcodeWorld)state.World);
 
             Netcode.SetSuccessorActiveWorld((NetcodeWorld)state.World);
         }
@@ -841,8 +838,8 @@ namespace Unity.NetCode
         public void OnDestroy(ref SystemState state)
         {
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
-            ClientServerBootstrap.ThinClientWorlds.Remove(state.World);
-            AutomaticThinClientWorldsUtility.AutomaticallyManagedWorlds.Remove(state.World);
+            ClientServerBootstrap.ThinClientWorlds.Remove((NetcodeWorld)state.World);
+            AutomaticThinClientWorldsUtility.AutomaticallyManagedWorlds.Remove((NetcodeWorld)state.World);
             Netcode.SetSuccessorActiveWorld((NetcodeWorld)state.World);
         }
     }
@@ -874,8 +871,8 @@ namespace Unity.NetCode
 
             ++ClientServerBootstrap.WorldCounts.Data.serverWorlds;
             ++ClientServerBootstrap.WorldCounts.Data.clientWorlds;
-            ClientServerBootstrap.ServerWorlds.Add(state.World);
-            ClientServerBootstrap.ClientWorlds.Add(state.World);
+            ClientServerBootstrap.ServerWorlds.Add((NetcodeWorld)state.World);
+            ClientServerBootstrap.ClientWorlds.Add((NetcodeWorld)state.World);
 
             state.Enabled = false;
 
@@ -895,8 +892,8 @@ namespace Unity.NetCode
 
             --ClientServerBootstrap.WorldCounts.Data.serverWorlds;
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
-            ClientServerBootstrap.ServerWorlds.Remove(state.World);
-            ClientServerBootstrap.ClientWorlds.Remove(state.World);
+            ClientServerBootstrap.ServerWorlds.Remove((NetcodeWorld)state.World);
+            ClientServerBootstrap.ClientWorlds.Remove((NetcodeWorld)state.World);
             Netcode.SetSuccessorActiveWorld((NetcodeWorld)state.World);
         }
     }

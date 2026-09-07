@@ -3,8 +3,9 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Networking.Transport;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     ///     The <see cref="EntityCommandBufferSystem" /> at the end of the <see cref="NetworkReceiveSystemGroup" /> that
@@ -14,6 +15,7 @@ namespace Unity.NetCode
                        WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderLast = true)]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class NetworkGroupCommandBufferSystem : EntityCommandBufferSystem
     {
         private EntityQuery m_ConnectionQuery;
@@ -115,7 +117,7 @@ namespace Unity.NetCode
             NativeArray<NetworkStreamConnection> connections = default;
             NativeArray<Entity> entities = default;
             var connectionEvents = networkStreamDriver.ConnectionEventsList;
-            NativeList<NetCodeConnectionEvent> disconnected = new NativeList<NetCodeConnectionEvent>(connectionEvents.Length, Allocator.Temp);
+            NativeList<NetcodeConnectionEvent> disconnected = new NativeList<NetcodeConnectionEvent>(connectionEvents.Length, Allocator.Temp);
             for (var i = 0; i < connectionEvents.Length; i++)
             {
                 ref var connectionEvent = ref connectionEvents.ElementAt(i);
@@ -135,7 +137,7 @@ namespace Unity.NetCode
 
                 if (!TrySetFromConnectionId(connections, entities, connectionEvent.ConnectionId, ref connectionEvent.ConnectionEntity))
                 {
-                    netDebug.LogError($"Unable to find Connection Entity after ECB Playback, for NetCodeConnectionEvent: {connectionEvent.ToFixedString()}! Forced to set to Entity.Null.");
+                    netDebug.LogError($"Unable to find Connection Entity after ECB Playback, for NetcodeConnectionEvent: {connectionEvent.ToFixedString()}! Forced to set to Entity.Null.");
                     connectionEvent.ConnectionEntity = Entity.Null;
                 }
 
@@ -181,7 +183,7 @@ namespace Unity.NetCode
         /// attached to the subscene. When the client connection is disconnected, the toggle needs to be flipped
         /// off, so that if it reconnects another request for prespawn streaming will be sent to the server.
         /// </summary>
-        void StopStreamingPrespawnSubscenes(ref SystemState state, NativeList<NetCodeConnectionEvent> disconnected)
+        void StopStreamingPrespawnSubscenes(ref SystemState state, NativeList<NetcodeConnectionEvent> disconnected)
         {
             if (World.IsClient() && disconnected.Length > 0 && !m_PrespawnSubcenes.IsEmpty)
             {
@@ -200,7 +202,7 @@ namespace Unity.NetCode
         /// Fixes an issue where RPCs may have arrived, but the Network Connection has been closed.
         /// We clean up these 'stale' RPCs so user-code doesn't need to defensively guard all RPC handling logic.
         /// </summary>
-        private void CleanupStaleReceivedRpcs(ref SystemState state, NativeList<NetCodeConnectionEvent> disconnectionEvents, in NetDebug netDebug)
+        private void CleanupStaleReceivedRpcs(ref SystemState state, NativeList<NetcodeConnectionEvent> disconnectionEvents, in NetDebug netDebug)
         {
             if (disconnectionEvents.Length > 0 && !m_RpcRequests.IsEmpty)
             {

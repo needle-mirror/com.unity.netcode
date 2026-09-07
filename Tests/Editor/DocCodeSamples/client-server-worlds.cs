@@ -1,5 +1,5 @@
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 
 namespace DocumentationCodeSamples
 {
@@ -55,7 +55,7 @@ namespace DocumentationCodeSamples
         #endregion
 
         #region WorldMigration
-        public World MigrateWorld(World sourceWorld)
+        public NetcodeWorld MigrateWorld(NetcodeWorld sourceWorld)
         {
             DriverMigrationSystem migrationSystem = default;
             foreach (var world in World.All)

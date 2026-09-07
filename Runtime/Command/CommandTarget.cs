@@ -1,7 +1,8 @@
 using System;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -24,6 +25,7 @@ namespace Unity.NetCode
     /// <remarks>
     /// The target entity must have at least one `ICommandData` component on it.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct CommandTarget : IComponentData
     {
         /// <inheritdoc cref="CommandTarget"/>

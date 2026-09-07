@@ -1,6 +1,6 @@
 using Unity.Entities;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct NetCodePrespawnTag : IComponentData
     {}

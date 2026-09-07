@@ -32,7 +32,7 @@ This means if your ghost B (rolled back) interacts with your ghost C (not rolled
 
 ### Possible mitigations
 
-- Enable [`ClientTickRate.AlwaysRollbackAllPredictedGhosts`](xref:Unity.NetCode.ClientTickRate.AlwaysRollbackAllPredictedGhosts).
+- Enable [`ClientTickRate.AlwaysRollbackAllPredictedGhosts`](xref:Unity.Netcode.ClientTickRate.AlwaysRollbackAllPredictedGhosts).
   - This client-side setting (off by default) is the direct fix for this class of misprediction: whenever any predicted ghost rolls back, every predicted ghost rolls back to the same tick and re-simulates together, so interacting ghosts always share a consistent timeline. The cost is CPU and memory: every predicted ghost re-simulates on every rollback (CPU grows roughly linearly with predicted ghost count), and Netcode retains a multi-tick ring of per-chunk prediction-history backups (sized to the worst-case rollback distance) instead of a single backup. Prefer it when correct inter-ghost interactions matter more than prediction cost; the remaining mitigations are useful when you can't afford that cost.
 - Use [client anticipation](https://docs-multiplayer.unity3d.com/netcode/current/learn/dealing-with-latency/#action-anticipation) instead of prediction.
   - Instead of an action starting instantly, the client waits for the server's confirmation before performing the action (and plays some animation/sound to hide the lag). For example, if a player is the ghost A in the example above and the ball to pickup is the ghost C, then predicting the ball pickup could take an unexpected amount of time to correct if the ball's state arrives only later.

@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
 using NUnit.Framework;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 using UnityEngine.UIElements.TestFramework;
-using Unity.NetCode.Editor.Tracing.UI.TickInspector;
+using Unity.Netcode.Editor.Tracing.UI.TickInspector;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Tests
+namespace Unity.Netcode.Editor.Tracing.UI.Tests
 {
     /// <summary>
     /// Tests for TickInspectorTreeViewItem custom VisualElement.
@@ -97,6 +97,34 @@ namespace Unity.NetCode.Editor.Tracing.UI.Tests
             Assert.That(tags[1].ClassListContains(TickInspectorUssClasses.TreeViewItemDiffTagSelected), Is.True,
                 "a selected reason is marked red");
             Assert.That(tags[1].ClassListContains(TickInspectorUssClasses.TreeViewItemDiffTagDeselected), Is.False);
+        }
+
+        [Test]
+        public void SetNode_Collapsed_ShowsTheSubtreeReasons_ExpandedShowsOnlyItsOwn()
+        {
+            var item = new TickInspectorTreeViewItem();
+            rootVisualElement.Add(item);
+            simulate.FrameUpdate();
+
+            // The row owns SystemOrder; something below it owns ComponentData.
+            var node = new TickInspectorNode
+            {
+                NodeType = TickInspectorNodeType.System,
+                DisplayName = "MovementSystem",
+                HasDiff = true,
+                DiffReasonFlags = DiffInfo.DiffReasons.SystemOrder,
+                InclusiveDiffReasonFlags = DiffInfo.DiffReasons.SystemOrder | DiffInfo.DiffReasons.ComponentData,
+            };
+
+            item.SetNode(node, collapsed: true);
+            simulate.FrameUpdate();
+            Assert.That(VisibleTags(item).ConvertAll(t => t.text), Is.EqualTo(new List<string> { "Component data", "System order" }),
+                "a collapsed row stands in for its hidden children");
+
+            item.SetNode(node);
+            simulate.FrameUpdate();
+            Assert.That(VisibleTags(item).ConvertAll(t => t.text), Is.EqualTo(new List<string> { "System order" }),
+                "once expanded, the child rows carry their own reasons again");
         }
 
         [Test]

@@ -5,18 +5,19 @@
 using System;
 using Unity.Entities;
 using Unity.Collections;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
-using Unity.NetCode.EntitiesInternalAccess;
-using Unity.NetCode.LowLevel;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.LowLevel;
 using Unity.Profiling;
+using UnityEngine.Scripting.APIUpdating;
 using Hash128 = Unity.Entities.Hash128;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A list of ghost prefabs created from code.
@@ -44,6 +45,7 @@ namespace Unity.NetCode
     [CreateAfter(typeof(DefaultVariantSystemGroup))]
     [CreateAfter(typeof(NetDebugSystem))]
     [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct GhostCollectionSystem : ISystem
     {
         struct ComponentHashComparer : IComparer<GhostComponentSerializer.State>
@@ -72,8 +74,20 @@ namespace Unity.NetCode
         private NativeList<PredictionErrorNames> m_PredictionErrorNames;
         private NativeList<FixedString64Bytes> m_GhostNames;
 
+        struct NameSpan
+        {
+            public short Start;
+            public short End;
+
+            public NameSpan(short start, short end)
+            {
+                Start = start;
+                End = end;
+            }
+        }
+
         //Cache all component prediction error names, by parsing the GhostComponentSerializer.State.PredictionErrorName list)
-        private UnsafeList<(short, short)> m_PredictionErrorNamesStartEndCache;
+        private UnsafeList<NameSpan> m_PredictionErrorNamesStartEndCache;
         private NativeList<PendingNameAssignment> m_PendingNameAssignments;
         private int m_currentPredictionErrorNamesCount;
         private int m_currentPredictionErrorCount;
@@ -211,7 +225,7 @@ namespace Unity.NetCode
             m_PredictionErrorNames = new NativeList<PredictionErrorNames>(16, Allocator.Persistent);
             m_GhostNames = new NativeList<FixedString64Bytes>(16, Allocator.Persistent);
             m_PendingNameAssignments = new NativeList<PendingNameAssignment>(256, Allocator.Persistent);
-            m_PredictionErrorNamesStartEndCache = new UnsafeList<(short, short)>(256, Allocator.Persistent);
+            m_PredictionErrorNamesStartEndCache = new UnsafeList<NameSpan>(256, Allocator.Persistent);
 #endif
             m_CustomSerializers = new NativeHashMap<Hash128, GhostPrefabCustomSerializer>(256, Allocator.Persistent);
             m_GhostTypeToGhostCollectionPrefab = new NativeHashMap<GhostType, int>(256, Allocator.Persistent);
@@ -1246,7 +1260,7 @@ Note: GameObject baking with GhostAuthoringComponent handles this automatically.
                     errorName.Append('.');
                     unsafe
                     {
-                        errorName.Append(compState.PredictionErrorNames.GetUnsafePtr() + compStartEnd.Item1, compStartEnd.Item2 - compStartEnd.Item1);
+                        errorName.Append(compState.PredictionErrorNames.GetUnsafePtr() + compStartEnd.Start, compStartEnd.End - compStartEnd.Start);
                     }
                     ++appendIndex;
                 }
@@ -1295,7 +1309,7 @@ Note: GameObject baking with GhostAuthoringComponent handles this automatically.
                     strEnd = strStart;
                     while (strEnd < strLen && serializer.PredictionErrorNames[strEnd] != ',')
                         ++strEnd;
-                    m_PredictionErrorNamesStartEndCache.Add(ValueTuple.Create(strStart, strEnd));
+                    m_PredictionErrorNamesStartEndCache.Add(new NameSpan(strStart, strEnd));
                     strStart = (short)(strEnd + 1);
                 }
                 //Assign the subset of names available. This must be always less or equals

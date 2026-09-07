@@ -2,12 +2,14 @@ using System;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Jobs;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Specify how the ghosts added to the relevancy set should be used.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum GhostRelevancyMode
     {
         /// <summary>
@@ -32,6 +34,7 @@ namespace Unity.NetCode
     /// A connection-ghost pair, used to populate the <see cref="GhostRelevancy"/> set at runtime, by declaring which ghosts are relevant for a given connection.
     /// Behaviour is dependent upon on <see cref="GhostRelevancyMode"/>.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct RelevantGhostForConnection : IEquatable<RelevantGhostForConnection>, IComparable<RelevantGhostForConnection>
     {
         /// <summary>
@@ -90,6 +93,7 @@ namespace Unity.NetCode
     /// <remarks>
     /// Use GhostRelevancy to avoid replicating entities that the player can neither see, nor interact with.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostRelevancy : IComponentData
     {
         internal GhostRelevancy(NativeParallelHashMap<RelevantGhostForConnection, int> set)

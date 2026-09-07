@@ -14,7 +14,7 @@ public class EntityQueryBuilderAnalyzerTests
         const string text = @"
             using Unity.Entities;
             using Unity.Collections;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct TestComponent : IComponentData
             {
@@ -49,7 +49,7 @@ public class EntityQueryBuilderAnalyzerTests
         const string text = @"
             using Unity.Entities;
             using Unity.Collections;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct TestComponent : IComponentData
             {
@@ -77,7 +77,7 @@ public class EntityQueryBuilderAnalyzerTests
         const string text = @"
             using Unity.Entities;
             using Unity.Collections;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct TestComponent : IComponentData
             {
@@ -104,7 +104,7 @@ public class EntityQueryBuilderAnalyzerTests
         const string text = @"
             using Unity.Entities;
             using Unity.Collections;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             public struct TestComponent : IComponentData
             {

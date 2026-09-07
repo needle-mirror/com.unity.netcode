@@ -1,6 +1,6 @@
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Info text provider for Client module in Single World Host mode.

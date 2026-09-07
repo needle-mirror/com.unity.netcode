@@ -1,6 +1,6 @@
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Interface for info text providers that display contextual information in profiler tabs.

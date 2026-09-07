@@ -4,7 +4,7 @@ using Unity.Entities;
 using UnityEngine;
 using Unity.Collections;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     // Most of the code here helps with keeping up to date Netcode.Connection APIs and offer GameObject users way to interact with connection
     // information without having to write ECS queries for it.
@@ -14,7 +14,7 @@ namespace Unity.NetCode
 #if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
     public
 #endif
-    delegate void OnConnectionEventDelegate(Connection connection, NetCodeConnectionEvent connectionEvent);
+    delegate void OnConnectionEventDelegate(Connection connection, NetcodeConnectionEvent connectionEvent);
 
 
     /// <summary>
@@ -38,7 +38,7 @@ namespace Unity.NetCode
         public Entity ConnectionEntity { get; internal set; }
 
         /// <summary>
-        /// The NetworkId associated with this connection. See <see cref="Unity.NetCode.NetworkId"/>
+        /// The NetworkId associated with this connection. See <see cref="Unity.Netcode.NetworkId"/>
         /// </summary>
         public NetworkId NetworkId
         {
@@ -159,9 +159,9 @@ namespace Unity.NetCode
             World.EntityManager.AddComponentData(ConnectionEntity, new NetworkStreamRequestDisconnect(){Reason = reason});
         }
 
-        internal NetCodeConnectionEvent GenerateConnectedEvent()
+        internal NetcodeConnectionEvent GenerateConnectedEvent()
         {
-            return new NetCodeConnectionEvent()
+            return new NetcodeConnectionEvent()
             {
                 ConnectionEntity = this.ConnectionEntity,
                 ConnectionId =
@@ -309,7 +309,7 @@ namespace Unity.NetCode
             {
                 if (!connection.IsValid()) continue;
 
-                var connectionEvent = new NetCodeConnectionEvent()
+                var connectionEvent = new NetcodeConnectionEvent()
                 {
                     ConnectionEntity = connection.ConnectionEntity,
                     Id = connection.NetworkId,

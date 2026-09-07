@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using Unity.Networking.Transport.Utilities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     ///     Presets for the com.unity.transport simulator.
@@ -11,6 +12,7 @@ namespace Unity.NetCode
     /// <seealso cref="AppendBaseSimulatorPresets"/>
     /// <seealso cref="AppendAdditionalMobileSimulatorProfiles"/>
     [Serializable]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SimulatorPreset
     {
         /// <summary>Users can modify simulator preset values directly. This preset is called "custom".</summary>
@@ -215,7 +217,7 @@ namespace Unity.NetCode
         /// <param name="packetJitterMs">Packet jitter in miliseconds</param>
         /// <param name="packetLossPercent">Packet loss in percentage</param>
         /// <param name="tooltip">Tooltip string</param>
-        [Obsolete("Use other constructor. (RemovedAfter 2.0)")]
+        [Obsolete("Use other constructor. (RemovedAfter 2.0)", true)]
         public SimulatorPreset(string name, int packetDelayMs, int packetJitterMs, int packetLossPercent, string tooltip)
             : this(name, packetDelayMs, packetJitterMs, packetLossPercent, 0, tooltip)
         {

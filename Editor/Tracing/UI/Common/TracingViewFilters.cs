@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using Unity.Entities;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     // The active view filters of the tracing tool, evaluated against stored DiffAggregates. Shared by every view.
     internal class TracingViewFilters

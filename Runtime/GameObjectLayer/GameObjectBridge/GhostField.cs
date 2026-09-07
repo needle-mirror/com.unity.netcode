@@ -4,10 +4,10 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs.LowLevel.Unsafe;
 using UnityEngine;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
 using Assert = UnityEngine.Assertions.Assert;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// To support serializing a generic type like ghost vars, in the inspector, we need a few non-generic utilities

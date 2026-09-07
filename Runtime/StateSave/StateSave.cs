@@ -3,20 +3,21 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.StateSave;
 using Unity.Profiling;
 using UnityEngine;
 
 [assembly: RegisterGenericJobType(typeof(StateSaveJob<DirectStateSaveStrategy>))]
 [assembly: RegisterGenericJobType(typeof(StateSaveJob<IndexedByGhostSaveStrategy>))]
 
-namespace Unity.NetCode.LowLevel.StateSave
+namespace Unity.Netcode.LowLevel.StateSave
 {
     // if we want to handle non ghosts, we shouldn't tie our indexing to SpawnedGhost. Using a temporary type for this for now
     internal struct SavedEntityID : IEquatable<SavedEntityID>
@@ -117,9 +118,15 @@ namespace Unity.NetCode.LowLevel.StateSave
     [DebuggerDisplay("Entity Count = {m_EntityCount}, allocation size = {m_AllocationSize} B")]
     internal unsafe struct WorldStateSave : IDisposable, IEnumerable<WorldStateSave.StateSaveEntry>
     {
+        internal struct EntityIndexEntry
+        {
+            public StateSaveContainer stateSave;
+            public IntPtr entityPtr;
+        }
+
         internal struct WorldSaveParallelWriter
         {
-            public NativeParallelHashMap<SavedEntityID, (StateSaveContainer stateSave, IntPtr entityPtr)>.ParallelWriter entityIndexWriter;
+            public NativeParallelHashMap<SavedEntityID, EntityIndexEntry>.ParallelWriter entityIndexWriter;
             public NativeArray<StateSaveContainer> m_AllStateSaveContainers;
 
             static readonly  ProfilerMarker s_Marker = new ProfilerMarker("RegisterNewGhost");
@@ -129,7 +136,7 @@ namespace Unity.NetCode.LowLevel.StateSave
                 using var a = s_Marker.Auto();
                 var objAdrSpan = containerSave.GetObjectAdrInSave(entIndex);
                 byte* objAdr = (byte*)UnsafeUtility.AddressOf(ref objAdrSpan[0]);
-                entityIndexWriter.TryAdd(entity, (containerSave, new IntPtr(objAdr)));
+                entityIndexWriter.TryAdd(entity, new EntityIndexEntry { stateSave = containerSave, entityPtr = new IntPtr(objAdr) });
             }
         }
 
@@ -185,7 +192,7 @@ namespace Unity.NetCode.LowLevel.StateSave
         // index to access entity data directly without having to iterate through all entities
         // TODO instead of hashmap, we can know the max ghost ID and then just have a native array of size maxCount, with the items the actual offset inside the container.
         // this way no perf heavy hashmap. e.g.: if my max ghost ID is 1000, then I'd have a 1000 long array, each item in the array would be the above tuple, or some pointer to a part of the allocation
-        NativeParallelHashMap<SavedEntityID, (StateSaveContainer stateSave, IntPtr entityPtr)> m_EntityIndex;
+        NativeParallelHashMap<SavedEntityID, EntityIndexEntry> m_EntityIndex;
         bool m_IsEmpty;
         public NativeHashSet<ComponentType> RequiredTypesToSaveConfig;
         public NativeHashSet<ComponentType> OptionalTypesToSaveConfig;

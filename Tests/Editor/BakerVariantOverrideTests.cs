@@ -4,7 +4,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     /// <summary>
     /// End-to-end tests for the baking-time <see cref="GhostVariantBakedOverride"/> mechanism. Mirrors the harness

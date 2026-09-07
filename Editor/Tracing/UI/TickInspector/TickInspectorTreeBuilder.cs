@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
+namespace Unity.Netcode.Editor.Tracing.UI.TickInspector
 {
     /// <summary>
     /// Builds the heterogeneous tree (SystemGroup -> System -> Ghost -> Component) from the per-tick
@@ -45,6 +45,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
             public List<int> ItemsToExpand;
         }
 
+        // Reasons no system/ghost/component row can carry surface in the tick metadata foldout, not here.
         public static Result Build(IReadOnlyList<ManagedSystemData> systems,
             IReadOnlyDictionary<ServerComponentKey, TracedComponent> serverValues = null,
             DiffInfo.DiffReasons enabledReasons = DiffInfo.AllDiffReasons,
@@ -86,6 +87,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
             var children = new List<TreeViewItemData<TickInspectorNode>>();
             var systemHighlighted = IsHighlighted(systemData.HasDiff, systemData.DiffReasonFlags, enabledReasons);
             subtreeHasDiff = systemHighlighted;
+            var subtreeReasons = systemData.RowDiffReasonFlags;
 
             if (childrenByParent.TryGetValue(systemData.ExecutionOrder, out var childData))
             {
@@ -97,6 +99,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
                     var childItem = BuildTreeItem(c, childrenByParent, ancestors, itemsToExpand, serverValues, enabledReasons, fuzzyDiffThreshold, ref nextChildId, out var childHasDiff);
                     children.Add(childItem);
                     subtreeHasDiff |= childHasDiff;
+                    subtreeReasons |= childItem.data.InclusiveDiffReasonFlags;
                 }
                 ancestors.Remove(systemData.ExecutionOrder);
             }
@@ -109,6 +112,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
                     var ghostItem = BuildGhostItem(ghostData, systemData.SystemType, systemData.SystemName, itemsToExpand, serverValues, enabledReasons, fuzzyDiffThreshold, systemData.FromServerWorld, ref nextChildId, out var ghostSubtreeHasDiff);
                     children.Add(ghostItem);
                     subtreeHasDiff |= ghostSubtreeHasDiff;
+                    subtreeReasons |= ghostItem.data.InclusiveDiffReasonFlags;
                 }
             }
 
@@ -119,6 +123,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
                 DisplayName = systemData.SystemNameShort,
                 HasDiff = systemHighlighted,
                 DiffReasonFlags = systemData.RowDiffReasonFlags,
+                InclusiveDiffReasonFlags = subtreeReasons,
                 SelectedDiffReasons = enabledReasons,
                 OwningSystemType = systemData.SystemType,
                 FromClientWorld = !systemData.FromServerWorld,
@@ -133,6 +138,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
         static TreeViewItemData<TickInspectorNode> BuildGhostItem(GhostComponentData ghostData, Type owningSystemType, string owningSystemName, List<int> itemsToExpand, IReadOnlyDictionary<ServerComponentKey, TracedComponent> serverValues, DiffInfo.DiffReasons enabledReasons, float fuzzyDiffThreshold, bool fromServerWorld, ref int nextChildId, out bool ghostSubtreeHasDiff)
         {
             var componentChildren = new List<TreeViewItemData<TickInspectorNode>>();
+            var subtreeReasons = ghostData.RowDiffReasonFlags;
             var ghostFromServer = fromServerWorld || ghostData.FromServerWorld;
             var anyComponentHighlighted = false;
             if (ghostData.Components != null)
@@ -144,6 +150,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
                     var componentFromServer = ghostFromServer || component.Value.FromServerWorld;
                     var componentHighlighted = IsHighlighted(component.Value.HasDiff, component.Value.DiffReasonFlags, enabledReasons);
                     anyComponentHighlighted |= componentHighlighted;
+                    subtreeReasons |= component.Value.RowDiffReasonFlags;
                     var componentNode = new TickInspectorNode
                     {
                         Id = ComponentIdBase + nextChildId++,
@@ -151,6 +158,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
                         DisplayName = component.Key.Name,
                         HasDiff = componentHighlighted,
                         DiffReasonFlags = component.Value.RowDiffReasonFlags,
+                        InclusiveDiffReasonFlags = component.Value.RowDiffReasonFlags,
                         SelectedDiffReasons = enabledReasons,
                         OwningSystemType = owningSystemType,
                         ComponentType = component.Key,
@@ -177,6 +185,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
                 DisplayName = ghostData.GhostName,
                 HasDiff = ghostRowHighlighted,
                 DiffReasonFlags = ghostData.RowDiffReasonFlags,
+                InclusiveDiffReasonFlags = subtreeReasons,
                 SelectedDiffReasons = enabledReasons,
                 OwningSystemType = owningSystemType,
                 GhostEntityId = ghostData.EntityId,

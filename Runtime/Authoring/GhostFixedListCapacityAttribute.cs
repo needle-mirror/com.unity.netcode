@@ -1,11 +1,13 @@
 using System;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Attribute used to explicitly instruct code-serialization to limit the fixed-size list capacity.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field|AttributeTargets.Property, Inherited = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public class GhostFixedListCapacityAttribute : Attribute
     {
         /// <summary>

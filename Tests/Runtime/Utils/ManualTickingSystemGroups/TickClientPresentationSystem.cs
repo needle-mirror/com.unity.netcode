@@ -1,6 +1,6 @@
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Update the <see cref="PresentationSystemGroup"/> of a client world from another world (usually the default world)

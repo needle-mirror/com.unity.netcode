@@ -5,7 +5,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using Assert = Unity.Assertions.Assert;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class NetcodeBitArrayExtensionTests
     {

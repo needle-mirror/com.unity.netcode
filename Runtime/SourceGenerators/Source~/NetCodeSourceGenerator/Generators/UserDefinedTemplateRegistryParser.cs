@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     /// <summary>
     /// Parse the UserDefinedTemplate.RegisterTemplates partial method implementation and build a list of templates
@@ -20,27 +20,31 @@ namespace Unity.NetCode.Generators
         public static List<TypeRegistryEntry> ParseTemplates(GeneratorExecutionContext context, IDiagnosticReporter reporter)
         {
             var templates = new List<TypeRegistryEntry>();
-            //This is only true for NetCode assembly. All the other don't have any symbols (but only metadata refs)
+            //This is only true for Netcode assembly. All the other don't have any symbols (but only metadata refs)
             var symbolsWithName = new List <ISymbol>(context.Compilation.GetSymbolsWithName("UserDefinedTemplates"));
             if (symbolsWithName.Count > 0)
             {
-                foreach (var syntaxRef in symbolsWithName[0].DeclaringSyntaxReferences)
+                foreach (var symbol in symbolsWithName)
                 {
-                    context.CancellationToken.ThrowIfCancellationRequested();
-
-                    foreach (var node in syntaxRef.GetSyntax().DescendantNodes())
+                    foreach (var syntaxRef in symbol.DeclaringSyntaxReferences)
                     {
-                        if (node is not MethodDeclarationSyntax m || m.Identifier.ToString() != "RegisterTemplates")
-                        {
-                            continue;
-                        }
+                        context.CancellationToken.ThrowIfCancellationRequested();
 
-                        // Get the right reference (the one with the body)
-                        if (m.Body is { Statements.Count: > 0 })
+                        foreach (var node in syntaxRef.GetSyntax().DescendantNodes())
                         {
-                            ParseMethod(context, m, templates, reporter);
+                            if (node is not MethodDeclarationSyntax m || m.Identifier.ToString() != "RegisterTemplates")
+                            {
+                                continue;
+                            }
+
+                            // Get the right reference (the one with the body)
+                            if (m.Body is { Statements.Count: > 0 })
+                            {
+                                ParseMethod(context, m, templates, reporter);
+                            }
+
+                            break;
                         }
-                        break;
                     }
                 }
             }
@@ -88,7 +92,15 @@ namespace Unity.NetCode.Generators
             //The dlls must be loaded in the main execution context since we need to execute the constructor code
             var bytes = File.ReadAllBytes(netCode);
             var assembly = Assembly.Load(bytes);
-            var type = assembly.GetType("Unity.NetCode.Generators.UserDefinedTemplates");
+            AddTemplatesFromMetadataType(assembly.GetType("Unity.Netcode.Generators.UserDefinedTemplates"), templates);
+            // Legacy scaffolding emitted by NetCodeNamespaceCompat for templates still declared in the renamed namespace.
+            AddTemplatesFromMetadataType(assembly.GetType("Unity.NetCode.Generators.UserDefinedTemplates"), templates);
+        }
+
+        static void AddTemplatesFromMetadataType(Type type, IList<TypeRegistryEntry> templates)
+        {
+            if (type == null)
+                return;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
             var tmpl = type.GetField("Templates", BindingFlags.Static|BindingFlags.NonPublic).GetValue(null);
             foreach (var l in (IList)tmpl)
@@ -163,16 +175,30 @@ namespace Unity.NetCode.Generators
                     continue;
                 }
                 var field = ((IdentifierNameSyntax) assignment.Left).Identifier;
+                var targetField = entryType.GetField(field.Text);
+                if (targetField == null)
+                {
+                    continue;
+                }
                 if (assignment.Right.IsKind(SyntaxKind.InterpolatedStringExpression))
                 {
                     var text = ResolveInterpolatedString(
                         assignment.Right as InterpolatedStringExpressionSyntax, model);
-                    entryType.GetField(field.Text).SetValue(entry, text);
+                    targetField.SetValue(entry, text);
                 }
                 else
                 {
                     var text = model.GetConstantValue(assignment.Right);
-                    entryType.GetField(field.Text).SetValue(entry, text.Value);
+                    if (text.HasValue)
+                    {
+                        targetField.SetValue(entry, text.Value);
+                    }
+                    // Legacy-namespace templates can reference enum members the semantic model can't bind yet
+                    // (the compat scaffolding is emitted by this same generator run): resolve by member name.
+                    else if (targetField.FieldType.IsEnum && assignment.Right is MemberAccessExpressionSyntax memberAccess)
+                    {
+                        targetField.SetValue(entry, Enum.Parse(targetField.FieldType, memberAccess.Name.Identifier.ValueText));
+                    }
                 }
             }
         }

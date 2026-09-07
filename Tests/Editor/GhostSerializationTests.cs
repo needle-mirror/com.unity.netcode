@@ -12,11 +12,12 @@ using UnityEngine;
 using Unity.Mathematics;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine.TestTools;
 using Debug = UnityEngine.Debug;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostValueSerializerConverter : TestNetCodeAuthoring.IConverter
     {

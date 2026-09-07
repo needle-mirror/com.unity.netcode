@@ -4,7 +4,7 @@ using Unity.Entities;
 using Unity.Networking.Transport;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [Category(NetcodeTestCategories.Foundational)]
     internal class MultiDriverTests
@@ -16,7 +16,7 @@ namespace Unity.NetCode.Tests
             {
                 NetworkDriverStore driverStore = new NetworkDriverStore();
                 NetworkEndpoint.TryParse("111.111.111.111", 1, out var invalid);
-                var connectionEvents = new NativeList<NetCodeConnectionEvent>(0, Allocator.Temp);
+                var connectionEvents = new NativeList<NetcodeConnectionEvent>(0, Allocator.Temp);
                 var streamDriver = new NetworkStreamDriver(&driverStore, new NativeReference<int>(Allocator.Temp), new NativeQueue<int>(Allocator.Temp), invalid, connectionEvents, connectionEvents.AsReadOnly());
 
                 var netDebug = new NetDebug();

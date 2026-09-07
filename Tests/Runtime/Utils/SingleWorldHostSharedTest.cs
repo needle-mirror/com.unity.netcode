@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class SingleWorldHostSharedTest
     {

@@ -9,10 +9,10 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
-using Unity.NetCode.Generators;
+using Unity.Netcode.Generators;
 using Debug = System.Diagnostics.Debug;
 
-namespace Unity.NetCode.GeneratorTests
+namespace Unity.Netcode.GeneratorTests
 {
     class TestSyntaxWalker : CSharpSyntaxWalker
     {
@@ -78,7 +78,7 @@ namespace Unity.NetCode.GeneratorTests
 
     static class GeneratorTestHelpers
     {
-        public const string GeneratedAssemblyName = "Unity.NetCode.Test";
+        public const string GeneratedAssemblyName = "Unity.Netcode.Test";
         public const string OutputFolder = "TestOutput";
         public static Compilation CreateCompilation(params SyntaxTree[] tree)
         {

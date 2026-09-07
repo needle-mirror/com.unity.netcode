@@ -6,14 +6,14 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.NetCode;
-using Unity.NetCode.LowLevel.StateSave;
-using Unity.NetCode.Tests;
+using Unity.Netcode;
+using Unity.Netcode.LowLevel.StateSave;
+using Unity.Netcode.Tests;
 using Unity.PerformanceTesting;
 using Unity.Profiling;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct EmptyComponent : IComponentData
     {

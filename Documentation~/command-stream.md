@@ -1,6 +1,6 @@
 # Use the command stream to handle user inputs
 
-Each client sends a continuous command stream to the server when [`NetworkStreamConnection`](xref:Unity.NetCode.NetworkStreamConnection) is tagged as in-game. This stream includes all user inputs and acknowledgements of the last received snapshot, and is typically one packet per `NetworkTime.ServerTick`.
+Each client sends a continuous command stream to the server when [`NetworkStreamConnection`](xref:Unity.Netcode.NetworkStreamConnection) is tagged as in-game. This stream includes all user inputs and acknowledgements of the last received snapshot, and is typically one packet per `NetworkTime.ServerTick`.
 
 The connection is always kept alive, even if the client doesn't control any entities or generate any inputs that need to be transmitted to the server. The command packet is sent regularly on the timescale described in [Collecting and sending input from the client](#collecting-and-sending-input-from-the-client), automatically acknowledging received snapshots and reporting other important information to the server.
 
@@ -20,7 +20,7 @@ For example, if a client predicted spawns a missile, then, although that client 
 > [!NOTE]
 > You must use (and implement) the `GhostOwner` functionality for the following method to work properly. For example, by checking the 'Has Owner' checkbox in the `GhostAuthoringComponent`.
 
-The recommended method for handling user inputs is to create an input component data struct that inherits the [`IInputComponentData`](xref:Unity.NetCode.IInputComponentData) interface. Then you can add command data to the buffer and retrieve it when processing. Unity handles inputs automatically through code-generated systems, as long as you set up the input gathering and input processing systems separately.
+The recommended method for handling user inputs is to create an input component data struct that inherits the [`IInputComponentData`](xref:Unity.Netcode.IInputComponentData) interface. Then you can add command data to the buffer and retrieve it when processing. Unity handles inputs automatically through code-generated systems, as long as you set up the input gathering and input processing systems separately.
 
 Your `IInputComponentData` component needs to be on the target ghost at baking time, then Netcode for Entities baking will set up and generate appropriate commands and serializers for you. Because the input struct implementing `IInputComponentData` is baked by `ICommandData`, [the 1024 bytes limit for the payload](#icommanddata-serialization-and-payload-limit) also applies.
 
@@ -29,16 +29,16 @@ Your `IInputComponentData` component needs to be on the target ghost at baking t
 
 ### Input events
 
-Use the [`InputEvent`](xref:Unity.NetCode.InputEvent) type within `IInputComponentData` inputs to make sure that one-off events (such as those gathered by `UnityEngine.Input.GetKeyDown`) are synchronized properly with the server and registered exactly once, even when the exact input tick where the input event was first registered is dropped on its way to the server.
+Use the [`InputEvent`](xref:Unity.Netcode.InputEvent) type within `IInputComponentData` inputs to make sure that one-off events (such as those gathered by `UnityEngine.Input.GetKeyDown`) are synchronized properly with the server and registered exactly once, even when the exact input tick where the input event was first registered is dropped on its way to the server.
 
 ### How it works
 
 In a standard input component data struct, you'll have these systems set up:
 
 - Gather input system (client loop)
-  - Take input events and save them in the input component data. This happens in [`GhostInputSystemGroup`](xref:Unity.NetCode.GhostInputSystemGroup).
+  - Take input events and save them in the input component data. This happens in [`GhostInputSystemGroup`](xref:Unity.Netcode.GhostInputSystemGroup).
 - Process input system (server or prediction loop)
-  - Take current input component and process the values. This usually happens in [`PredictedSimulationSystemGroup`](xref:Unity.NetCode.PredictedSimulationSystemGroup).
+  - Take current input component and process the values. This usually happens in [`PredictedSimulationSystemGroup`](xref:Unity.Netcode.PredictedSimulationSystemGroup).
 
 With `IInputComponentData` handling it looks like this with code-generated systems:
 
@@ -69,7 +69,7 @@ The processing input system, which takes the current input values stored on the 
 
 ## Creating commands
 
-The recommended method for handling user inputs is to [create an input component data struct that inherits the [`IInputComponentData`](xref:Unity.NetCode.IInputComponentData) interface](#automatic-input-handling), but if you need finer control of the command stream then you can create your own commands. To create a new command type, create a struct that implements the [`ICommandData`](xref:Unity.NetCode.ICommandData) interface. To implement the interface, you need to provide a property for accessing the `Tick`.
+The recommended method for handling user inputs is to [create an input component data struct that inherits the [`IInputComponentData`](xref:Unity.Netcode.IInputComponentData) interface](#automatic-input-handling), but if you need finer control of the command stream then you can create your own commands. To create a new command type, create a struct that implements the [`ICommandData`](xref:Unity.Netcode.ICommandData) interface. To implement the interface, you need to provide a property for accessing the `Tick`.
 
 The serialization and registration code for the `ICommandData` is generated automatically, but you can also disable that and write the serialization [manually](#manual-serialization).
 
@@ -77,9 +77,9 @@ The `ICommandData` buffer can be added to the entity controlled by the player ei
 
 ### Collecting and sending input from the client
 
-The client is responsible for polling the input source and adding `ICommand` to the buffer for the entities it controls. The systems responsible for writing to the command buffers must all run inside the [`GhostInputSystemGroup`](xref:Unity.NetCode.GhostInputSystemGroup).
+The client is responsible for polling the input source and adding `ICommand` to the buffer for the entities it controls. The systems responsible for writing to the command buffers must all run inside the [`GhostInputSystemGroup`](xref:Unity.Netcode.GhostInputSystemGroup).
 
-The `CommandSendPacketSystem` automatically sends the queued commands on completion of the client's first [partial tick](intro-to-prediction.md#partial-ticks) per full tick, along with commands from the previous `n` ticks (where `n` is defined by [`ClientTickRate.TargetCommandSlack`](xref:Unity.NetCode.ClientTickRate.TargetCommandSlack) plus [`ClientTickRate.NumAdditionalCommandsToSend`](xref:Unity.NetCode.ClientTickRate.NumAdditionalCommandsToSend)) as a buffer against packet loss.
+The `CommandSendPacketSystem` automatically sends the queued commands on completion of the client's first [partial tick](intro-to-prediction.md#partial-ticks) per full tick, along with commands from the previous `n` ticks (where `n` is defined by [`ClientTickRate.TargetCommandSlack`](xref:Unity.Netcode.ClientTickRate.TargetCommandSlack) plus [`ClientTickRate.NumAdditionalCommandsToSend`](xref:Unity.Netcode.ClientTickRate.NumAdditionalCommandsToSend)) as a buffer against packet loss.
 
 For example: In tick 10.3, input is gathered and sent to the server as input for tick 10. In tick 10.7, the input has changed but is not sent to the server. In tick 11.2, the input for the full previous tick 10 is sent (refer to [ICommandData serialization and payload limit](#icommanddata-serialization-and-payload-limit)). The server updates the inputs for tick 10 to use in its simulation, if it hasn't already simulated tick 10.
 
@@ -102,9 +102,9 @@ sequenceDiagram
 
 ### `ICommandData` serialization and payload limit
 
-When using `ICommand`, Netcode for Entities automatically generates command serialization code in the [`CommandSendSystemGroup`](xref:Unity.NetCode.CommandSendSystemGroup). Each individual command is serialized and queued in the [`OutgoingCommandDataStreamBuffer`](xref:Unity.NetCode.OutgoingCommandDataStreamBuffer) (present on the network connection) by its own code-generated system. The `CommandSendPacketSystem` is then responsible for flushing the outgoing buffer on the timescale described in [Collecting and sending input from the client](#collecting-and-sending-input-from-the-client).
+When using `ICommand`, Netcode for Entities automatically generates command serialization code in the [`CommandSendSystemGroup`](xref:Unity.Netcode.CommandSendSystemGroup). Each individual command is serialized and queued in the [`OutgoingCommandDataStreamBuffer`](xref:Unity.Netcode.OutgoingCommandDataStreamBuffer) (present on the network connection) by its own code-generated system. The `CommandSendPacketSystem` is then responsible for flushing the outgoing buffer on the timescale described in [Collecting and sending input from the client](#collecting-and-sending-input-from-the-client).
 
-In addition to the most recent input, inputs from the previous `n` ticks are also included to provide redundancy in the case of packet loss (where `n` is defined by [`ClientTickRate.TargetCommandSlack`](xref:Unity.NetCode.ClientTickRate.TargetCommandSlack) plus [`ClientTickRate.NumAdditionalCommandsToSend`](xref:Unity.NetCode.ClientTickRate.NumAdditionalCommandsToSend), with a default value of 4). Each redundant command is delta compressed against the command for the current tick. The final serialized data looks something like the following:
+In addition to the most recent input, inputs from the previous `n` ticks are also included to provide redundancy in the case of packet loss (where `n` is defined by [`ClientTickRate.TargetCommandSlack`](xref:Unity.Netcode.ClientTickRate.TargetCommandSlack) plus [`ClientTickRate.NumAdditionalCommandsToSend`](xref:Unity.Netcode.ClientTickRate.NumAdditionalCommandsToSend), with a default value of 4). Each redundant command is delta compressed against the command for the current tick. The final serialized data looks something like the following:
 
 ```
 | Tick, Command | CommandDelta(Tick-1, Tick) | CommandDelta(Tick-2, Tick) | CommandDelta(Tick-3, Tick)|
@@ -114,7 +114,7 @@ A size limit of 1024 bytes is enforced on the command payload and checked when t
 
 ### Receiving commands on the server
 
-The [`NetworkStreamReceiveSystem`](xref:Unity.NetCode.NetworkStreamReceiveSystem) automatically receives `ICommandData` on the server and adds it to the [`IncomingCommandDataStreamBuffer`](xref:Unity.NetCode.IncomingCommandDataStreamBuffer) buffer. The `CommandReceiveSystem` then dispatches the command data to the entity that the command belongs to.
+The [`NetworkStreamReceiveSystem`](xref:Unity.Netcode.NetworkStreamReceiveSystem) automatically receives `ICommandData` on the server and adds it to the [`IncomingCommandDataStreamBuffer`](xref:Unity.Netcode.IncomingCommandDataStreamBuffer) buffer. The `CommandReceiveSystem` then dispatches the command data to the entity that the command belongs to.
 
 > [!NOTE]
 > The server should only receive commands from the clients. It should never overwrite or change the input received by the client.
@@ -130,11 +130,11 @@ You can automatically send commands to the server if you add your `ICommandData`
 
 For automatic command targeting to work, the following must also be true of your ghost:
 
-- The ghost must be owned by your client (requiring the server to set the [`GhostOwner`](xref:Unity.NetCode.GhostOwner) to your [`NetworkId.Value`](xref:Unity.NetCode.NetworkId.Value)).
+- The ghost must be owned by your client (requiring the server to set the [`GhostOwner`](xref:Unity.Netcode.GhostOwner) to your [`NetworkId.Value`](xref:Unity.Netcode.NetworkId.Value)).
 - The ghost is `Predicted` or `OwnerPredicted` (you can't use an `ICommandData` to control interpolated ghosts).
-- The [`AutoCommandTarget.Enabled`](xref:Unity.NetCode.AutoCommandTarget) flag must be set to true.
+- The [`AutoCommandTarget.Enabled`](xref:Unity.Netcode.AutoCommandTarget) flag must be set to true.
 
-If you're not using `AutoCommandTarget`, your game code must set the [`CommandTarget`](xref:Unity.NetCode.CommandTarget) on the connection entity to reference the entity that the `ICommandData` component has been attached to. You can have multiple `ICommandData`s in your game, and Netcode for Entities will only send the `ICommandData` for the entity that `CommandTarget` points to.
+If you're not using `AutoCommandTarget`, your game code must set the [`CommandTarget`](xref:Unity.Netcode.CommandTarget) on the connection entity to reference the entity that the `ICommandData` component has been attached to. You can have multiple `ICommandData`s in your game, and Netcode for Entities will only send the `ICommandData` for the entity that `CommandTarget` points to.
 
 When you need to access inputs from the buffer, you can use an extension method for `DynamicBuffer<ICommandData>` called `GetDataAtTick`, which gets the matching tick for a specific frame. You can also use the `AddCommandData` utility method (which adds more commands to the ring-buffer for you).
 
@@ -149,8 +149,8 @@ When you need to access inputs from the buffer, you can use an extension method 
 Ghosts often share the same `CommandBuffer`, making it necessary to check which entities are owned by the local player before adding new inputs to the buffer, to avoid overwriting inputs from other players.
 
 You can check ghost ownership in the following ways:
-* Use the [`GhostOwnerIsLocal` component (recommended)](xref:Unity.NetCode.GhostOwnerIsLocal).
-* Use the [`GhostOwner` component](xref:Unity.NetCode.GhostOwner).
+* Use the [`GhostOwnerIsLocal` component (recommended)](xref:Unity.Netcode.GhostOwnerIsLocal).
+* Use the [`GhostOwner` component](xref:Unity.Netcode.GhostOwner).
 
 ### Use the `GhostOwnerIsLocal` component (recommended)
 
@@ -187,10 +187,10 @@ Entities
 ## Manual serialization
 
 To manually serialize commands:
-1. Add the [`[NetCodeDisableCommandCodeGen]`](xref:Unity.NetCode.NetCodeDisableCommandCodeGenAttribute) attribute to the struct that impliments the `ICommandData` interface.
-2. Create a struct that implements [`ICommandDataSerializer<T>`](xref:Unity.NetCode.ICommandDataSerializer`1), where `<T>` is your `ICommandData` struct. Note that you can implement this on the same struct that implements `ICommandData` for convenience.
+1. Add the [`[NetcodeDisableCommandCodeGen]`](xref:Unity.Netcode.NetcodeDisableCommandCodeGenAttribute) attribute to the struct that impliments the `ICommandData` interface.
+2. Create a struct that implements [`ICommandDataSerializer<T>`](xref:Unity.Netcode.ICommandDataSerializer`1), where `<T>` is your `ICommandData` struct. Note that you can implement this on the same struct that implements `ICommandData` for convenience.
 
-[`ICommandDataSerializer`](xref:Unity.NetCode.ICommandDataSerializer`1) has two `Serialize` and two `Deserialize` methods: one pair for raw values, and one pair for delta compressed values. The system sends multiple inputs in each command packet. The first packet contains raw data but the rest are compressed using delta compression. Delta compression compresses inputs well because the rate of change is low.
+[`ICommandDataSerializer`](xref:Unity.Netcode.ICommandDataSerializer`1) has two `Serialize` and two `Deserialize` methods: one pair for raw values, and one pair for delta compressed values. The system sends multiple inputs in each command packet. The first packet contains raw data but the rest are compressed using delta compression. Delta compression compresses inputs well because the rate of change is low.
 
 As well as creating a struct, you also need to create specific instances of the generic systems `CommandSendSystem` and `CommandReceiveSystem`. To do this, extend the base system, for example with:
 

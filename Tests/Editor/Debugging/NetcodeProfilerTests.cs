@@ -6,14 +6,14 @@ using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using Unity.Collections;
-using Unity.NetCode.Editor;
+using Unity.Netcode.Editor;
 using UnityEditor;
 using UnityEditor.Profiling;
 using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     class NetcodeProfilerUtilityTests
     {

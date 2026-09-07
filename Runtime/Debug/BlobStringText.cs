@@ -2,14 +2,16 @@ using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.LowLevel
+namespace Unity.Netcode.LowLevel
 {
     /// <summary>
     /// Simple <see cref="BlobString"/> wrapper that can be embedded into components and allow
     /// to access the blob text as <see cref="IUTF8Bytes"/> and <see cref="INativeList{T}"/>.
     /// The text is considered readonly. All methods that change or affect the string will throw <see cref="NotImplementedException"/>.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.LowLevel")]
     public struct BlobStringText: INativeList<byte>, IUTF8Bytes
     {
         [NativeDisableUnsafePtrRestriction] private IntPtr m_Text;

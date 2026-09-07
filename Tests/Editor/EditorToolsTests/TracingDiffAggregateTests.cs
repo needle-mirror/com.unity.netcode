@@ -1,6 +1,6 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 
 namespace Tests.Editor
 {

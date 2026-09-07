@@ -1,9 +1,9 @@
 using NUnit.Framework;
-using Unity.NetCode.Analytics;
-using Unity.NetCode.Editor;
-using Unity.NetCode.Editor.Analytics;
+using Unity.Netcode.Analytics;
+using Unity.Netcode.Editor;
+using Unity.Netcode.Editor.Analytics;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     namespace AnalyticsTests
     {

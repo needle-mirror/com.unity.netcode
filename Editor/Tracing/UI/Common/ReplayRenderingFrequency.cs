@@ -1,4 +1,4 @@
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     /// <summary>
     /// Range and stepping of the replay speed multiplier. A single speed is shared by all

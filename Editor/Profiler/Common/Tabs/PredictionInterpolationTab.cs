@@ -1,16 +1,31 @@
 using System.Collections.Generic;
+#if NETCODE_TRACING_TOOL
+using Unity.Netcode.Editor.Tracing.UI;
+using UnityEditor;
+#endif
 using UnityEditor.UIElements;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     class PredictionInterpolationTab : NetcodeProfilerTab
     {
+        const string k_PredictionErrorsHeaderUssClass = "prediction-errors-header";
+#if NETCODE_TRACING_TOOL
+        const string k_OpenPredictionTracingToolText = "Open Prediction Tracing Tool";
+        const string k_OpenPredictionTracingToolTooltip =
+            "Open the Prediction Tracing Tool to record and inspect per-tick prediction data.";
+        const string k_OpenTracingToolButtonUssClass = "open-tracing-tool-button";
+        const string k_OpenTracingToolButtonStandaloneUssClass = k_OpenTracingToolButtonUssClass + "--standalone";
+        const string k_OpenTracingToolButtonIconUssClass = k_OpenTracingToolButtonUssClass + "__icon";
+#endif
+
         TabHeaderVertical m_InterpolationDataTabHeaderVertical;
         TabHeaderVertical m_TickDataTabHeaderVertical;
         MultiColumnListView m_ListView;
         List<PredictionErrorData> m_ItemList = new();
         ToolbarSearchField m_SearchField;
+        Label m_PredictionErrorsTitle;
 
         internal PredictionInterpolationTab(NetworkRole networkRole)
             : base("Prediction and Interpolation", networkRole)
@@ -18,6 +33,12 @@ namespace Unity.NetCode.Editor
             // For server, the ServerOnlyInfoTextProvider registered in RegisterInfoTextProviders() will handle the message
             if (m_NetworkRole == NetworkRole.Server)
             {
+#if NETCODE_TRACING_TOOL
+                // Not registered as a data element so it stays visible alongside the server-only info text
+                var serverOpenTracingToolButton = CreateOpenTracingToolButton();
+                serverOpenTracingToolButton.AddToClassList(k_OpenTracingToolButtonStandaloneUssClass);
+                Add(serverOpenTracingToolButton);
+#endif
                 return;
             }
 
@@ -45,6 +66,8 @@ namespace Unity.NetCode.Editor
             var networkRolePrefix = networkRole.ToString();
             viewDataKey = networkRolePrefix + nameof(PredictionInterpolationTab);
 
+            Add(CreatePredictionErrorsHeader());
+
             m_SearchField = new ToolbarSearchField();
             var innerInputField = m_SearchField.Q(className: "unity-text-element--inner-input-field-component");
             if (innerInputField != null) innerInputField.name = "search-field";
@@ -55,8 +78,44 @@ namespace Unity.NetCode.Editor
             Add(m_ListView);
 
             // Register elements that should be hidden when info text is displayed
-            RegisterDataElements(m_SearchField, m_ListView, m_InterpolationDataTabHeaderVertical, m_TickDataTabHeaderVertical);
+            RegisterDataElements(m_SearchField, m_ListView, m_InterpolationDataTabHeaderVertical, m_TickDataTabHeaderVertical, m_PredictionErrorsTitle);
         }
+
+        VisualElement CreatePredictionErrorsHeader()
+        {
+            var header = new VisualElement { name = "prediction-errors-header" };
+            header.AddToClassList(k_PredictionErrorsHeaderUssClass);
+
+            m_PredictionErrorsTitle = new Label("Prediction Errors");
+            m_PredictionErrorsTitle.AddToClassList("tab-header__main-name");
+            header.Add(m_PredictionErrorsTitle);
+
+#if NETCODE_TRACING_TOOL
+            header.Add(CreateOpenTracingToolButton());
+#endif
+            return header;
+        }
+
+#if NETCODE_TRACING_TOOL
+        static Button CreateOpenTracingToolButton()
+        {
+            var openTracingToolButton = new Button(TracingWindow.ShowWindow)
+            {
+                name = "open-prediction-tracing-tool-button",
+                tooltip = k_OpenPredictionTracingToolTooltip
+            };
+            openTracingToolButton.AddToClassList(k_OpenTracingToolButtonUssClass);
+
+            var icon = new Image { image = EditorGUIUtility.IconContent(Constants.PredictionTracingIconPath).image, pickingMode = PickingMode.Ignore };
+            icon.AddToClassList(k_OpenTracingToolButtonIconUssClass);
+            openTracingToolButton.Add(icon);
+
+            var buttonLabel = new Label(k_OpenPredictionTracingToolText) { pickingMode = PickingMode.Ignore };
+            openTracingToolButton.Add(buttonLabel);
+
+            return openTracingToolButton;
+        }
+#endif
 
         void FilterListView(ChangeEvent<string> evt)
         {

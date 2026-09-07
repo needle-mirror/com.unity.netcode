@@ -2,7 +2,7 @@ using Unity.Burst;
 using Unity.Entities;
 using Unity.Transforms;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     [BurstCompile]
     internal static class BurstedComponentAccess

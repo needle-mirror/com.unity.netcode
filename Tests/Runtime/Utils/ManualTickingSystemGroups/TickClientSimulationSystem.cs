@@ -1,7 +1,7 @@
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Update the <see cref="SimulationSystemGroup"/> of a client world from another world (usually the default world)

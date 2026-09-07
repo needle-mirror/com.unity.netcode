@@ -7,8 +7,9 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Burst;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Responsible for assigning a unique <see cref="GhostInstance.ghostId"/> to each pre-spawned ghost,
@@ -36,6 +37,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PrespawnGhostSystemGroup))]
     [UpdateAfter(typeof(PrespawnGhostInitializationSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct ClientPopulatePrespawnedGhostsSystem : ISystem
     {
         private EntityQuery m_UninitializedScenes;

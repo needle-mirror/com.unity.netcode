@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [Serializable]
     internal struct DummyInput : IInputComponentData
@@ -52,9 +52,11 @@ namespace Unity.NetCode.Tests
 
         public override void Awake()
         {
-            if (Ghost.IsPrefab())
-                return;
             base.Awake();
+            if (Ghost.IsPrefab())
+            {
+                return;
+            }
             if (!Ghost.World.IsServer()) ClientInstances.Add(this);
             if (Ghost.World.IsServer()) ServerInstances.Add(this);
             if (CallbackHolder != null) CallbackHolder.TriggerAwake(gameObject);
@@ -63,7 +65,9 @@ namespace Unity.NetCode.Tests
         protected void Start()
         {
             if (Ghost.IsPrefab())
+            {
                 return;
+            }
             OnStart?.Invoke(gameObject);
             if (CallbackHolder != null) CallbackHolder.TriggerStart(gameObject);
         }

@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace Unity.NetCode.Samples.Common.Editor
+namespace Unity.Netcode.Samples.Common.Editor
 {
 
     [Serializable]

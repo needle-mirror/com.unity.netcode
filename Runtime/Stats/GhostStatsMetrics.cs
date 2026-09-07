@@ -2,8 +2,9 @@
 using System;
 using Unity.Collections;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -15,6 +16,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Present on both client and server world, singleton component that enables monitoring of ghost metrics.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostMetricsMonitor : IComponentData
     {
         /// <summary>
@@ -26,6 +28,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Singleton component for Network and Time Related Metrics.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkMetrics : IComponentData
     {
         /// <summary>
@@ -65,6 +68,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Snapshot metrics singleton component.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SnapshotMetrics : IComponentData
     {
         /// <summary>
@@ -95,6 +99,7 @@ namespace Unity.NetCode
     /// In order to know what value each index refers to, we need to also grab the Indices from <see cref="GhostNames"/>.
     /// </remarks>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostSerializationMetrics : IBufferElementData
     {
         /// <summary>
@@ -110,6 +115,7 @@ namespace Unity.NetCode
     /// </remarks>
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PredictionErrorMetrics : IBufferElementData
     {
         /// <summary>
@@ -123,6 +129,7 @@ namespace Unity.NetCode
     /// This list maps 1-1 with <see cref="PredictionErrorMetrics"/>
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PredictionErrorNames : IBufferElementData
     {
         /// <summary>
@@ -135,6 +142,7 @@ namespace Unity.NetCode
     /// This list maps 1-1 with <see cref="GhostSerializationMetrics"/> and <see cref="GhostMetrics"/>
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostNames : IBufferElementData
     {
         /// <summary>
@@ -148,6 +156,7 @@ namespace Unity.NetCode
     /// <remarks>To find the corresponding ghost name for each metric, each index in this buffer is a 1 to 1 mapping of <see cref="GhostNames"/></remarks>
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostMetrics : IBufferElementData
     {
         /// <summary>

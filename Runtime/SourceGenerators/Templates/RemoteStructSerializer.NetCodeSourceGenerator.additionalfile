@@ -21,7 +21,7 @@ namespace __REMOTES_NAMESPACE__
     partial struct __REMOTES_NAME__ : IRemote
     {
         #region __REMOTES_AUTO_INVOKE__
-        public static readonly Unity.NetCode.RemoteInvokeID HandleFunctionID = new(__REMOTES_HANDLER_ID__);
+        public static readonly Unity.Netcode.RemoteInvokeID HandleFunctionID = new(__REMOTES_HANDLER_ID__);
 
         static public void StaticHandle(EntityManager em, Entity e)
         {
@@ -46,7 +46,7 @@ namespace __REMOTES_NAMESPACE__
 
         // Ghost remote members need to know the world to target since they need to pick the right component
         #region __REMOTES_REMOTE_GHOST_METHOD_HANDLE_METHOD__
-        void Handle(World world)
+        void Handle(NetcodeWorld world)
         {
             var gameObj = Netcode.Remote.ResolveGameObject(world, __REMOTES_REMOTE_GHOST_TARGET_ID_NAME__, __REMOTES_REMOTE_GHOST_SPAWN_TICK_NAME__);
 

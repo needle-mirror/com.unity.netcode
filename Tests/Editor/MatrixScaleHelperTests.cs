@@ -2,7 +2,7 @@ using NUnit.Framework;
 using Unity.Mathematics;
 using Unity.Transforms;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class MatrixScaleHelperTests
     {

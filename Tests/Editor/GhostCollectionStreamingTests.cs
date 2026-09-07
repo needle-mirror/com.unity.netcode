@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using System.Text.RegularExpressions;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostCollectionStreamingConverter : TestNetCodeAuthoring.IConverter
     {

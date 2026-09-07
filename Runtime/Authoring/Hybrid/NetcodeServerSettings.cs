@@ -7,7 +7,7 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Hybrid
+namespace Unity.Netcode.Hybrid
 {
     /// <summary>
     /// The <see cref="IEntitiesPlayerSettings"/> baking settings to use for server builds. You can assign the <see cref="GUID"/>
@@ -15,7 +15,7 @@ namespace Unity.NetCode.Hybrid
     /// scene using this setting.
     /// </summary>
     [FilePath("ProjectSettings/NetCodeServerSettings.asset", FilePathAttribute.Location.ProjectFolder)]
-    public class NetCodeServerSettings : ScriptableSingleton<NetCodeServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
+    public class NetcodeServerSettings : ScriptableSingleton<NetcodeServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
     {
         NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.Server;
 
@@ -129,7 +129,7 @@ namespace Unity.NetCode.Hybrid
 
         protected override IEntitiesPlayerSettings DoGetSettingAsset()
         {
-            return NetCodeServerSettings.instance;
+            return NetcodeServerSettings.instance;
         }
 
         public override void OnActivate(DotsGlobalSettings.PlayerType type, VisualElement rootElement)
@@ -142,7 +142,7 @@ namespace Unity.NetCode.Hybrid
             m_BuildSettingsContainer = new VisualElement();
             m_BuildSettingsContainer.AddToClassList("target");
 
-            var so = new SerializedObject(NetCodeServerSettings.instance);
+            var so = new SerializedObject(NetcodeServerSettings.instance);
             m_BuildSettingsContainer.Bind(so);
             so.Update();
 
@@ -157,7 +157,7 @@ namespace Unity.NetCode.Hybrid
             propServerField.RegisterCallback<ChangeEvent<string>>(
                 evt =>
                 {
-                    NetCodeServerSettings.instance.GetFilterSettings()?.SetDirty();
+                    NetcodeServerSettings.instance.GetFilterSettings()?.SetDirty();
                 });
             targetS.Add(propServerField);
 
@@ -176,14 +176,14 @@ namespace Unity.NetCode.Hybrid
         {
             // The ScriptableSingleton<T> is not directly editable by default.
             // Change the hideFlags to make the SerializedObject editable.
-            NetCodeServerSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
+            NetcodeServerSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
         }
 
         static void OnDetachFromPanel(DetachFromPanelEvent evt)
         {
             // Restore the original flags
-            NetCodeServerSettings.instance.hideFlags = HideFlags.HideAndDontSave;
-            NetCodeServerSettings.instance.Save();
+            NetcodeServerSettings.instance.hideFlags = HideFlags.HideAndDontSave;
+            NetcodeServerSettings.instance.Save();
         }
 
         public override string[] GetExtraScriptingDefines()

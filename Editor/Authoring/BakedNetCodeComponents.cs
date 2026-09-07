@@ -5,13 +5,17 @@ using Unity.Entities;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>Internal structs used by the GhostComponentInspector to store post-conversion (i.e. Baked) data.</summary>
     class BakedResult
     {
         public Dictionary<GameObject, BakedGameObjectResult> GameObjectResults;
         public BaseGhostSettings GhostAuthoring;
+        /// <summary>
+        /// Marks whether this bake result was for an instance of a GameObject where we could reuse the baking from the already registered prefab.
+        /// </summary>
+        public bool ReusedRegisteredPrefab;
 
         public BakedGameObjectResult GetInspectionResult(GhostAuthoringInspectionComponent inspection)
         {
@@ -126,6 +130,8 @@ namespace Unity.NetCode.Editor
             }
         }
 
+        bool m_CheckedLegacyVariantHash;
+
         public ulong VariantHash
         {
             get
@@ -134,7 +140,18 @@ namespace Unity.NetCode.Editor
                 {
                     ref var componentOverride = ref GetPrefabOverride();
                     if (componentOverride.IsVariantOverriden)
+                    {
+                        // GhostObject prefabs never go through the baker's validate pass, so pre-rename
+                        // hashes reach the preview raw. Heal through the ref (SaveVariant persists it);
+                        // checked once, the editor-side candidate scan isn't free.
+                        if (!m_CheckedLegacyVariantHash)
+                        {
+                            m_CheckedLegacyVariantHash = true;
+                            if (GhostVariantsUtility.TryMigrateLegacyVariantHash(componentOverride.VariantHash, managedType, out var migratedHash))
+                                componentOverride.VariantHash = migratedHash;
+                        }
                         return componentOverride.VariantHash;
+                    }
                 }
                 return 0;
             }

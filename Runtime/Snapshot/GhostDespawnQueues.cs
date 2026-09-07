@@ -2,7 +2,7 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Singleton component with APIs and collections required for Ghost spawning and despawning.

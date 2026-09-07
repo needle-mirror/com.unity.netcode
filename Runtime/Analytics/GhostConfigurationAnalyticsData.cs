@@ -1,7 +1,7 @@
 #if UNITY_EDITOR
 using System;
 
-namespace Unity.NetCode.Analytics
+namespace Unity.Netcode.Analytics
 {
     [Serializable]
     struct GhostConfigurationAnalyticsData : UnityEngine.Analytics.IAnalytic.IData

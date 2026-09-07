@@ -1,5 +1,5 @@
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 
 namespace DocumentationCodeSamples
 {
@@ -8,7 +8,7 @@ namespace DocumentationCodeSamples
         #region CustomerDriverConstructor
         public class MyCustomDriverConstructor : INetworkStreamDriverConstructor
         {
-            public void CreateClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
+            public void CreateClientDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug)
             {
                 var settings = DefaultDriverBuilder.GetNetworkClientSettings();
 #if !UNITY_WEBGL
@@ -18,7 +18,7 @@ namespace DocumentationCodeSamples
 #endif
             }
 
-            public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
+            public void CreateServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug)
             {
                 var settings = DefaultDriverBuilder.GetNetworkServerSettings();
 #if !UNITY_WEBGL

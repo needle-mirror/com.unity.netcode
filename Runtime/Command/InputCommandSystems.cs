@@ -2,9 +2,11 @@ using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Internal job (don't use directly) used to copy the input data for struct implementing the
@@ -15,6 +17,7 @@ namespace Unity.NetCode
     /// <typeparam name="TInputComponentData">Input component data</typeparam>
     /// <typeparam name="TInputHelper">Input helper</typeparam>
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct CopyInputToBufferJob<TInputComponentData, TInputHelper> : IJobChunk
         where TInputComponentData : unmanaged, IInputComponentData
         where TInputHelper : unmanaged, IInputEventHelper<TInputComponentData>
@@ -76,6 +79,7 @@ namespace Unity.NetCode
     [BurstCompile]
     [UpdateInGroup(typeof(CopyInputToCommandBufferSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct CopyInputToCommandBufferSystem<TInputComponentData, TInputHelper> : ISystem
         where TInputComponentData : unmanaged, IInputComponentData
         where TInputHelper : unmanaged, IInputEventHelper<TInputComponentData>
@@ -133,6 +137,7 @@ namespace Unity.NetCode
     /// <typeparam name="TInputHelper">Input helper.</typeparam>
     [BurstCompile]
     [UpdateInGroup(typeof(GhostInputSystemGroup), OrderFirst = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct ApplyCurrentInputBufferElementToInputDataForGatherSystem<TInputComponentData, TInputHelper> : ISystem
         where TInputComponentData : unmanaged, IInputComponentData
         where TInputHelper : unmanaged, IInputEventHelper<TInputComponentData>
@@ -193,6 +198,7 @@ namespace Unity.NetCode
     [BurstCompile]
     [UpdateInGroup(typeof(CopyCommandBufferToInputSystemGroup), OrderFirst = true)]
     [UpdateBefore(typeof(PredictedFixedStepSimulationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct ApplyCurrentInputBufferElementToInputDataSystem<TInputComponentData, TInputHelper> : ISystem
         where TInputComponentData : unmanaged, IInputComponentData
         where TInputHelper : unmanaged, IInputEventHelper<TInputComponentData>
@@ -249,6 +255,7 @@ namespace Unity.NetCode
     /// <typeparam name="TInputComponentData">Input component data</typeparam>
     /// <typeparam name="TInputHelper">Input helper</typeparam>
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ApplyInputDataFromBufferJob<TInputComponentData, TInputHelper> : IJobChunk
         where TInputComponentData : unmanaged, IInputComponentData
         where TInputHelper : unmanaged, IInputEventHelper<TInputComponentData>

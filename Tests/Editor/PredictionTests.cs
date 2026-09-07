@@ -6,11 +6,12 @@ using Unity.Core;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 using UnityEngine.TestTools;
 using Random = UnityEngine.Random;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     //FIXME this will break serialization. It is non handled and must be documented
     [GhostEnabledBit]

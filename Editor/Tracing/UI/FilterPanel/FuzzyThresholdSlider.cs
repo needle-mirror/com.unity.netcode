@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor.Tracing.UI.FilterPanel
+namespace Unity.Netcode.Editor.Tracing.UI.FilterPanel
 {
     // The fuzzy-threshold slider's value mapping: the leftmost position is 0 (fuzzy filter off), the rest of
     // the track is a log scale from k_Min to k_Max. The field beside the slider is authoritative and accepts

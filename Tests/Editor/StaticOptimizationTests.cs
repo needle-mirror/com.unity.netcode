@@ -7,8 +7,9 @@ using Unity.Transforms;
 using Unity.Collections;
 using Unity.Mathematics;
 using Unity.Burst;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class StaticOptimizationTestConverter : TestNetCodeAuthoring.IConverter
     {

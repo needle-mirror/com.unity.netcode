@@ -4,9 +4,9 @@ using UnityEngine;
 using Unity.Assertions;
 using Unity.Collections;
 using Unity.Jobs;
-using Unity.NetCode.Hybrid;
+using Unity.Netcode.Hybrid;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     // This struct mirrors GhostPrefabConfig, but it hasn't got any managed types so it can be used inside a regular component
     struct GhostPrefabConfigBaking

@@ -1,6 +1,7 @@
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Group that contains all the systems responsible for registering/setting up the default Ghost Variants (see <see cref="GhostComponentVariationAttribute"/>).
@@ -13,6 +14,7 @@ namespace Unity.NetCode
     /// </remarks>
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation |
                        WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class DefaultVariantSystemGroup : ComponentSystemGroup
     {
         protected override void OnCreate()

@@ -3,7 +3,7 @@ using Unity.Entities;
 using UnityEngine;
 using Unity.Collections;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class LateJoinCompletionConverter : TestNetCodeAuthoring.IConverter
     {

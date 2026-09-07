@@ -7,7 +7,7 @@ using Unity.Mathematics;
 using Unity.Networking.Transport;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal static class GhostGenTestUtils
     {

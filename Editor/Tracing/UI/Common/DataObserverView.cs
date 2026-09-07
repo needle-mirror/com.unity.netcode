@@ -1,8 +1,8 @@
 using System.Threading.Tasks;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     /// <summary>
     /// Base class for views that automatically update when tracing data is available.

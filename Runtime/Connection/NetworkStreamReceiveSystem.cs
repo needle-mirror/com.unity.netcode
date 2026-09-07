@@ -11,13 +11,15 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.NetCode.EntitiesInternalAccess;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 using Unity.Profiling;
+using UnityEngine.Scripting.APIUpdating;
 using Debug = UnityEngine.Debug;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Parent group of all systems that; receive data from the server, deal with connections, and
@@ -30,6 +32,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
     [UpdateBefore(typeof(GhostSimulationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class NetworkReceiveSystemGroup : ComponentSystemGroup
     {
     }
@@ -48,6 +51,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Factory interface that needs to be implemented by a concrete class for creating and registering new <see cref="NetworkDriver"/> instances.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public interface INetworkStreamDriverConstructor
     {
         /// <summary>
@@ -56,14 +60,14 @@ namespace Unity.NetCode
         /// <param name="world">Client world</param>
         /// <param name="driver">Driver store</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
-        void CreateClientDriver(World world, ref NetworkDriverStore driver, NetDebug netDebug);
+        void CreateClientDriver(NetcodeWorld world, ref NetworkDriverStore driver, NetDebug netDebug);
         /// <summary>
         /// Register to the driver store a new instance of <see cref="NetworkDriver"/> suitable to be used by servers.
         /// </summary>
         /// <param name="world">Server world</param>
         /// <param name="driver">Driver store</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
-        void CreateServerDriver(World world, ref NetworkDriverStore driver, NetDebug netDebug);
+        void CreateServerDriver(NetcodeWorld world, ref NetworkDriverStore driver, NetDebug netDebug);
     }
 
     /// <summary>
@@ -73,6 +77,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkStreamReceiveSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct NetworkStreamConnectSystem : ISystem
     {
         EntityQuery m_ConnectionRequestConnectQuery;
@@ -146,6 +151,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkStreamReceiveSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe partial struct NetworkStreamListenSystem : ISystem
     {
         EntityQuery m_ConnectionRequestListenQuery;
@@ -262,6 +268,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [CreateAfter(typeof(RpcSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe partial struct NetworkStreamReceiveSystem : ISystem
     {
         static INetworkStreamDriverConstructor s_DriverConstructor;
@@ -307,7 +314,7 @@ namespace Unity.NetCode
         BufferLookup<IncomingRpcDataStreamBuffer> m_RpcBufferFromEntity;
         BufferLookup<IncomingCommandDataStreamBuffer> m_CmdBufferFromEntity;
         BufferLookup<IncomingSnapshotDataStreamBuffer> m_SnapshotBufferFromEntity;
-        NativeList<NetCodeConnectionEvent> m_ConnectionEvents;
+        NativeList<NetcodeConnectionEvent> m_ConnectionEvents;
 
         NativeHashMap<uint, int> m_MigrationIds;
 
@@ -329,7 +336,7 @@ namespace Unity.NetCode
             m_RandomIndex.Value = (uint)System.Diagnostics.Stopwatch.GetTimestamp();
             m_NumNetworkIds = new NativeReference<int>(Allocator.Persistent);
             m_FreeNetworkIds = new NativeQueue<int>(Allocator.Persistent);
-            m_ConnectionEvents = new NativeList<NetCodeConnectionEvent>(32, Allocator.Persistent);
+            m_ConnectionEvents = new NativeList<NetcodeConnectionEvent>(32, Allocator.Persistent);
             m_ConnectionUniqueIds = new NativeList<uint>(16, Allocator.Persistent);
 
             var rpcCollection = SystemAPI.GetSingleton<RpcCollection>();
@@ -370,10 +377,11 @@ namespace Unity.NetCode
             else
             {
                 driverStore = new NetworkDriverStore();
-                if (state.World.IsServer())
-                    DriverConstructor.CreateServerDriver(state.World, ref driverStore, SystemAPI.GetSingleton<NetDebug>());
+                var netcodeWorld = (NetcodeWorld)state.World;
+                if (netcodeWorld.IsServer())
+                    DriverConstructor.CreateServerDriver(netcodeWorld, ref driverStore, SystemAPI.GetSingleton<NetDebug>());
                 else
-                    DriverConstructor.CreateClientDriver(state.World, ref driverStore, SystemAPI.GetSingleton<NetDebug>());
+                    DriverConstructor.CreateClientDriver(netcodeWorld, ref driverStore, SystemAPI.GetSingleton<NetDebug>());
             }
 
             m_DriverPointers = (IntPtr)UnsafeUtility.Malloc(UnsafeUtility.SizeOf<NetworkStreamDriver.Pointers>(), UnsafeUtility.AlignOf<NetworkStreamDriver.Pointers>(), Allocator.Persistent);
@@ -656,7 +664,7 @@ namespace Unity.NetCode
         {
             public EntityCommandBuffer commandBuffer;
             public NetworkDriverStore driverStore;
-            public NativeList<NetCodeConnectionEvent> connectionEvents;
+            public NativeList<NetcodeConnectionEvent> connectionEvents;
             public RpcQueue<ServerApprovedConnection, ServerApprovedConnection> serverApprovedConnectionRpcQueue;
             public RpcQueue<RequestProtocolVersionHandshake, RequestProtocolVersionHandshake> requestProtocolVersionHandshakeQueue;
             public ClientServerTickRate tickRate;
@@ -716,7 +724,7 @@ namespace Unity.NetCode
 
                         connection.CurrentState = ConnectionState.State.Handshake;
                         connection.CurrentStateDirty = false;
-                        connectionEvents.Add(new NetCodeConnectionEvent
+                        connectionEvents.Add(new NetcodeConnectionEvent
                         {
                             Id = default,
                             ConnectionId = connection.Value,
@@ -747,7 +755,7 @@ namespace Unity.NetCode
             public ComponentLookup<EnablePacketLogging> enablePacketLoggingFromEntity;
             public NativeQueue<int> freeNetworkIds;
             public NativeHashMap<uint, int> migrationIds;
-            public NativeList<NetCodeConnectionEvent> connectionEvents;
+            public NativeList<NetcodeConnectionEvent> connectionEvents;
             public NativeList<uint> connectionUniqueIds;
 
             public BufferLookup<OutgoingRpcDataStreamBuffer> outgoingRpcBuffer;
@@ -834,7 +842,7 @@ namespace Unity.NetCode
                                 Data = protocolVersion,
                                 ConnectionUniqueId = clientConnectionUniqueId
                             });
-                            connectionEvents.Add(new NetCodeConnectionEvent
+                            connectionEvents.Add(new NetcodeConnectionEvent
                             {
                                 Id = default,
                                 ConnectionId = connection.Value,
@@ -1031,7 +1039,7 @@ namespace Unity.NetCode
                 if(Hint.Unlikely(connection.CurrentStateDirty))
                 {
                     connection.CurrentStateDirty = false;
-                    connectionEvents.Add(new NetCodeConnectionEvent
+                    connectionEvents.Add(new NetcodeConnectionEvent
                     {
                         Id = networkId,
                         ConnectionId = connection.Value,
@@ -1071,7 +1079,7 @@ namespace Unity.NetCode
                     }
 
                     netDebug.DebugLog($"{debugPrefix} {connection.Value.ToFixedString()} closed NetworkId={networkId.Value} Reason={disconnectReason.ToFixedString()}.");
-                    connectionEvents.Add(new NetCodeConnectionEvent
+                    connectionEvents.Add(new NetcodeConnectionEvent
                     {
                         Id = networkId,
                         ConnectionId = connection.Value,
@@ -1117,7 +1125,7 @@ namespace Unity.NetCode
                         // Begin approval process:
                         connection.CurrentState = ConnectionState.State.Approval;
                         connection.CurrentStateDirty = false;
-                        connectionEvents.Add(new NetCodeConnectionEvent
+                        connectionEvents.Add(new NetcodeConnectionEvent
                         {
                             Id = default,
                             ConnectionId = connection.Value,
@@ -1253,7 +1261,7 @@ namespace Unity.NetCode
                 connection.CurrentState = ConnectionState.State.Connected;
                 connection.CurrentStateDirty = false;
                 connection.ConnectionApprovalTimeoutStart = 0;
-                connectionEvents.Add(new NetCodeConnectionEvent
+                connectionEvents.Add(new NetcodeConnectionEvent
                 {
                     Id = networkId,
                     ConnectionId = connection.Value,

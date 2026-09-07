@@ -7,10 +7,10 @@ using Unity.Collections;
 using UnityEditor;
 using UnityEngine.UIElements;
 using UnityEngine.UIElements.TestFramework;
-using Unity.NetCode.Editor.Tracing.UI.TracingToolbar;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Editor.Tracing.UI.TracingToolbar;
+using Unity.Netcode.Tracing;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Tests
+namespace Unity.Netcode.Editor.Tracing.UI.Tests
 {
     class TracingToolbarViewTests : UITestFixture
     {

@@ -7,7 +7,7 @@ using UnityEngine;
 using UnityEngine.Profiling;
 using Object = UnityEngine.Object;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Base system class for our various GhostBehaviour methods (example prediction update, fixed prediction update, input gathering, etc)

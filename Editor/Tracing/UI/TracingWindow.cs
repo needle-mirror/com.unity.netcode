@@ -2,15 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Unity.NetCode.Editor.Tracing.UI.TickInspector;
-using Unity.NetCode.Editor.Tracing.UI.Timeline;
-using Unity.NetCode.Tracing;
-using Unity.NetCode.Editor.Tracing.UI.TracingToolbar;
+using Unity.Netcode.Editor.Tracing.UI.TickInspector;
+using Unity.Netcode.Editor.Tracing.UI.Timeline;
+using Unity.Netcode.Tracing;
+using Unity.Netcode.Editor.Tracing.UI.TracingToolbar;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     /// <summary>
     /// Editor window that hosts tracing views for the Prediction Tracing Tool.
@@ -18,7 +18,7 @@ namespace Unity.NetCode.Editor.Tracing.UI
     /// </summary>
     class TracingWindow : EditorWindow
     {
-        const string k_WindowTitle = "Tracing Tool";
+        const string k_WindowTitle = "Prediction Tracing Tool";
         const string k_StyleSheetPath = Constants.Stylesheets + "tracing-window.uss";
         const string k_VariablesDarkPath = Constants.Stylesheets + "tracing-vars-dark.uss";
         const string k_VariablesLightPath = Constants.Stylesheets + "tracing-vars-light.uss";
@@ -52,11 +52,18 @@ namespace Unity.NetCode.Editor.Tracing.UI
 
 
 #if NETCODE_TRACING_TOOL
-        [MenuItem("Window/Multiplayer/Tracing Tool")]
+        // 3007 is the same as the playmode tools window, to stay in that same group
+        [MenuItem("Window/Multiplayer/Prediction Tracing Tool", priority = 3007)]
 #endif
-        static void ShowWindow()
+        internal static void ShowWindow()
         {
             GetWindow<TracingWindow>(false, k_WindowTitle, true);
+        }
+
+        // OnEnable (unlike CreateGUI) also runs for background tabs after the theme-switch domain reload,
+        void OnEnable()
+        {
+            titleContent = new GUIContent(k_WindowTitle, EditorGUIUtility.IconContent(Constants.PredictionTracingIconPath).image);
         }
 
         #region Load Gui
@@ -71,8 +78,8 @@ namespace Unity.NetCode.Editor.Tracing.UI
             EditorApplication.pauseStateChanged += OnPauseStateChanged;
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-            NetCodeTracingTargetSettings.OnSelectionChanged -= OnNetcodeSelectionChanged;
-            NetCodeTracingTargetSettings.OnSelectionChanged += OnNetcodeSelectionChanged;
+            NetcodeTracingTargetSettings.OnSelectionChanged -= OnNetcodeSelectionChanged;
+            NetcodeTracingTargetSettings.OnSelectionChanged += OnNetcodeSelectionChanged;
         }
 
         void LoadStylesheets()
@@ -150,8 +157,8 @@ namespace Unity.NetCode.Editor.Tracing.UI
 
             m_SetTracingTargetButton = new Button()
             {
-                text = "Set tracing target...",
-                tooltip = "Change the tracing target to capture data from a different source"
+                text = "Set prediction tracing target",
+                tooltip = "Change the prediction tracing target to capture data from a different source."
             };
 
             m_SetTracingTargetButton.AddToClassList(TracingWindowUssClasses.SetTracingTargetButton);
@@ -583,7 +590,7 @@ namespace Unity.NetCode.Editor.Tracing.UI
 
             EditorApplication.pauseStateChanged -= OnPauseStateChanged;
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-            NetCodeTracingTargetSettings.OnSelectionChanged -= OnNetcodeSelectionChanged;
+            NetcodeTracingTargetSettings.OnSelectionChanged -= OnNetcodeSelectionChanged;
             m_SelectedFrameID = default;
             m_SelectedTickID = default;
             m_Data = null;

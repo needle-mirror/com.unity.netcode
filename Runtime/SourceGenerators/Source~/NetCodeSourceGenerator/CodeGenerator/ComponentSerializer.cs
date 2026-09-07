@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     //ComponentGenerator instances are created by CodeGenerator. The class itseld is not threadsafe but since every
     //SourceGenerator has its own Context it is safe use. Avoid to use shared static variables or state here and verify

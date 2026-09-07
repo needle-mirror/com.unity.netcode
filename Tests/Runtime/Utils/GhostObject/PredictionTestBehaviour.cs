@@ -1,4 +1,4 @@
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct PredictionTestBehaviourTestInput : IInputComponentData
     {

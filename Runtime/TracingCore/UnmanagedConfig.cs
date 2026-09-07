@@ -3,17 +3,16 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     /// <summary>
     /// The shared static that stores the config to enable tracing and filter what components and systems to trace.
     /// </summary>
-#if NETCODE_TRACING_TOOL
-    public struct UnmanagedConfig : IDisposable
-#else
     internal struct UnmanagedConfig : IDisposable
-#endif
     {
+        internal const int k_TracingMemoryLimitMB = 2048;
+        internal const int k_TargetFPSDuringProcessing = 30;
+
         public NativeHashSet<ComponentType> RequiredTypesToTrace;
         public NativeHashSet<ComponentType> OptionalTypesToTrace;
         public NativeHashSet<SystemTypeIndex> SystemTypesToTrace;
@@ -61,7 +60,7 @@ namespace Unity.NetCode.Tracing
             RequiredTypesToTrace = new(0, Allocator.Persistent);
             OptionalTypesToTrace = new(0, Allocator.Persistent);
             SystemTypesToTrace = new(0, Allocator.Persistent);
-            TracingDataAccess.s_WorldsSaveSize.Data.MaxTracesSizeMB = NetCodeConfig.Global.TracingConfig.TracingMemoryLimitMb;
+            TracingDataAccess.s_WorldsSaveSize.Data.MaxTracesSizeMB = k_TracingMemoryLimitMB;
             Initialized = true;
         }
 
@@ -69,7 +68,8 @@ namespace Unity.NetCode.Tracing
         {
             if(!Initialized)
                 InitializeComponentTypes();
-            if(RequiredTypesToTrace.Contains(type))
+            // GhostInstance is always traced implicitly, so registering it as required is a no-op.
+            if(RequiredTypesToTrace.Contains(type) || type.TypeIndex == TypeManager.GetTypeIndex<GhostInstance>())
             {
                 return;
             }
@@ -106,6 +106,12 @@ namespace Unity.NetCode.Tracing
                 InitializeComponentTypes();
             if(OptionalTypesToTrace.Contains(type))
             {
+                return;
+            }
+
+            if (type.TypeIndex == TypeManager.GetTypeIndex<GhostInstance>())
+            {
+                Debug.LogWarning("GhostInstance component is always traced, it can't be registered as optional.");
                 return;
             }
             if (RequiredTypesToTrace.Contains(type))
@@ -189,32 +195,6 @@ namespace Unity.NetCode.Tracing
             m_ServerHasConnection = false;
             m_IsReadingRawTraces = false;
             OnTypeTracesUpdated?.Invoke();
-        }
-    }
-
-    // Scriptable object that stores the user prefrences for the tracing tool. Commented until release to give us flexibility as to where exactly we put it.
-    //[FilePath("UserSettings/NetcodeTracingConfig.asset", FilePathAttribute.Location.PreferencesFolder)] We will make this an actual user setting when tracing becomes public
-    [Serializable]
-#if NETCODE_TRACING_TOOL
-    public
-#endif
-    struct TracingConfig
-    {
-        internal const int k_TracingMemoryLimitDefaut = 2048;
-        [SerializeField]
-        public int TracingMemoryLimitMb;
-        [SerializeField]
-        public bool IgnoreDTDiffs;
-        [SerializeField]
-        public bool IgnorePartialTicks;
-        internal int _targetFPSDuringProcessing;
-
-        public void ResetToDefault()
-        {
-            _targetFPSDuringProcessing = 30;
-            TracingMemoryLimitMb = k_TracingMemoryLimitDefaut;
-            IgnoreDTDiffs = false;
-            IgnorePartialTicks = false;
         }
     }
 }

@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
-using Unity.NetCode.Generators;
-using Debug = Unity.NetCode.Generators.Debug;
+using Unity.Netcode.Generators;
+using Debug = Unity.Netcode.Generators.Debug;
 
-namespace Unity.NetCode.GeneratorTests
+namespace Unity.Netcode.GeneratorTests
 {
     /// <summary>
     /// Provides the rough functionality of the Unity TestRunner LogAssert class.

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using NUnit.Framework;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [ExcludeFromCodeCoverage]
     internal static class SingleWorldHostUtils

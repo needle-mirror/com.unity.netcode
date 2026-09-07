@@ -1,14 +1,16 @@
 using System;
 using Unity.Collections;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Internal class used for ghost authoring settings common settings between GameObject and ECS ghosts. Do not use.
     /// </summary>
     // Internal note: in order to avoid breaking changes (like moving GhostAuthoringComponent to the main Unity.NetCode assembly), we're creating a shared base class and move the
     // authoring fields to this base class.
+    [MovedFrom(true, "Unity.NetCode")]
     public abstract class BaseGhostSettings : MonoBehaviour
     {
         /// <summary>

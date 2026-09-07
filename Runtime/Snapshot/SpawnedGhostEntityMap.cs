@@ -1,7 +1,8 @@
 using Unity.Entities;
 using Unity.Collections;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     internal struct GhostUpdateVersion : IComponentData
     {
@@ -11,6 +12,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Singleton entity used store the entities references for all the spawned ghost.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SpawnedGhostEntityMap : IComponentData
     {
         /// <summary>

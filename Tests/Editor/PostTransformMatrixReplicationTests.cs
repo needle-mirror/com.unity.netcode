@@ -8,9 +8,10 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [DisableAutoCreation]
+    [CreateBefore(typeof(TransformDefaultVariantSystem))] // user rules must register before netcode's defaults; without this, creation order is type-hash tie-break
     internal partial class SelectPostTransformMatrixScaleVariantSystem : DefaultVariantSystemBase
     {
         protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)

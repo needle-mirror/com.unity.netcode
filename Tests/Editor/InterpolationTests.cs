@@ -2,6 +2,7 @@
 using NUnit.Framework;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 using Unity.Mathematics;
 using Unity.Networking.Transport;
@@ -9,7 +10,7 @@ using Unity.Networking.Transport.Utilities;
 using Unity.Transforms;
 using Random = UnityEngine.Random;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]

@@ -39,17 +39,17 @@ apiRules:
       uidRegex: \.ToString$
       type: Method
   - exclude:
-      uidRegex: ^Unity\.NetCode\.Tests\.FixedListComplexData.*$
+      uidRegex: ^Unity\.Netcode\.Tests\.FixedListComplexData.*$
       type: Struct
   - exclude:
-      uidRegex: ^Unity\.NetCode\.Tests\.SimpleData.*$
+      uidRegex: ^Unity\.Netcode\.Tests\.SimpleData.*$
       type: Struct
   - exclude:
-      uidRegex: ^Unity\.NetCode\.Tests\.FixedElement8.*$
+      uidRegex: ^Unity\.Netcode\.Tests\.FixedElement8.*$
       type: Struct
   - exclude:
-      uidRegex: ^Unity\.NetCode\.Tests\.Nested.*$
+      uidRegex: ^Unity\.Netcode\.Tests\.Nested.*$
       type: Struct
   - exclude:
-      uidRegex: ^Unity\.NetCode\.Tests\.(.*)(Variant|Variation).*$
+      uidRegex: ^Unity\.Netcode\.Tests\.(.*)(Variant|Variation).*$
       type: Struct

@@ -3,12 +3,13 @@ using Unity.Collections;
 using Unity.Core;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
 using Unity.Profiling;
 using UnityEngine;
-using static Unity.NetCode.ClientServerTickRate.FrameRateMode;
+using static Unity.Netcode.ClientServerTickRate.FrameRateMode;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Keeps track of time and tick counts, accumulating time until ready to run a tick.

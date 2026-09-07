@@ -20,7 +20,7 @@ Refer to the [prediction switching page](../prediction-switching.md) for more de
 
 ## Using `MaxSendRate` to reduce client prediction costs
 
-Predicted ghosts are particularly impacted by the [`GhostAuthoringComponent.MaxSendRate`](xref:Unity.NetCode.GhostAuthoringComponent.MaxSendRate) setting, because predicted ghosts are only rolled back and re-simulated after being received in a snapshot.
+Predicted ghosts are particularly impacted by the [`GhostAuthoringComponent.MaxSendRate`](xref:Unity.Netcode.GhostAuthoringComponent.MaxSendRate) setting, because predicted ghosts are only rolled back and re-simulated after being received in a snapshot.
 
 Reducing the frequency with which a ghost chunk is added to the snapshot indirectly reduces the predicted ghost re-simulation rate, saving client CPU cycles overall. However, it can cause larger client misprediction errors, which leads to larger corrections that may be more visible to players.
 
@@ -28,11 +28,11 @@ Reducing the frequency with which a ghost chunk is added to the snapshot indirec
 > Ghost group children do not support `MaxSendRate` (nor Relevancy, Importance, Static-Optimization etc.) until they've left the group, refer to the [ghost groups page](../ghost-groups.md) for more details.
 
 Lowering a ghost's send rate also increases the chance it's omitted from any given snapshot, which can cause [partial-snapshot mispredictions](../prediction-details.md#interactions-between-predicted-ghosts-using-partial-snapshots) when it interacts with ghosts that did roll back.
-If these mispredictions become a problem, enable [`ClientTickRate.AlwaysRollbackAllPredictedGhosts`](xref:Unity.NetCode.ClientTickRate.AlwaysRollbackAllPredictedGhosts), which rolls back every predicted ghost whenever required, fixing this problem at the cost of extra CPU consumption and prediction-history memory.
+If these mispredictions become a problem, enable [`ClientTickRate.AlwaysRollbackAllPredictedGhosts`](xref:Unity.Netcode.ClientTickRate.AlwaysRollbackAllPredictedGhosts), which rolls back every predicted ghost whenever required, fixing this problem at the cost of extra CPU consumption and prediction-history memory.
 
 ## Using `ForcedInputLatencyTicks`
 
-[`ClientTickRate.ForcedInputLatencyTicks`](xref:Unity.NetCode.ClientTickRate.ForcedInputLatencyTicks) reduces the number of client prediction steps needed to be performed each frame, on average,
+[`ClientTickRate.ForcedInputLatencyTicks`](xref:Unity.Netcode.ClientTickRate.ForcedInputLatencyTicks) reduces the number of client prediction steps needed to be performed each frame, on average,
 at the considerable expense of increased input latency (which will make the game feel less responsive to players).
 
 It has two other benefits:

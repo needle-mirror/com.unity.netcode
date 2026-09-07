@@ -5,13 +5,18 @@ using UnityEngine.Assertions;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst=true)]
+    // Simulate flags must be up to date for this tick before anything in the OrderFirst bucket consumes them. Without these, the position relative to other OrderFirst systems is creation-order dependent.
+    [UpdateBefore(typeof(PredictedFixedStepSimulationSystemGroup))]
+    [UpdateBefore(typeof(CopyCommandBufferToInputSystemGroup))]
     [BurstCompile]
     internal partial struct GhostPredictionDisableSimulateSystem : ISystem
     {
@@ -183,6 +188,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst=true)]
     [UpdateBefore(typeof(FixedStepSimulationSystemGroup))]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class PredictedSimulationSystemGroup : ComponentSystemGroup
     {}
 
@@ -193,6 +199,7 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.Default)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class PredictedFixedStepSimulationSystemGroup : ComponentSystemGroup
     {
         /// <summary>
@@ -210,7 +217,7 @@ namespace Unity.NetCode
             }
             [Obsolete("The PredictedFixedStepSimulationSystemGroup.TimeStep setter has been deprecated and will be removed (RemovedAfter Entities 1.0)." +
                 "Please use the ClientServerTickRate.PredictedFixedStepSimulationTickRatio to set the desired rate for this group. " +
-                "Any TimeStep value set using the RateManager directly will be overwritten with the setting provided in the ClientServerTickRate", false)]
+                "Any TimeStep value set using the RateManager directly will be overwritten with the setting provided in the ClientServerTickRate", true)]
             set
             {
                 m_InternalRateManager.Timestep = value;

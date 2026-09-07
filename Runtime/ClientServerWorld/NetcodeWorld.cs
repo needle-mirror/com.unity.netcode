@@ -4,12 +4,14 @@ using System.Diagnostics;
 using Unity.Assertions;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
+
     /// <summary>
     /// Provides various utility APIs for the current world. Most of these should have an ECS counter part, this class simply provides direct access
     /// to those various components.
@@ -17,10 +19,7 @@ namespace Unity.NetCode
     /// </summary>
     // Design note: The goal is to store as little state as possible here. That state should be stored ECS side in most cases.
     [DebuggerDisplay("{GetDebugName(this)}")]
-#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
-    public
-#endif
-    class NetcodeWorld : World
+    public class NetcodeWorld : World
     {
         bool m_Initialized;
 
@@ -31,24 +30,49 @@ namespace Unity.NetCode
         /// Your local connection, for the current client. For a host, this is your "main" virtual local connection.
         /// The network ID and other values default to 0 when there is no connection.
         /// </summary>
-        public Connection LocalConnection {
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+            public
+#else
+            internal
+#endif
+            Connection LocalConnection {
             get
             {
                 this.AssertIsClient();
                 return m_Connection;
             }
-            internal set => m_Connection = value;
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+            internal
+#endif
+            set => m_Connection = value;
         }
-        public List<Connection> AllConnections { get; internal set; } = new(); // TODO-release@connection we could potentially have this filled for client worlds as well, containing info about other clients. Could be useful for ownership information? (what would we attach to that NetworkId to make this useful?) or for potentially having a way to send an RPC to another client?
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+            public
+#else
+        internal
+#endif
+            List<Connection> AllConnections
+        {
+            get;
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+            internal
+#endif
+            set;
+        } = new(); // TODO-release@connection we could potentially have this filled for client worlds as well, containing info about other clients. Could be useful for ownership information? (what would we attach to that NetworkId to make this useful?) or for potentially having a way to send an RPC to another client?
 
         // TODO-next@connection have a sample showing a state machine using this?
         // TODO-next@connection raise events on a client when other clients join.
         /// <summary>
-        /// Event called for any connection event, both client side or server side. A <see cref="NetCodeConnectionEvent.State"/> is available to
+        /// Event called for any connection event, both client side or server side. A <see cref="NetcodeConnectionEvent.State"/> is available to
         /// differentiate the different events.
         /// This is called from ECS's <see cref="SimulationSystemGroup"/>'s beginning and so should execute right after MonoBehaviour.Update(). See <see cref="ConnectionManagementUpdateConnections"/>. This will also get called on world destruction when shutting down.
         /// </summary>
-        public event OnConnectionEventDelegate OnConnectionEvent;
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+            public
+#else
+        internal
+#endif
+            event OnConnectionEventDelegate OnConnectionEvent;
 
         // Needed since this is an event. This way it can be triggered by a system outside this class
         internal OnConnectionEventDelegate GetCallbackToInvokeOnConnectionEvent()
@@ -78,7 +102,12 @@ namespace Unity.NetCode
         #endregion
 
         PredictionSwitching m_PredictionSwitching;
-        public PredictionSwitching PredictionSwitching
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            PredictionSwitching PredictionSwitching
         {
             get
             {
@@ -92,7 +121,6 @@ namespace Unity.NetCode
         {
             Initialize();
         }
-
         internal NetcodeWorld(string name, WorldFlags flags, AllocatorManager.AllocatorHandle backingAllocatorHandle)
             : base(name, flags, backingAllocatorHandle)
         {
@@ -124,7 +152,7 @@ namespace Unity.NetCode
             //      if users change their config in code, then it's up to them to apply it to NetcodeConfig before clicking "apply".
             // Editor code auto creates NetcodeConfig asset. There's also logic in place to make sure it's never null.
             var settingsEntity = this.EntityManager.CreateEntity();
-            var config = NetCodeConfig.Global;
+            var config = NetcodeConfig.Global;
             var sendData = new GhostSendSystemData();
             sendData.Initialize();
             var cstr = new ClientServerTickRate();
@@ -132,7 +160,7 @@ namespace Unity.NetCode
             var ctr = NetworkTimeSystem.DefaultClientTickRate;
             if (config == null)
             {
-                Debug.LogError($"Sanity check failed, {nameof(NetCodeConfig)} is null");
+                Debug.LogError($"Sanity check failed, {nameof(NetcodeConfig)} is null");
             }
             else
             {
@@ -154,8 +182,18 @@ namespace Unity.NetCode
             m_Initialized = true;
         }
 
-        public NetworkTime NetworkTime => m_Initialized ? m_NetworkTimeSingletonQuery.GetSingleton<NetworkTime>() : default;
-        public float DeltaTime => m_Initialized ? base.Time.DeltaTime : 0f;
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            NetworkTime NetworkTime => m_Initialized ? m_NetworkTimeSingletonQuery.GetSingleton<NetworkTime>() : default;
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            float DeltaTime => m_Initialized ? base.Time.DeltaTime : 0f;
 
         #region connectivity
 
@@ -171,7 +209,12 @@ namespace Unity.NetCode
         /// </code>
         /// </param>
         /// <returns>True if successful, Shutdown will be called on client connection issues.</returns>
-        public Connection Connect(NetworkEndpoint endpoint)
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            Connection Connect(NetworkEndpoint endpoint)
         {
             //TODO-next@connection do we only let session management handle relay? Do we need to do anything on our side for this?
             //You can't start as host if the playmode tool does not allow that.
@@ -203,7 +246,12 @@ namespace Unity.NetCode
         /// </code>
         /// </param>
         /// <returns>True if successful, Shutdown will be called on issues.</returns>
-        public bool Listen(NetworkEndpoint endpoint)
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            bool Listen(NetworkEndpoint endpoint)
         {
             //You can't start as host if the playmode tool does not allow that.
             if (ClientServerBootstrap.RequestedPlayType == ClientServerBootstrap.PlayType.Client)
@@ -262,7 +310,12 @@ namespace Unity.NetCode
         /// Check if the server world is set up and valid and has a driver instance listening.
         /// </summary>
         /// <returns>True if server is listening.</returns>
-        public bool Listening()
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            bool Listening()
         {
             this.AssertIsServer();
             return Driver.DriverStore.HasListeningInterfaces;
@@ -272,7 +325,12 @@ namespace Unity.NetCode
         /// Flushes all pending messages on connections and requests a disconnect on those connections. This will be processed in the next frame and so
         /// your connections will still be marked as connected after this call.
         /// </summary>
-        public void Shutdown()
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            void Shutdown()
         {
             if (this.IsClient())
             {
@@ -315,18 +373,33 @@ namespace Unity.NetCode
             }
         }
 
-        public void RequestDisconnectFromServer()
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            void RequestDisconnectFromServer()
         {
             this.AssertIsClientOnly();
             LocalConnection.RequestDisconnect();
         }
 
-        public void DisconnectAClient(Connection connection)
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            void DisconnectAClient(Connection connection)
         {
             DisconnectAClient(connection.NetworkId);
         }
 
-        public void DisconnectAClient(NetworkId clientId)
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            void DisconnectAClient(NetworkId clientId)
         {
             this.AssertIsServer();
             using var data = m_NetworkIdQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
@@ -340,7 +413,12 @@ namespace Unity.NetCode
             }
         }
 
-        public void RequestDisconnectAllClients()
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            void RequestDisconnectAllClients()
         {
             this.AssertIsServer();
             foreach (var connection in m_NetworkStreamConnectionQuery.ToEntityArray(Allocator.Temp))
@@ -351,7 +429,12 @@ namespace Unity.NetCode
 
         #endregion
 
-        public static string GetDebugName(NetcodeWorld self)
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+        public
+#else
+        internal
+#endif
+            static string GetDebugName(NetcodeWorld self)
         {
             if (self.ExistsAndIsCreated())
                 return $"{(self.IsThinClient() ? "Thin" : "")} {(self.IsClient() ? self.IsServer() ? "Host" : "Client" : "Server")} NetcodeWorld [NetworkTime {self.NetworkTime.ToString()}] {self.Name}";

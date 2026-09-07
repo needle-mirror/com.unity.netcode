@@ -1,6 +1,6 @@
 # Creating replication schemas with `GhostComponentVariationAttribute`
 
-Use [`GhostComponentVariationAttribute`](xref:Unity.NetCode.GhostComponentVariationAttribute) to declare a replication schema for a type (at compile time) without needing to mark up fields in the original type, or the original type itself. These replication schemas are referred to as variants. The newly declared schema acts as a proxy in terms of code generation: instead of using the original type, the code generation system uses the declared variant to generate a specific version of the serialization code.
+Use [`GhostComponentVariationAttribute`](xref:Unity.Netcode.GhostComponentVariationAttribute) to declare a replication schema for a type (at compile time) without needing to mark up fields in the original type, or the original type itself. These replication schemas are referred to as variants. The newly declared schema acts as a proxy in terms of code generation: instead of using the original type, the code generation system uses the declared variant to generate a specific version of the serialization code.
 
 Variants rely on [`GhostFieldAttribute`](ghostfield-synchronize.md) and [`GhostComponentAttribute`](ghostcomponentattribute.md), so it's recommended to review those topics before creating a variant. You can also use [ghost types templates](ghost-types-templates.md) to manage custom serialization, but it's more complex to implement and is only recommended for advanced users.
 
@@ -34,7 +34,7 @@ In the previous example, the `PositionRotation2d` variant generates serializatio
 The attribute constructor takes a few arguments:
 
 * The `Type type` of the `ComponentType` you want to specify the variant for (in this case `LocalTransform`).
-* The `string variantName`, which allows you to specify a human-readable string for viewing in the [`GhostAuthoringInspectionComponent`](xref:Unity.NetCode.GhostAuthoringInspectionComponent) UI.
+* The `string variantName`, which allows you to specify a human-readable string for viewing in the [`GhostAuthoringInspectionComponent`](xref:Unity.Netcode.GhostAuthoringInspectionComponent) UI.
 
 Then, for each field in the original struct (in this case `LocalTransform`) that you want to replicate, add a [`GhostFieldAttribute`](ghostfield-synchronize.md) and define the field identically to that of the base struct. You can add an optional [`GhostComponentAttribute`](ghostcomponentattribute.md) to the variant to further specify the component serialization properties.
 
@@ -47,7 +47,7 @@ You can declare multiple serialization variants for a component. For example, ha
 
 `LocalTransform` only supports a single, uniform `Scale` value. Non-uniform (per-axis) 3D scale is stored separately, in the optional [`PostTransformMatrix`](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/api/Unity.Transforms.PostTransformMatrix.html) component (a `float4x4`).
 
-Netcode for Entities provides a built-in variant, [`PostTransformMatrix3DScaleVariant`](xref:Unity.NetCode.PostTransformMatrix3DScaleVariant), to replicate this non-uniform scale. Negative (mirrored) per-axis scale is included. Refer to the [sign convention](#sign-convention-for-mirrored-negative-scale) for more information, especially if your matrix carries its own rotation.
+Netcode for Entities provides a built-in variant, [`PostTransformMatrix3DScaleVariant`](xref:Unity.Netcode.PostTransformMatrix3DScaleVariant), to replicate this non-uniform scale. Negative (mirrored) per-axis scale is included. Refer to the [sign convention](#sign-convention-for-mirrored-negative-scale) for more information, especially if your matrix carries its own rotation.
 <!--
 TODO GhostObject
 * For **GameObject-layer ghosts** (those using a `GhostObject`, currently behind the `NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL` define), `PostTransformMatrix` defaults to `PostTransformMatrix3DScaleVariant`, so non-uniform scale is replicated out of the box. You can opt out of replicating it per-prefab by enabling **Use Uniform Scale** on the `GhostObject`.
@@ -143,7 +143,7 @@ To author your own (for example, higher precision), copy the struct and change `
 
 ## Specifying which variant to use on a prefab
 
-You can use [`GhostAuthoringInspectionComponent`](xref:Unity.NetCode.GhostAuthoringInspectionComponent) to specify which variant to use on a per-prefab basis. You can choose a variant for each individual component (including the special case variant: `DontSerializeVariant`).
+You can use [`GhostAuthoringInspectionComponent`](xref:Unity.Netcode.GhostAuthoringInspectionComponent) to specify which variant to use on a per-prefab basis. You can choose a variant for each individual component (including the special case variant: `DontSerializeVariant`).
 
 > [!NOTE]
 > You can also [apply variant overrides from a baker](baker-variant-overrides.md).
@@ -167,10 +167,10 @@ There are some built-in variant types that have specific behaviors.
 
 | Built-in variant | Description                                                                                                                                    |
 |--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| [`ClientOnlyVariant`](xref:Unity.NetCode.ClientOnlyVariant)      | Use this to specify that a given `ComponentType` should only appear on client worlds. |
-| [`ServerOnlyVariant`](xref:Unity.NetCode.ServerOnlyVariant)      | Use this to specify that a given `ComponentType` should only appear on server worlds. |
-| [`DontSerializeVariant`](xref:Unity.NetCode.DontSerializeVariant)   | Use this to disable serialization of a type entirely. Replication attributes (`[GhostField]` and `[GhostEnabledBit]`) are ignored. |
-| [`PostTransformMatrix3DScaleVariant`](xref:Unity.NetCode.PostTransformMatrix3DScaleVariant) | Use this to replicate the non-uniform (3D) scale that a `PostTransformMatrix` component stores. This variant sends the per-axis scale only, as three quantized floats. Refer to [Replicating non-uniform (3D) scale](#replicating-non-uniform-3d-scale). |
+| [`ClientOnlyVariant`](xref:Unity.Netcode.ClientOnlyVariant)      | Use this to specify that a given `ComponentType` should only appear on client worlds. |
+| [`ServerOnlyVariant`](xref:Unity.Netcode.ServerOnlyVariant)      | Use this to specify that a given `ComponentType` should only appear on server worlds. |
+| [`DontSerializeVariant`](xref:Unity.Netcode.DontSerializeVariant)   | Use this to disable serialization of a type entirely. Replication attributes (`[GhostField]` and `[GhostEnabledBit]`) are ignored. |
+| [`PostTransformMatrix3DScaleVariant`](xref:Unity.Netcode.PostTransformMatrix3DScaleVariant) | Use this to replicate the non-uniform (3D) scale that a `PostTransformMatrix` component stores. This variant sends the per-axis scale only, as three quantized floats. Refer to [Replicating non-uniform (3D) scale](#replicating-non-uniform-3d-scale). |
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-variants.cs#SpecialVariantTypes)]
 
@@ -178,28 +178,28 @@ You can also manually select the `DontSerializeVariant` in the ghost component o
 
 ### Preventing a component from supporting variations
 
-There are some situations where you want to prevent a component from having its serialization modified via variants. For example, to ensure that [`GhostInstance`](xref:Unity.NetCode.GhostInstance) is always properly serialized, Netcode for Entities prevents user code from modifying its serialization rules.
+There are some situations where you want to prevent a component from having its serialization modified via variants. For example, to ensure that [`GhostInstance`](xref:Unity.Netcode.GhostInstance) is always properly serialized, Netcode for Entities prevents user code from modifying its serialization rules.
 
-To prevent a component from supporting variation, use [`DontSupportPrefabOverridesAttribute`](xref:Unity.NetCode.DontSupportPrefabOverridesAttribute) and an error will be reported at compile time if a `GhostComponentVariation` is defined for that type.
+To prevent a component from supporting variation, use [`DontSupportPrefabOverridesAttribute`](xref:Unity.Netcode.DontSupportPrefabOverridesAttribute) and an error will be reported at compile time if a `GhostComponentVariation` is defined for that type.
 
 ### Assigning a default variant to use for a type
 
 If multiple variants are available for a type, Netcode for Entities may be unable to infer which variant should be used for serialization. If the default serializer for the type is replicated, that becomes the default. If not, it's considered a conflict and produces runtime exceptions when creating any world (including baking worlds). Netcode for Entities uses a deterministic fallback method to guess which variant to use, but in general it's your responsibility to indicate which variant should be used as the default.
 
 To specify which variant to use as the default for a given type, you need to create a system that inherits from the
-[`DefaultVariantSystemBase`](xref:Unity.NetCode.DefaultVariantSystemBase) class and implements the `RegisterDefaultVariants` method. For example:
+[`DefaultVariantSystemBase`](xref:Unity.Netcode.DefaultVariantSystemBase) class and implements the `RegisterDefaultVariants` method. For example:
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-variants.cs#DefiningVariants)]
 
-The previous example code ensures that the default `LocalTransform` variant to use is the `TransformDefaultVariant`. For more details, refer to the [`DefaultVariantSystemBase`](xref:Unity.NetCode.DefaultVariantSystemBase) documentation.
+The previous example code ensures that the default `LocalTransform` variant to use is the `TransformDefaultVariant`. For more details, refer to the [`DefaultVariantSystemBase`](xref:Unity.Netcode.DefaultVariantSystemBase) documentation.
 
 > [!NOTE]
 > This is the recommended approach for specifying the default variant for a ghost across an entire project. Prefer `DefaultVariantSystemBase` over direct variant manipulation (via `GhostAuthoringInspectionComponent` overrides).
 
 ## Additional resources
 
-* [`GhostComponentVariationAttribute` API documentation](xref:Unity.NetCode.GhostComponentVariationAttribute)
-* [`GhostAuthoringInspectionComponent` API documentation](xref:Unity.NetCode.GhostAuthoringInspectionComponent)
+* [`GhostComponentVariationAttribute` API documentation](xref:Unity.Netcode.GhostComponentVariationAttribute)
+* [`GhostAuthoringInspectionComponent` API documentation](xref:Unity.Netcode.GhostAuthoringInspectionComponent)
 * [Customizing replication with `GhostComponentAttribute`](ghostcomponentattribute.md)
 * [Serializing and synchronizing with `GhostFieldAttribute`](ghostfield-synchronize.md)
 * [Ghost types templates](ghost-types-templates.md)

@@ -1,11 +1,12 @@
 using System;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     ///     Add this to your Scene (on a root GameObject only!) to replace the automatic bootstrapping setting specified in
-    ///     your <see cref="NetCodeConfig" /> ProjectSettings asset. Note: Netcode will only search the Active scene for
+    ///     your <see cref="NetcodeConfig" /> ProjectSettings asset. Note: Netcode will only search the Active scene for
     ///     this MonoBehaviour, and only during bootstrap (which occurs only on game boot, before the first MonoBehaviour Awake).
     /// </summary>
     /// <remarks>
@@ -15,11 +16,12 @@ namespace Unity.NetCode
     ///     <see cref="ClientServerBootstrap.DetermineIfBootstrappingEnabled" /> early, and return false if false.
     /// </remarks>
     [AddComponentMenu("Multiplayer/Override Automatic Netcode Bootstrap", 3)]
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed class OverrideAutomaticNetcodeBootstrap : MonoBehaviour, IComparable<OverrideAutomaticNetcodeBootstrap>
     {
-        /// <inheritdoc cref="NetCodeConfig.AutomaticBootstrapSetting" />
+        /// <inheritdoc cref="NetcodeConfig.AutomaticBootstrapSetting" />
         [Tooltip("Note: This will only replace the bootstrap for this one scene, and only if this scene is the Active scene when entering playmode, or the first scene in the build.")]
-        public NetCodeConfig.AutomaticBootstrapSetting ForceAutomaticBootstrapInScene = NetCodeConfig.AutomaticBootstrapSetting.EnableAutomaticBootstrap;
+        public NetcodeConfig.AutomaticBootstrapSetting ForceAutomaticBootstrapInScene = NetcodeConfig.AutomaticBootstrapSetting.EnableAutomaticBootstrap;
 
         private void OnValidate()
         {

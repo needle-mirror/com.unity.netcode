@@ -7,9 +7,9 @@ using System;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 
-namespace Unity.NetCode.LowLevel.Unsafe
+namespace Unity.Netcode.LowLevel.Unsafe
 {
-    [Obsolete("The NetDebugPacket has been deprecated and will be removed in future releases.", false)]
+    [Obsolete("The NetDebugPacket has been deprecated and will be removed in future releases.", true)]
     public struct NetDebugPacket : IDisposable
     {
         public bool IsCreated => false;

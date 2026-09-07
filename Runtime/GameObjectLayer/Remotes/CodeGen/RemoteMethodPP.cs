@@ -7,7 +7,7 @@ using Mono.Cecil.Rocks;
 using Unity.CompilationPipeline.Common.Diagnostics;
 using Unity.CompilationPipeline.Common.ILPostProcessing;
 
-namespace Unity.NetCode.Remotes.CodeGen
+namespace Unity.Netcode.Remotes.CodeGen
 {
     internal class RemoteMethodPP : ILPostProcessor
     {

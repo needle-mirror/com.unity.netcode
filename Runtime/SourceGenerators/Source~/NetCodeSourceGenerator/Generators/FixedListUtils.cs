@@ -2,7 +2,7 @@ using System;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
-namespace Unity.NetCode.Generators;
+namespace Unity.Netcode.Generators;
 
 public static class FixedListUtils
 {

@@ -1,7 +1,7 @@
 using System;
 using UnityEngine.Analytics;
 
-namespace Unity.NetCode.Editor.Analytics
+namespace Unity.Netcode.Editor.Analytics
 {
     [Serializable]
     internal struct PlayModeLagSpikeTriggeredData : IAnalytic.IData

@@ -3,13 +3,14 @@ using System;
 using System.Diagnostics;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Profiling;
 using Debug = UnityEngine.Debug;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     // Profiler counters and additional metrics
     struct ProfilerMetrics : IComponentData

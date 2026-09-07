@@ -10,8 +10,9 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.StateSave;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.LowLevel.StateSave;
+using Unity.Netcode.NetcodeTime;
+using Unity.Netcode.Tracing;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -19,7 +20,7 @@ using Assert = NUnit.Framework.Assert;
 using Random = UnityEngine.Random;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal interface IFuzzyEquatable<T>
     {
@@ -89,8 +90,25 @@ namespace Unity.NetCode.Tests
         Scene m_ClientScene;
         Scene m_ServerScene;
 
-        const float k_TransformEpsilon = 0.000_002f; // found experimentally. If test is too flaky, could be acceptable to use 0.000_01f instead
-        const float k_VelocityEpsilon = 0.000_08f; // found experimentally. If test is too flaky, could be acceptable to use 0.000_1f instead
+        // found experimentally. If test is too flaky, could be acceptable to use different values instead.
+        // These are specifically the rates for 60Hz. The math is different for different tick rates, we can use these as a base.
+        const float k_TransformEpsilonAt60Hz = 0.000_002f;
+        const float k_VelocityEpsilonAt60Hz = 0.000_08f;
+
+        /// <summary>
+        /// Calculate the epsilons to use based on the given tick rate
+        /// </summary>
+        /// <remarks>
+        /// Re-simulating a rolled-back tick restores transform and velocity but not the physics engine's internal solver state.
+        /// Therefore, clients and the server can only agree to within the drift that was accumulated over a single simulation step.
+        /// A lower tick rate will move the simulation further per step, so the same scene will drift more per tick.
+        /// Scaling the epsilon by the tick rate reduces instabilities by giving lower tick rates a larger epsilon.
+        /// </remarks>
+        static (float transformEpsilon, float velocityEpsilon) EpsilonsForTickRate(int tickRate)
+        {
+            var stepScale = 60f / tickRate;
+            return (k_TransformEpsilonAt60Hz * stepScale, k_VelocityEpsilonAt60Hz * stepScale);
+        }
 
         static NetworkTick s_TickStartSimulate;
 
@@ -371,12 +389,10 @@ namespace Unity.NetCode.Tests
             s_TickStartSimulate.Add(10);
 
             TracingDataAccess.ResetStaticState();
-            NetCodeConfig.Global.TracingConfig.IgnorePartialTicks = true; // physics doesn't run in partial ticks
             TracingDataAccess.Config.Data.OnlyTraceAfter = true; // we only care about the state traced by the above callbacks, we don't care about the state of the world before those
             TracingDataAccess.Config.Data.AddRequiredTypeToTrace(ComponentType.ReadWrite<TracedGameObjectTransform>());
             TracingDataAccess.Config.Data.AddRequiredTypeToTrace(ComponentType.ReadWrite<TracedGameObjectRigidbody>());
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(TypeManager.GetSystemTypeIndex<UpdateInPredictionSystem>());
-            NetCodeConfig.Global.TracingConfig._targetFPSDuringProcessing = 1;
 
             // Execute Test. The cubes fall down and get scrambled on a plane+big cube in the scene
             {
@@ -400,10 +416,19 @@ namespace Unity.NetCode.Tests
 
             var data = await TracingDataAccess.GetProcessedWorldsData(new CancellationToken());
 
-            LogTraceDiffs(data);
+            var (transformEpsilon, velocityEpsilon) = EpsilonsForTickRate(tickRateToTest);
+            LogTraceDiffs(data, transformEpsilon, velocityEpsilon);
 
-            AssertNoDiffAboveEpsilon(data.ServerWorldData.DiffInfo, "server");
-            AssertNoDiffAboveEpsilon(data.ClientWorldData.DiffInfo, "client");
+            AssertNoDiffAboveEpsilon(data.ServerWorldData.DiffInfo, "server", transformEpsilon, velocityEpsilon);
+            foreach (var frameKvp in data.ClientWorldData.PerFrameData)
+            {
+                foreach (var tickKvp in frameKvp.Value.PerTickData)
+                {
+                    if (IsExpectedPartialTickDiff(tickKvp.Value))
+                        continue;
+                    AssertNoDiffAboveEpsilon(tickKvp.Value.DiffInfo, $"client frame:{frameKvp.Key.value} {tickKvp.Key}", transformEpsilon, velocityEpsilon);
+                }
+            }
 
             Assert.That(data.ServerWorldData.TickIDs.Count, Is.AtLeast(expectedTickCount-1), "sanity check failed, wrong expected tick count");
             Assert.That(data.ClientWorldData.FrameIDs.Count+1, Is.AtLeast(iterationCount-1), "sanity check failed, wrong frame count");
@@ -442,9 +467,14 @@ namespace Unity.NetCode.Tests
 #endif
         }
 
-        // The physics interop's known float noise is tolerated at read time, with the same per-type
-        // epsilons the direct value comparisons use.
-        static void AssertNoDiffAboveEpsilon(in DiffInfo diffInfo, string worldName)
+        // Physics doesn't step during partial ticks, so a partial tick's mid-prediction state
+        // legitimately differs from the server's full-tick state.
+        static bool IsExpectedPartialTickDiff(in TickData tickData) =>
+            tickData.TraceType == TraceType.Default && tickData.NetworkTime.IsPartialTick;
+
+        // The physics interop's known float noise is tolerated at read time
+        // calculated with the given epsilons
+        static void AssertNoDiffAboveEpsilon(in DiffInfo diffInfo, string worldName, float transformEpsilon, float velocityEpsilon)
         {
             if (!diffInfo.HasDiff)
                 return;
@@ -457,17 +487,16 @@ namespace Unity.NetCode.Tests
                 {
                     var epsilon = 0f;
                     if (kvp.Key.Component == transformType)
-                        epsilon = k_TransformEpsilon;
+                        epsilon = transformEpsilon;
                     else if (kvp.Key.Component == rigidbodyType)
-                        epsilon = k_VelocityEpsilon;
+                        epsilon = velocityEpsilon;
                     if (!(kvp.Value > epsilon))
                         reasons &= ~DiffInfo.DiffReasons.ComponentData;
                 }
                 Assert.That(reasons, Is.EqualTo(DiffInfo.DiffReasons.Undefined), $"{worldName} has a diff above epsilon: {kvp.Key} amount:{kvp.Value:E3}");
             }
         }
-
-        static void LogTraceDiffs(TracingDataAccess.ProcessedWorldsData data)
+        static void LogTraceDiffs(TracingDataAccess.ProcessedWorldsData data, float transformEpsilon, float velocityEpsilon)
         {
             // Some debug logging to help if there's a diff in traces
             if (data.ClientWorldData.DiffInfo.HasDiff)
@@ -476,6 +505,8 @@ namespace Unity.NetCode.Tests
                 {
                     foreach (var tickKvPair in frameKvPair.Value.PerTickData)
                     {
+                        if (IsExpectedPartialTickDiff(tickKvPair.Value))
+                            continue;
                         var diffData = data.ClientWorldData.GetClientTickData(frameKvPair.Key, tickKvPair.Key);
                         if (diffData.HasDiff)
                         {
@@ -498,11 +529,11 @@ namespace Unity.NetCode.Tests
                                         var foundClientSide = tracedComponent.Value.AfterValue;
                                         bool isEqual = false;
                                         if (tracedComponent.Key == typeof(TracedGameObjectTransform))
-                                            isEqual = (foundClientSide as IFuzzyEquatable<TracedGameObjectTransform>).FuzzyEqual((TracedGameObjectTransform)foundServerSide, k_TransformEpsilon);
+                                            isEqual = (foundClientSide as IFuzzyEquatable<TracedGameObjectTransform>).FuzzyEqual((TracedGameObjectTransform)foundServerSide, transformEpsilon);
                                         else if (tracedComponent.Key == typeof(TracedGameObjectRigidbody))
                                             isEqual = (foundClientSide as IFuzzyEquatable<TracedGameObjectRigidbody>)
                                                 .FuzzyEqual((TracedGameObjectRigidbody)foundServerSide,
-                                                    k_VelocityEpsilon);
+                                                    velocityEpsilon);
                                         else if (tracedComponent.Key == typeof(GhostInstance))
                                             isEqual = ((GhostInstance)foundClientSide).Equals(foundServerSide);
                                         else
@@ -517,7 +548,7 @@ namespace Unity.NetCode.Tests
                                                 var deltaPos = clientTransform.pos - serverTransform.pos;
                                                 float maxPos = math.max(math.max(math.abs(deltaPos.x), math.abs(deltaPos.y)), math.abs(deltaPos.z));
                                                 float maxRot = math.max(math.max(math.abs(clientTransform.rot.x - serverTransform.rot.x), math.abs(clientTransform.rot.y - serverTransform.rot.y)), math.max(math.abs(clientTransform.rot.z - serverTransform.rot.z), math.abs(clientTransform.rot.w - serverTransform.rot.w)));
-                                                Debug.Log($"DIVERGENCE tick:{tickKvPair.Key} ghost:{ghostKvPair.Key} TRANSFORM maxPosDelta:{maxPos:E3} (x{maxPos / k_TransformEpsilon:F1} eps) maxRotDelta:{maxRot:E3} (x{maxRot / k_TransformEpsilon:F1} eps) epsilon:{k_TransformEpsilon}");
+                                                Debug.Log($"DIVERGENCE tick:{tickKvPair.Key} ghost:{ghostKvPair.Key} TRANSFORM maxPosDelta:{maxPos:E3} (x{maxPos / transformEpsilon:F1} eps) maxRotDelta:{maxRot:E3} (x{maxRot / transformEpsilon:F1} eps) epsilon:{transformEpsilon}");
                                             }
                                             else if (tracedComponent.Key == typeof(TracedGameObjectRigidbody))
                                             {
@@ -527,7 +558,7 @@ namespace Unity.NetCode.Tests
                                                 var dang = clientRigidbody.AngularVelocity - sv.AngularVelocity;
                                                 float maxVel = math.max(math.max(math.abs(dvel.x), math.abs(dvel.y)), math.abs(dvel.z));
                                                 float maxAng = math.max(math.max(math.abs(dang.x), math.abs(dang.y)), math.abs(dang.z));
-                                                Debug.Log($"DIVERGENCE tick:{tickKvPair.Key} ghost:{ghostKvPair.Key} RIGIDBODY maxVelDelta:{maxVel:E3} (x{maxVel / k_VelocityEpsilon:F1} eps) maxAngVelDelta:{maxAng:E3} (x{maxAng / k_VelocityEpsilon:F1} eps) clientSleep:{clientRigidbody.isSleep} serverSleep:{sv.isSleep} clientKinematic:{clientRigidbody.IsKinematic} serverKinematic:{sv.IsKinematic} epsilon:{k_VelocityEpsilon}");
+                                                Debug.Log($"DIVERGENCE tick:{tickKvPair.Key} ghost:{ghostKvPair.Key} RIGIDBODY maxVelDelta:{maxVel:E3} (x{maxVel / velocityEpsilon:F1} eps) maxAngVelDelta:{maxAng:E3} (x{maxAng / velocityEpsilon:F1} eps) clientSleep:{clientRigidbody.isSleep} serverSleep:{sv.isSleep} clientKinematic:{clientRigidbody.IsKinematic} serverKinematic:{sv.IsKinematic} epsilon:{velocityEpsilon}");
                                             }
                                         }
 
@@ -673,7 +704,7 @@ namespace Unity.NetCode.Tests
         [Test]
         public async Task MakeSurePartialTick_AppliesKinematicCorrectly()
         {
-            m_UnregisteredPrefab.Ghost.MaxSendRate = 30; // makes sure there's going to be partial snapshots
+            m_UnregisteredPrefab.GetComponent<GhostObject>().MaxSendRate = 30; // makes sure there's going to be partial snapshots
             Netcode.RegisterPrefab(m_UnregisteredPrefab.gameObject);
             await TestWorld.ConnectAsync(enableGhostReplication: true);
             await TestWorld.TickAsync();

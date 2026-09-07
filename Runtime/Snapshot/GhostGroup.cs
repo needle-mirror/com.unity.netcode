@@ -1,6 +1,7 @@
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     ///     <para>
@@ -14,6 +15,7 @@ namespace Unity.NetCode
     ///     </para>
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostGroup : IBufferElementData
     {
         /// <summary>

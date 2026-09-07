@@ -2,10 +2,10 @@ using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode.HostMigration;
+using Unity.Netcode.HostMigration;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     [UpdateInGroup(typeof(PostBakingSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.BakingSystem)]

@@ -7,7 +7,7 @@ using Unity.Entities;
 using Unity.Profiling;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
 
     internal class EditModeTestWorldStrategy : NetCodeTestWorld.ITestWorldStrategy
@@ -35,7 +35,7 @@ namespace Unity.NetCode.Tests
 #if !UNITY_CLIENT || UNITY_EDITOR
             AppendWorldToUpdateList(world);
 #endif
-            
+
 #if UNITY_EDITOR
             m_TestWorld.BakeGhostCollection(world);
 #endif
@@ -100,7 +100,7 @@ namespace Unity.NetCode.Tests
 #if !UNITY_SERVER || UNITY_EDITOR
             AppendWorldToUpdateList(world);
 #endif
-            
+
 #if UNITY_EDITOR
             m_TestWorld.BakeGhostCollection(world);
 #endif

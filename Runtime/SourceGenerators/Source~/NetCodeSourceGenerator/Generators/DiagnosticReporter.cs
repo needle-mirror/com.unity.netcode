@@ -3,7 +3,7 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     sealed class DiagnosticReporter : IDiagnosticReporter
     {
@@ -153,7 +153,7 @@ namespace Unity.NetCode.Generators
         {
             return new DiagnosticDescriptor(
                 "NetCode",
-                "NetCode Generator Error",
+                "Netcode Generator Error",
                 message,
                 "SourceGenerator",
                 DiagnosticSeverity.Error, true,
@@ -161,11 +161,11 @@ namespace Unity.NetCode.Generators
         }
         static public DiagnosticDescriptor CreateWarningDescriptor(string message)
         {
-            return new DiagnosticDescriptor("NetCode", "NetCode Generator", message, "SourceGenerator", DiagnosticSeverity.Warning, true);
+            return new DiagnosticDescriptor("NetCode", "Netcode Generator", message, "SourceGenerator", DiagnosticSeverity.Warning, true);
         }
         static public DiagnosticDescriptor CreateInfoDescriptor(string message)
         {
-            return new DiagnosticDescriptor("NetCode", "NetCode Generator", message, "SourceGenerator", DiagnosticSeverity.Info, true);
+            return new DiagnosticDescriptor("NetCode", "Netcode Generator", message, "SourceGenerator", DiagnosticSeverity.Info, true);
         }
         static public DiagnosticDescriptor CreateException(Exception e)
         {

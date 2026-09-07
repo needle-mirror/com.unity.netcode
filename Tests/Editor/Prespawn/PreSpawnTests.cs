@@ -8,17 +8,18 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.Tests;
+using Unity.Netcode.Tests;
 using Unity.Transforms;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests.PrespawnTests
+namespace Unity.Netcode.Tests.PrespawnTests
 {
     internal struct EnableVerifyGhostIds : IComponentData
     {}

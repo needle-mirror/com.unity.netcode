@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEditor;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TracingToolbar
+namespace Unity.Netcode.Editor.Tracing.UI.TracingToolbar
 {
     [UxmlElement]
     partial class PlaybackControls : VisualElement

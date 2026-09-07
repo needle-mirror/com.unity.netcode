@@ -1,7 +1,8 @@
 using Unity.Entities;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.Hybrid
+namespace Unity.Netcode.Hybrid
 {
     /// <summary>
     /// If this component is added to a GameObject used as a GhostPresentationGameObjectPrefabReference
@@ -11,12 +12,13 @@ namespace Unity.NetCode.Hybrid
     [DisallowMultipleComponent]
     [HelpURL(HelpURLs.GhostPresentationGameObjectEntityOwner)]
     [AddComponentMenu("Multiplayer/Ghost Presentation GameObject Entity Owner", 101)]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public class GhostPresentationGameObjectEntityOwner : MonoBehaviour
     {
         /// <summary>
         /// The world in which the entity owning this GameObject exists.
         /// </summary>
-        public World World {get; internal set;}
+        public NetcodeWorld World {get; internal set;}
         /// <summary>
         /// The entity owning this GameObject.
         /// </summary>
@@ -27,7 +29,7 @@ namespace Unity.NetCode.Hybrid
         /// </summary>
         /// <param name="entity">The entity owning this GameObject.</param>
         /// <param name="world">The world in which the entity owning this GameObject exists.</param>
-        public void Initialize(Entity entity, World world)
+        public void Initialize(Entity entity, NetcodeWorld world)
         {
             Entity = entity;
             World = world;

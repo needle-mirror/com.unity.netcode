@@ -2,7 +2,7 @@ using System;
 using Unity.Assertions;
 using Unity.Entities;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     // [Serializable] on these test component types so GhostField<T>/GhostComponentRef<T>'s [SerializeField] m_Value
     // (the authored initial value) is serializable, satisfying the UAC1001 serialization analyzer.

@@ -15,7 +15,7 @@ using Hash128 = UnityEngine.Hash128;
 using Object = UnityEngine.Object;
 using Random = UnityEngine.Random;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class SubSceneHelper
     {
@@ -192,13 +192,14 @@ namespace Unity.NetCode.Tests
             return CreatePrefab(path, go);
         }
 
-        static public GameObject CreatePrefab(string directoryPath, GameObject go)
+        static public GameObject CreatePrefab(string directoryPath, in GameObject go)
         {
             if (!Directory.Exists(directoryPath))
                 Directory.CreateDirectory(directoryPath);
             var assetPath = $"{directoryPath}/{go.name}.prefab";
             Assert.IsFalse(AssetDatabase.AssetPathExists(assetPath), $"path already exists for asset {assetPath}");
             var prefab = PrefabUtility.SaveAsPrefabAsset(go, assetPath);
+            Assert.IsTrue(prefab != null, "Prefab asset doesn't exist!");
             Object.DestroyImmediate(go);
 
             return prefab;

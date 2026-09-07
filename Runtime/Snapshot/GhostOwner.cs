@@ -1,7 +1,8 @@
 using System;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -31,19 +32,21 @@ namespace Unity.NetCode
     /// </summary>
     [DontSupportPrefabOverrides]
     [GhostComponent(SendDataForChildEntity = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostOwner : IComponentData
     {
         /// <summary>
-        /// The <see cref="Unity.NetCode.NetworkId"/> of the client the entity is associated with.
+        /// The <see cref="Unity.Netcode.NetworkId"/> of the client the entity is associated with.
         /// </summary>
         [GhostField] public int NetworkId;
     }
 
     /// <summary>
     /// An enableable component denoting that the current world has input ownership over a ghost. E.g. a player ghost would have this enabled only on the client that owns it.
-    /// This is enabled for ghosts where the <see cref="GhostOwner.NetworkId"/> matches the <see cref="NetworkId.Value"/> on the client. For <see cref="NetCodeConfig.HostWorldMode.SingleWorld"/>, this matches the connection tagged with <see cref="LocalConnection"/>. For binary world's server, this is undefined.
+    /// This is enabled for ghosts where the <see cref="GhostOwner.NetworkId"/> matches the <see cref="NetworkId.Value"/> on the client. For <see cref="NetcodeConfig.HostWorldMode.SingleWorld"/>, this matches the connection tagged with <see cref="LocalConnection"/>. For binary world's server, this is undefined.
     /// This shouldn't be used inside the prediction group. For differentiating ghosts inside the prediction group, use the <see cref="GhostComponentAttribute"/> to strip your commands and inputs to only be on predicted ghosts.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostOwnerIsLocal : IComponentData, IEnableableComponent
     {}
 }

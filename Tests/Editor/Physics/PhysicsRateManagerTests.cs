@@ -1,12 +1,13 @@
 using NUnit.Framework;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.Tests;
+using Unity.Netcode.NetcodeTime;
+using Unity.Netcode.Tests;
 using Unity.Physics.GraphicsIntegration;
 using Unity.Physics.Systems;
 using UnityEngine;
 
-namespace Unity.NetCode.Physics.Tests
+namespace Unity.Netcode.Physics.Tests
 {
     [DisableAutoCreation]
     [UpdateInGroup(typeof(AfterPhysicsSystemGroup))]

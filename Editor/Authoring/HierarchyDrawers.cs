@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>Decorator that draws NetCode related data into the DOTS Hierarchy VisualElements.</summary>
     class DotsHierarchyItemDecorator : IHierarchyItemDecorator

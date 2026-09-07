@@ -8,12 +8,14 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// The transport category/type use by a NetworkDriver.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum TransportType : int
     {
         /// <summary>
@@ -36,6 +38,7 @@ namespace Unity.NetCode
     /// The driver registration should start by calling BeginDriverRegistration() and terminate with EndDriverRegistration().
     /// The store also provide some accessor and utlilty methods.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkDriverStore
     {
         /// <summary>
@@ -70,7 +73,7 @@ namespace Unity.NetCode
             public bool simulatorEnabled
             {
                 get => driver.IsCreated && driver.CurrentSettings.TryGet<SimulatorUtility.Parameters>(out _) || driver.CurrentSettings.TryGet<NetworkSimulatorParameter>(out _);
-                [Obsolete("This set has no effect on whether or not the simulator is actually enabled, and therefore should not be used.", false)]
+                [Obsolete("This set has no effect on whether or not the simulator is actually enabled, and therefore should not be used.", true)]
                 // ReSharper disable once ValueParameterNotUsed
                 set { }
             }
@@ -350,14 +353,14 @@ namespace Unity.NetCode
         /// that update internal driver data (that aren't suited to be copied around) may not work as expected.
         /// </remarks>
         /// <inheritdoc cref="GetDriverDataRO"/>
-        [Obsolete("Prefer GetDriverInstanceRW or GetDriverInstanceRO to avoid copying.", false)]
+        [Obsolete("Prefer GetDriverInstanceRW or GetDriverInstanceRO to avoid copying.", true)]
         public readonly ref NetworkDriverInstance GetDriverInstance(int driverId) => ref GetDriverDataRW(driverId).instance;
 
         /// <summary>
         /// Return the <see cref="NetworkDriver"/> with the given <see cref="driverId"/>.
         /// </summary>
         /// <inheritdoc cref="GetDriverDataRO"/>
-        [Obsolete("Prefer GetDriverRW or GetDriverRO to avoid copying.", false)]
+        [Obsolete("Prefer GetDriverRW or GetDriverRO to avoid copying.", true)]
         public readonly NetworkDriver GetNetworkDriver(int driverId) => GetDriverDataRO(driverId).instance.driver;
 
         /// <summary>
@@ -409,7 +412,7 @@ namespace Unity.NetCode
         /// Invoke the delegate on all registered drivers.
         /// </summary>
         /// <param name="visitor">Visitor to invoke with the driver instance and ID</param>
-        [Obsolete("The ForEachDriver has been deprecated. Please always iterate over the driver using a for loop, using the FirstDriver and LastDriver ids instead.")]
+        [Obsolete("The ForEachDriver has been deprecated. Please always iterate over the driver using a for loop, using the FirstDriver and LastDriver ids instead.", true)]
         public void ForEachDriver(DriverVisitor visitor)
         {
             if (m_numDrivers == 0)
@@ -425,7 +428,7 @@ namespace Unity.NetCode
         /// Utility method to disconnect the <see cref="NetworkStreamConnection" /> connection.
         /// </summary>
         /// <inheritdoc cref="GetDriverRW"/>
-        [Obsolete("Disconnect is obsolete and being moved to NetworkStreamDriver so it is in the same place as the Connect method. Please use NetworkStreamDriver.Disconnect or call Disconnect on the driver directly instead. This method will be removed in a future release.", false)]
+        [Obsolete("Disconnect is obsolete and being moved to NetworkStreamDriver so it is in the same place as the Connect method. Please use NetworkStreamDriver.Disconnect or call Disconnect on the driver directly instead. This method will be removed in a future release.", true)]
         public void Disconnect(NetworkStreamConnection connection) => GetDriverRW(connection.DriverId).Disconnect(connection.Value);
 
         internal JobHandle ScheduleUpdateAllDrivers(JobHandle dependency)
@@ -493,6 +496,7 @@ namespace Unity.NetCode
     /// <summary>
     /// The concurrent version of the DriverStore. Contains the concurrent copy of the drivers and relative pipelines.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ConcurrentDriverStore
     {
         internal NetworkDriverStore.Concurrent m_Concurrent0;

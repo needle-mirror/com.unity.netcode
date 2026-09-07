@@ -3,15 +3,18 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Singleton component with APIs and collections required for converting client ghosts <see cref="GhostMode"/> to <see cref="GhostMode.Predicted"/> &amp; <see cref="GhostMode.Interpolated"/>.
     /// <see cref="GhostPredictionSwitchingSystem"/>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostPredictionSwitchingQueues : IComponentData
     {
         /// <summary><see cref="PredictionSwitchingUtilities.ConvertGhostToPredicted"/></summary>
@@ -22,6 +25,7 @@ namespace Unity.NetCode
 
     /// <summary>Struct storing settings for an individual queue entry in the <see cref="GhostPredictionSwitchingQueues"/>.</summary>
     [NoAlias]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ConvertPredictionEntry
     {
         /// <summary>The entity you are converting.</summary>
@@ -41,6 +45,7 @@ namespace Unity.NetCode
     /// If the component is present, the <see cref="TransitionDurationSeconds"/> take precendence over the settings passed to
     /// the <see cref="ConvertPredictionEntry.TransitionDurationSeconds"/>.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PredictionSwitchingSmoothing : IComponentData
     {
         /// <inheritdoc cref="ConvertPredictionEntry.TransitionDurationSeconds"/>
@@ -101,6 +106,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostReceiveSystem))]
     [UpdateBefore(typeof(GhostUpdateSystem))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct GhostPredictionSwitchingSystem : ISystem
     {
         NativeQueue<ConvertPredictionEntry> m_ConvertToInterpolatedQueue;

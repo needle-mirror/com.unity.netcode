@@ -1,4 +1,4 @@
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     /// <summary>
     /// Contains the serialization rule declarations for all the basic/default types supported by netcode.
@@ -454,7 +454,7 @@ namespace Unity.NetCode.Generators
             },
             new TypeRegistryEntry
             {
-                Type = "Unity.NetCode.NetworkTick",
+                Type = "Unity.Netcode.NetworkTick",
                 Quantized = false,
                 Smoothing = SmoothingAction.Clamp,
                 SupportCommand = true,

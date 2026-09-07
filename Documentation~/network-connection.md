@@ -1,45 +1,56 @@
 # Connecting server and clients
 
-Netcode for Entities uses the [Unity Transport package](https://docs.unity3d.com/Packages/com.unity.transport@latest) to manage connections and stores each connection as an entity. Each connection entity has a [NetworkStreamConnection](xref:Unity.NetCode.NetworkStreamConnection) component with the `Transport` handle for the connection. When the connection is closed, either because the server disconnected the user or the client requested to disconnect, the entity is destroyed.
+Netcode for Entities uses the [Unity Transport package](https://docs.unity3d.com/Packages/com.unity.transport@latest) to manage connections and stores each connection as an entity. Each connection entity has a [NetworkStreamConnection](xref:Unity.Netcode.NetworkStreamConnection) component with the `Transport` handle for the connection. When the connection is closed, either because the server disconnected the user or the client requested to disconnect, the entity is destroyed.
 
-To target which entity should receive the player commands, when not using the [`AutoCommandTarget` feature](command-stream.md#automatically-handling-commands-autocommandtarget) or for having more manual control, each connection has a [CommandTarget](xref:Unity.NetCode.CommandTarget) which must point to the entity where the received commands need to be stored. Your game is responsible for keeping this entity reference up to date.
+> [!NOTE]
+> In [single-world host mode](single-world-host-mode.md), the host has no transport connection to itself. The host player is instead represented by a local connection entity (a `LocalConnection` singleton with a `NetworkId`, but no `NetworkStreamConnection`), created automatically in the host world. Remote clients connecting to the host are regular connection entities as described on this page. Refer to [Single-world host mode](single-world-host-mode.md) for details.
 
-Your game can mark a connection as being in-game with the `NetworkStreamInGame` component. Your game must do this; it's never done automatically. Before the `NetworkStreamInGame` component is added to the connection, the client does not send commands, nor does the server send snapshots.
+To target which entity should receive the player commands, when not using the [`AutoCommandTarget` feature](command-stream.md#automatically-handling-commands-autocommandtarget) or for having more manual control, each connection has a [CommandTarget](xref:Unity.Netcode.CommandTarget) which must point to the entity where the received commands need to be stored. Your game is responsible for keeping this entity reference up to date.
+
+Your game can mark a connection as being in-game with the `NetworkStreamInGame` component. Your game must do this; it's never done automatically. Before the `NetworkStreamInGame` component is added to the connection, the client does not send commands, nor does the server send snapshots. This also applies to the host's own local connection in [single-world host mode](single-world-host-mode.md).
 
 To request to disconnect, add a `NetworkStreamRequestDisconnect` component to the entity. Direct disconnection through the driver is not supported.
+
+> [!NOTE]
+> In [single-world host mode](single-world-host-mode.md), the host's own local connection can't be disconnected (there's no transport connection to close, and `NetworkStreamRequestDisconnect` has no effect on it). To stop hosting, you can reset your driver to stop listening. Remote client connections can be disconnected as usual.
 
 ### Incoming buffers
 
 Each connection can have up to three incoming buffers, one for each type of stream: commands, RPCs, and snapshots (client only).
 
-- [IncomingRpcDataStreamBuffer](xref:Unity.NetCode.IncomingRpcDataStreamBuffer)
-- [IncomingCommandDataStreamBuffer](xref:Unity.NetCode.IncomingCommandDataStreamBuffer)
-- [IncomingSnapshotDataStreamBuffer](xref:Unity.NetCode.IncomingSnapshotDataStreamBuffer)
+- [IncomingRpcDataStreamBuffer](xref:Unity.Netcode.IncomingRpcDataStreamBuffer)
+- [IncomingCommandDataStreamBuffer](xref:Unity.Netcode.IncomingCommandDataStreamBuffer)
+- [IncomingSnapshotDataStreamBuffer](xref:Unity.Netcode.IncomingSnapshotDataStreamBuffer)
 
-When a client receives a snapshot from the server, the message is queued into the buffer and processed later by the [`GhostReceiveSystem`](xref:Unity.NetCode.GhostReceiveSystem).
-RPCs and commands follow the same principle. The messages are gathered first by the [`NetworkStreamReceiveSystem`](xref:Unity.NetCode.NetworkStreamReceiveSystem) and then consumed by the respective RPC and command receive system.
+When a client receives a snapshot from the server, the message is queued into the buffer and processed later by the [`GhostReceiveSystem`](xref:Unity.Netcode.GhostReceiveSystem).
+RPCs and commands follow the same principle. The messages are gathered first by the [`NetworkStreamReceiveSystem`](xref:Unity.Netcode.NetworkStreamReceiveSystem) and then consumed by the respective RPC and command receive system.
 
 > [!NOTE]
 > Server connection does not have an IncomingSnapshotDataStreamBuffer.
+
+> [!NOTE]
+> In [single-world host mode](single-world-host-mode.md), the host's local connection only has RPC buffers. It has no command or snapshot buffers because the host's inputs and ghosts are processed in-place, without serialization.
 
 ### Outgoing buffers
 
 Each connection can have up to two outgoing buffers: one for RPCs and one for commands (client only).
 
-- [OutgoingRpcDataStreamBuffer](xref:Unity.NetCode.OutgoingRpcDataStreamBuffer)
-- [OutgoingCommandDataStreamBuffer](xref:Unity.NetCode.OutgoingCommandDataStreamBuffer)
+- [OutgoingRpcDataStreamBuffer](xref:Unity.Netcode.OutgoingRpcDataStreamBuffer)
+- [OutgoingCommandDataStreamBuffer](xref:Unity.Netcode.OutgoingCommandDataStreamBuffer)
 
-When commands are produced, they're first queued into the outgoing buffer, which is flushed by the client at regular intervals (every new tick). RPC messages follow the sample principle: they're gathered initially by their respective send system that encodes them into the buffer. Then, the [RpcSystem](xref:Unity.NetCode.RpcSystem) flushes the RPCs in the queue (by coalescing multiple messages into one maximum transmission unit (MTU)) at regular intervals.
+When commands are produced, they're first queued into the outgoing buffer, which is flushed by the client at regular intervals (every new tick). RPC messages follow the sample principle: they're gathered initially by their respective send system that encodes them into the buffer. Then, the [RpcSystem](xref:Unity.Netcode.RpcSystem) flushes the RPCs in the queue (by coalescing multiple messages into one maximum transmission unit (MTU)) at regular intervals.
 
 ## Connection flow
 
-When your game starts, Netcode for Entities doesn't automatically connect the client to the server, nor makes the server start listening to a specific port. By default, `ClientServerBootstrap` only creates the client and server worlds. It's up to developer to decide how and when the server and client open their communication channel.
+When your game starts, `ClientServerBootstrap` creates the worlds (client and server worlds, or a single host world in [single-world host mode](single-world-host-mode.md)) and, by default, connects them automatically: `ClientServerBootstrap.AutoConnectPort` defaults to 7979, so the server starts listening on that port and the client connects to it. If you want to decide how and when the server and client open their communication channel, disable auto connection by setting `AutoConnectPort` to 0 in a custom bootstrap or by disabling bootstrapping in your NetcodeConfig (Project Settings/Multiplayer/Netcode Config).
 
 There are a number of different options:
 
 - [Manually start listening for a connection on the server, or connect to a server from the client using the `NetworkStreamDriver`.](#manually-listen-or-connect)
 - [Automatically connect and listen by using the `AutoConnectPort` (and relative `DefaultConnectAddress`).](#using-the-autoconnectport)
 - [Create a `NetworkStreamRequestConnect` and/or `NetworkStreamRequestListen` request in the client and/or server world respectively.](#controlling-the-connection-flow-using-networkstreamrequest)
+
+In [single-world host mode](single-world-host-mode.md), the host world only listens: there's no local `Connect` step because the host player isn't connected through the transport. All of the listen options above apply to the host world (`Listen`, `AutoConnectPort`, `NetworkStreamRequestListen`), while the connect options only apply to remote clients connecting to it.
 
 > [!NOTE]
 > Regardless of how you choose to connect to the server, we strongly recommend ensuring `Application.runInBackground` is `true` while connected.
@@ -50,41 +61,41 @@ There are a number of different options:
 
 ### Manually listen or connect
 
-To establish a connection, you must get the [NetworkStreamDriver](xref:Unity.NetCode.NetworkStreamDriver) singleton (present on both client and server worlds) and then call either `Connect` or `Listen` on it.
+Because auto connection is enabled by default, first set `ClientServerBootstrap.AutoConnectPort` to 0 in a custom bootstrap. Then, to establish a connection, you must get the [NetworkStreamDriver](xref:Unity.Netcode.NetworkStreamDriver) singleton (present on both client and server worlds) and then call either `Connect` or `Listen` on it.
 
 Refer to the [DOTS samples repository](https://github.com/Unity-Technologies/EntityComponentSystemSamples/blob/master/NetcodeSamples/Assets/Samples/HelloNetcode/1_Basics/01_BootstrapAndFrontend/Frontend/Frontend.cs#L80) for example code that covers manually listening and connecting.
 
 ### Using the `AutoConnectPort`
 
-The `ClientServerBootstrap` [`AutoConnectPort` field](xref:Unity.NetCode.ClientServerBootstrap.AutoConnectPort) contains two special properties that can be used to instruct the server and client to automatically listen and connect respectively when initially set up.
+The `ClientServerBootstrap` [`AutoConnectPort` field](xref:Unity.Netcode.ClientServerBootstrap.AutoConnectPort) contains two special properties that can be used to instruct the server and client to automatically listen and connect respectively when initially set up.
 
-- [DefaultConnectAddress](xref:Unity.NetCode.ClientServerBootstrap.DefaultConnectAddress)
-- [DefaultListenAddress](xref:Unity.NetCode.ClientServerBootstrap.DefaultListenAddress)
+- [DefaultConnectAddress](xref:Unity.Netcode.ClientServerBootstrap.DefaultConnectAddress)
+- [DefaultListenAddress](xref:Unity.Netcode.ClientServerBootstrap.DefaultListenAddress)
 
-To set up the `AutoConnectPort`, you need to create a custom [bootstrap](client-server-worlds.md#customize-the-bootstrapping-flow) and set a value other than 0 for the `AutoConnectPort` before creating your worlds. For example:
+The `AutoConnectPort` defaults to 7979, so auto connection is enabled out of the box. To use a different port (or to disable auto connection by setting it to 0), create a custom [bootstrap](client-server-worlds.md#customize-the-bootstrapping-flow) and set the value before creating your worlds. For example:
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/network-connection.cs#AutoConnectPort)]
 
-The server starts listening at the wildcard address (`DefaultListenAddress`:`AutoConnectPort`). The `DefaultListenAddress` is by default set to `NetworkEndpoint.AnyIpv4`. The client starts connecting to server address (`DefaultConnectAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.LoopbackIpv4`.
+The server starts listening at the wildcard address (`DefaultListenAddress`:`AutoConnectPort`). The `DefaultListenAddress` is by default set to `NetworkEndpoint.AnyIpv4`. The client starts connecting to server address (`DefaultConnectAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.LoopbackIpv4`. A [single-world host](single-world-host-mode.md) world only auto-listens (at `DefaultListenAddress`:`AutoConnectPort`), as there's no local client connection to establish.
 
 > [!NOTE]
 > In the Editor, the [PlayMode tool](testing/playmode-tool.md) allows you to override both the `AutoConnectAddress` and `AutoConnectPort` fields. However, when `AutoConnectPort` is set to 0, the PlayMode Tool's override functionality won't be used. The intent is then you need to manually trigger connection.
 
 ### Controlling the connection flow using `NetworkStreamRequest`
 
-Instead of invoking and calling methods on the [NetworkStreamDriver](xref:Unity.NetCode.NetworkStreamDriver) you can instead create:
+Instead of invoking and calling methods on the [NetworkStreamDriver](xref:Unity.Netcode.NetworkStreamDriver) you can instead create:
 
-- A [NetworkStreamRequestConnect](xref:Unity.NetCode.NetworkStreamRequestConnect) singleton to request a connection to the desired server address/port.
-- A [NetworkStreamRequestListen](xref:Unity.NetCode.NetworkStreamRequestListen) singleton to make the server start listening at the desired address/port.
+- A [NetworkStreamRequestConnect](xref:Unity.Netcode.NetworkStreamRequestConnect) singleton to request a connection to the desired server address/port.
+- A [NetworkStreamRequestListen](xref:Unity.Netcode.NetworkStreamRequestListen) singleton to make the server start listening at the desired address/port.
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/network-connection.cs#NetworkStreamRequest)]
 
-The request will be then consumed at runtime by the [NetworkStreamReceiveSystem](xref:Unity.NetCode.NetworkStreamReceiveSystem).
+The request will be then consumed at runtime by the [NetworkStreamReceiveSystem](xref:Unity.Netcode.NetworkStreamReceiveSystem).
 
 > [!NOTE]
 > If you encounter runtime errors, open the PlayMode Tools window and re-enter Play Mode.
 > If worlds exist, then bootstrapping (see above) is creating the worlds automatically.
-> If the server world is already listening, and/or the client world already connecting, then auto-connection (see above) is already enabled. You will therefore need to modify your bootstrap to disable auto-connection to support manual connection workflows.
+> If the server world is already listening, and/or the client world already connecting, then auto-connection (see above) is enabled — which it is by default. You will therefore need to set `AutoConnectPort` to 0 in a custom bootstrap to support manual connection workflows.
 
 ### Network simulator
 
@@ -94,7 +105,7 @@ We strongly recommend that you frequently test your gameplay with the simulator 
 
 ## Listening for client connection events
 
-There is a `public NativeArray<NetCodeConnectionEvent>.ReadOnly ConnectionEventsForTick` collection (via the `NetworkStreamDriver` singleton), allowing you to iterate over (and thus react to) client connection events on the client and server.
+There is a `public NativeArray<NetcodeConnectionEvent>.ReadOnly ConnectionEventsForTick` collection (via the `NetworkStreamDriver` singleton), allowing you to iterate over (and thus react to) client connection events on the client and server.
 
 These events only persist for a single `SimulationSystemGroup` tick, and are reset during `NetworkStreamConnectSystem` and `NetworkStreamListenSystem` respectively. If your system runs _after_ these aforementioned system's jobs execute, you'll receive notifications on the same tick that they were raised. However, if you query this collection _before_ this system's jobs execute, you'll be iterating over the previous tick's values.
 
@@ -106,7 +117,7 @@ These events only persist for a single `SimulationSystemGroup` tick, and are res
 > For example, trying to access it outside the `SimulationSystemGroup` can lead to a) either **_only_** seeing events for the current tick (meaning you miss events for previous ticks) or b) receiving events multiple times, if the simulation doesn't tick on this render frame.
 > Therefore, do not access `ConnectionEventsForTick` inside the `InitializationSystemGroup`, nor inside the `PresentationSystemGroup`, nor inside any `MonoBehaviour` Unity method (non-exhaustive list!).
 
-### NetCodeConnectionEvents on the client
+### NetcodeConnectionEvents on the client
 
 | Connection status | Invocation rules                                                                                                                                                                                                                                                                                                                            |
 |-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -123,7 +134,7 @@ These events only persist for a single `SimulationSystemGroup` tick, and are res
 > [!NOTE]
 > The `Handshake` and `Approval` steps can fail, and thus have a timeout of `ClientServerTickRate.HandshakeApprovalTimeoutMS` (default: 5000ms).
 
-### NetCodeConnectionEvents on the server
+### NetcodeConnectionEvents on the server
 
 | Connection Status | Invocation Rules                                                                                                                                                                                                                                                                                          |
 |-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -146,7 +157,7 @@ When connection approval is enabled, the following changes apply:
 * All clients move from the `Handshake` state to the `Approval` state, rather than directly to `Connected`.
 * The server must manually approve each connection by adding the `ConnectionApproved` component to its connection entity.
 * The `NetworkId` is only assigned after connection approval succeeds. If approval is denied, the client is disconnected.
-* The approval process has a timeout (see [ClientServerTickRate.HandshakeApprovalTimeoutMS](xref:Unity.NetCode.ClientServerTickRate.HandshakeApprovalTimeoutMS)), and therefore, may do so.
+* The approval process has a timeout (see [ClientServerTickRate.HandshakeApprovalTimeoutMS](xref:Unity.Netcode.ClientServerTickRate.HandshakeApprovalTimeoutMS)), and therefore, may do so.
 
 To reiterate: During the `Handshake` and `Approval` phases, a client may send multiple RPCs, as long as each is of the `IApprovalRpcCommand` RPC type. These RPC payloads can contain authentication tokens, player identities, or anything required to verify that the client is allowed to continue. To approve a connection, the server needs to add a `ConnectionApproved` component to the network connection entity and the connection flow will continue.
 

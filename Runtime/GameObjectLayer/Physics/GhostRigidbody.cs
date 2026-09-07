@@ -4,7 +4,7 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Only used on predicted Rigidbodies, tracking and rolling back predicted data
@@ -72,7 +72,7 @@ namespace Unity.NetCode
     /// GhostBehaviour to be able to predict and sync GameObject Rigidbodies. Add this to your GameObject through the netcode checkbox on your Rigidbody
     /// to automatically predict and sync it.
     /// To reduce jitter, it's recommended to either use full precision transform syncing (using
-    /// the <see cref="Unity.NetCode.GhostAuthoringInspectionComponent"/> (which will increase precision, but also increase bandwidth consumption)
+    /// the <see cref="Unity.Netcode.GhostAuthoringInspectionComponent"/> (which will increase precision, but also increase bandwidth consumption)
     /// or enable prediction error smoothing.
     /// </summary>
     /// <remarks>

@@ -2,7 +2,7 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Struct to hold the data for a single frame in the Netcode profiler.

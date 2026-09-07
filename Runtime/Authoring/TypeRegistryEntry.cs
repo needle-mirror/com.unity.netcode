@@ -1,4 +1,5 @@
-namespace Unity.NetCode.Generators
+using UnityEngine.Scripting.APIUpdating;
+namespace Unity.Netcode.Generators
 {
     /// <summary>
     /// <para>Used to configure the serialization/deserialization code-generation for a specific type (primitive or struct) and
@@ -13,6 +14,7 @@ namespace Unity.NetCode.Generators
     /// <para>(float, quantized, Clamp, 0)</para>
     /// <para>(float, quantized, InterpolateAndExtrapolate)</para>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.Generators")]
     public class TypeRegistryEntry
     {
         /// <summary>

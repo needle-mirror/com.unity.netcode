@@ -1,7 +1,8 @@
 #if ENABLE_UNITY_NETCODE_PHYSICS
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode;
+using Unity.Netcode;
+using Unity.Netcode.NetcodeTime;
 using Unity.Physics;
 
 namespace DocumentationCodeSamples

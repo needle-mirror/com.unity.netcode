@@ -2,13 +2,14 @@ using NUnit.Framework;
 using Unity.Core;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode;
-using Unity.NetCode.Tests;
+using Unity.Netcode;
+using Unity.Netcode.NetcodeTime;
+using Unity.Netcode.Tests;
 using UnityEngine;
 using UnityEngine.TestTools;
-using static Unity.NetCode.ClientServerTickRate.FrameRateMode;
+using static Unity.Netcode.ClientServerTickRate.FrameRateMode;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
 
 
@@ -20,9 +21,9 @@ namespace Unity.NetCode.Tests
         {
             const float tickDt = 1f / 60f;
             using var testWorld = new NetCodeTestWorld(initialElapsedTime: 0);
-            NetCodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = ClientServerTickRate.FrameRateMode.BusyWait;
-            NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = 4;
-            NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = 4;
+            NetcodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = ClientServerTickRate.FrameRateMode.BusyWait;
+            NetcodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = 4;
+            NetcodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = 4;
 
             testWorld.Bootstrap(includeNetCodeSystems: true, typeof(UpdateInPredictionSystem));
             testWorld.CreateWorlds(server: true, numClients: 1, tickWorldAfterCreation: false);
@@ -39,19 +40,19 @@ namespace Unity.NetCode.Tests
 
         [Test]
         [DisableSingleWorldHostTest(isPermanentReason: "This is ok to be disabled, as the test itself handles host mode testing on its own.")]
-        public void RateManagerTest([Values(BusyWait, Sleep)] ClientServerTickRate.FrameRateMode frameRateMode, [Values] NetCodeConfig.HostWorldMode hostMode, [Values(1, 4)] int maxBatchSize, [Values(1, 4)] int maxStepsPerFrame)
+        public void RateManagerTest([Values(BusyWait, Sleep)] ClientServerTickRate.FrameRateMode frameRateMode, [Values] NetcodeConfig.HostWorldMode hostMode, [Values(1, 4)] int maxBatchSize, [Values(1, 4)] int maxStepsPerFrame)
         {
             // Setup
-            if (hostMode == NetCodeConfig.HostWorldMode.SingleWorld && frameRateMode == Sleep)
+            if (hostMode == NetcodeConfig.HostWorldMode.SingleWorld && frameRateMode == Sleep)
             {
                 Assert.Ignore("Not implemented for now, ignoring");
             }
 
-            var useSingleWorld = hostMode == NetCodeConfig.HostWorldMode.SingleWorld;
+            var useSingleWorld = hostMode == NetcodeConfig.HostWorldMode.SingleWorld;
             using var testWorld = new NetCodeTestWorld();
-            NetCodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = frameRateMode;
-            NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = maxBatchSize;
-            NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = maxStepsPerFrame;
+            NetcodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = frameRateMode;
+            NetcodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = maxBatchSize;
+            NetcodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = maxStepsPerFrame;
             testWorld.Bootstrap(includeNetCodeSystems: true,
                 typeof(BeforeSimulationSystemGroup),
                 typeof(BeforePredictionSystem),
@@ -246,12 +247,12 @@ namespace Unity.NetCode.Tests
                     expectedFrameDt = expectedTickDt;
                 }
 
-                Assert.That(beforePredictionCount, Is.EqualTo(hostMode == NetCodeConfig.HostWorldMode.BinaryWorlds ? expectedPredictionCount : expectedFrameCount), "big dt, beforeCount");
+                Assert.That(beforePredictionCount, Is.EqualTo(hostMode == NetcodeConfig.HostWorldMode.BinaryWorlds ? expectedPredictionCount : expectedFrameCount), "big dt, beforeCount");
                 Assert.That(duringPredictionCount, Is.EqualTo(expectedPredictionCount), "big dt, duringCount, expecting multiple prediction iterations");
-                Assert.That(afterPredictionCount, Is.EqualTo(hostMode == NetCodeConfig.HostWorldMode.BinaryWorlds ? expectedPredictionCount : expectedFrameCount), "big dt, afterCount");
-                Assert.That(beforeTime.DeltaTime, Is.EqualTo(hostMode == NetCodeConfig.HostWorldMode.BinaryWorlds ? expectedTickDt : expectedFrameDt), "batched dt, before");
+                Assert.That(afterPredictionCount, Is.EqualTo(hostMode == NetcodeConfig.HostWorldMode.BinaryWorlds ? expectedPredictionCount : expectedFrameCount), "big dt, afterCount");
+                Assert.That(beforeTime.DeltaTime, Is.EqualTo(hostMode == NetcodeConfig.HostWorldMode.BinaryWorlds ? expectedTickDt : expectedFrameDt), "batched dt, before");
                 Assert.That(duringTime.DeltaTime, Is.EqualTo(expectedTickDt), "batched dt, during");
-                Assert.That(afterTime.DeltaTime, Is.EqualTo(hostMode == NetCodeConfig.HostWorldMode.BinaryWorlds ? expectedTickDt : expectedFrameDt), "batched dt, after");
+                Assert.That(afterTime.DeltaTime, Is.EqualTo(hostMode == NetcodeConfig.HostWorldMode.BinaryWorlds ? expectedTickDt : expectedFrameDt), "batched dt, after");
                 ResetTime();
             }
 
@@ -335,9 +336,9 @@ namespace Unity.NetCode.Tests
         {
             if (mode == Sleep && singleWorldHost) Assert.Ignore("TODO-release not supported right now");
             using var testWorld = new NetCodeTestWorld();
-            NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = 1;
-            NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = 1; // this is already default, but making sure tests assumptions don't break for sanity
-            NetCodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = mode;
+            NetcodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = 1;
+            NetcodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = 1; // this is already default, but making sure tests assumptions don't break for sanity
+            NetcodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = mode;
 
             testWorld.Bootstrap(includeNetCodeSystems: true, typeof(BeforeSimulationSystemGroup), typeof(AfterSimulationSystemGroup));
             testWorld.CreateWorlds(server: !singleWorldHost, numHostWorlds: singleWorldHost ? 1 : 0, numClients: 1);
@@ -360,9 +361,7 @@ namespace Unity.NetCode.Tests
                 else
                 {
                     var serverRateManager = testWorld.ServerWorld.GetExistingSystemManaged<SimulationSystemGroup>().RateManager as NetcodeServerRateManager;
-#pragma warning disable CS0618 // Type or member is obsolete
-                    willUpdate = serverRateManager.WillUpdate();
-#pragma warning restore CS0618 // Type or member is obsolete
+                    willUpdate = serverRateManager.WillUpdateInternal();
                 }
                 if (isBefore) // result of WillUpdate() is undefined when calling after SimulationSystemGroup
                     Assert.AreEqual(expectedWillUpdate, willUpdate, $"expected update? {expectedWillUpdate}, but got {willUpdate} in a system {(isBefore ? "before" : "after")} simulation system group");

@@ -7,8 +7,10 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.PlayerLoop;
 using UnityEngine.UIElements;
+using UnityEngine.Scripting.APIUpdating;
+using UnityEngine.Serialization;
 
-namespace Unity.NetCode.Hybrid
+namespace Unity.Netcode.Hybrid
 {
     /// <summary>
     /// The <see cref="IEntitiesPlayerSettings"/> baking settings to use for server builds. You can assign the <see cref="GUID"/>
@@ -16,7 +18,7 @@ namespace Unity.NetCode.Hybrid
     /// scene using this setting.
     /// </summary>
     [FilePath("ProjectSettings/NetCodeClientAndServerSettings.asset", FilePathAttribute.Location.ProjectFolder)]
-    public class NetCodeClientAndServerSettings : ScriptableSingleton<NetCodeClientAndServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
+    public class NetcodeClientAndServerSettings : ScriptableSingleton<NetcodeClientAndServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
     {
         NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.ClientAndServer;
 
@@ -25,9 +27,10 @@ namespace Unity.NetCode.Hybrid
         [SerializeField] private string[] AdditionalScriptingDefines = Array.Empty<string>();
 
         /// <summary>
-        ///     The <see cref="NetCodeConfig"/> automatically added to the build, accessed via user-code via <see cref="NetCodeConfig.Global"/>.
+        ///     The <see cref="NetcodeConfig"/> automatically added to the build, accessed via user-code via <see cref="NetcodeConfig.Global"/>.
         /// </summary>
-        [SerializeField] public NetCodeConfig GlobalNetCodeConfig;
+        [FormerlySerializedAs("GlobalNetCodeConfig")]
+        [SerializeField] public NetcodeConfig GlobalNetcodeConfig;
 
         /// <inheritdoc cref="EditorImportanceSuggestion"/>
         [SerializeField] public List<EditorImportanceSuggestion> CurrentImportanceSuggestions = new List<EditorImportanceSuggestion>
@@ -126,6 +129,7 @@ namespace Unity.NetCode.Hybrid
     /// tooltip.
     /// </summary>
     [Serializable]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public struct EditorImportanceSuggestion
     {
         /// <summary>Loose minimum value.</summary>

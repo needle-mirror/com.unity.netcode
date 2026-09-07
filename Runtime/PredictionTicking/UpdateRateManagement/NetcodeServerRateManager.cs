@@ -1,8 +1,10 @@
 using System;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Server world's main update rate manager. Determines whether simulation system group should run or not, depending on tick rate and
@@ -10,6 +12,7 @@ namespace Unity.NetCode
     /// Host side, Simulation Group runs at frame rate. Prediction Group runs at tick rate
     /// DGS side, Simulation Group runs at tick rate, Prediction Group runs at same tick rate (pass through).
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public class NetcodeServerRateManager : IRateManager
     {
         private EntityQuery m_NetworkTimeQuery;
@@ -140,7 +143,7 @@ namespace Unity.NetCode
         /// }
         /// </example>
         /// <returns>Whether the server's simulation system group will update this frame or not</returns>
-        [Obsolete("Prefer using NetworkTime.IsOffFrame")]
+        [Obsolete("Prefer using NetworkTime.IsOffFrame", true)]
         public bool WillUpdate()
         {
             return WillUpdateInternal();

@@ -2,7 +2,7 @@ using System;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Useful to abstract system update logic from business logic. Uses clear Enter/SubsequentEnter/Exit events instead of the single GroupUpdate

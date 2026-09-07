@@ -2,9 +2,9 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.StateSave;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     internal struct EntityComponentKey : IEquatable<EntityComponentKey>
     {
@@ -160,6 +160,7 @@ namespace Unity.NetCode.Tracing
             SystemOrder = 128, // the tracked systems ran in a different order on the client and the server
             BatchedTick = 256, // the tick is missing from the server because the server simulated it as part of a batch
             DeltaTime = 512, // the client tick's delta time differs from the matching server tick's
+            PartialTick = 1024, // the diff was observed on a partial tick, which re-predicts with a fraction of the delta time, so mismatches are expected
         }
 
         // Every enum value; useful as the "nothing filtered out" mask.

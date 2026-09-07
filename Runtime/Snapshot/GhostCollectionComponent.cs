@@ -5,9 +5,10 @@ using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A BlobAsset containing all the meta data required for ghosts.
@@ -122,6 +123,7 @@ namespace Unity.NetCode
     /// The singleton contains buffers for GhostCollectionPrefab, GhostCollectionPrefabSerializer,
     /// GhostCollectionComponentIndex and GhostComponentSerializer.State
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostCollection : IComponentData
     {
         /// <summary>
@@ -181,6 +183,7 @@ namespace Unity.NetCode
     /// The list is sorted by the value of the <see cref="GhostType"/> guid.
     /// </remarks>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostCollectionPrefab : IBufferElementData
     {
         /// <summary>
@@ -207,7 +210,7 @@ namespace Unity.NetCode
             /// </summary>
             LoadingNotActive
         }
-        /// <inheritdoc cref="NetCode.GhostType"/>
+        /// <inheritdoc cref="Unity.Netcode.GhostType"/>
         public GhostType GhostType;
         /// <summary>
         /// A reference to the prefab entity. The reference is initially equals to <see cref="Entity.Null"/> and assigned by
@@ -232,6 +235,7 @@ namespace Unity.NetCode
     /// Added to the GhostCollection singleton entity.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostCollectionPrefabSerializer : IBufferElementData
     {
         /// <summary>
@@ -382,6 +386,7 @@ namespace Unity.NetCode
     /// Added to the GhostCollection singleton entity.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostCollectionComponentIndex : IBufferElementData
     {
         /// <summary>Index of ghost entity the rule applies to.</summary>
@@ -411,6 +416,7 @@ namespace Unity.NetCode
     /// However, writing the serialization code is not trivial and require deep knowledge of the underlying
     /// <see cref="GhostChunkSerializer"/> implementation, data and wire format.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostPrefabCustomSerializer
     {
         /// <summary>
@@ -598,6 +604,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Singleton component that holds the list of custom chunk serializers.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostCollectionCustomSerializers : IComponentData
     {
         /// <summary>

@@ -5,12 +5,12 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using Unity.Collections;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements.TestFramework;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Tests
+namespace Unity.Netcode.Editor.Tracing.UI.Tests
 {
     class SceneVisualizationViewTests : UITestFixture
     {

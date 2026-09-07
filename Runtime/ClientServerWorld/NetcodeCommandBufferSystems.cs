@@ -1,8 +1,9 @@
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     // normally PresentationSystemGroup child systems are disabled on server (since child systems only have the Presentation filter inherited from the parent group by default and Default filter isn't included on servers), but if the child system has the ServerSimulation filter hardcoded, it's then still included even if it updates in the PresentationSystemGroup.
     // SimulationSystemGroup is different. It doesn't have a specified filter, so according to StaticTypeRegistryPostProcessor.GetParentGroupDefaultFilterFlags it has the fallback LocalSimulation | ServerSimulation | ClientSimulation filter.
@@ -11,6 +12,7 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(PresentationSystemGroup), OrderLast = true)] // needs to happen in LateUpdate, before GameObject OnDestroy
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed partial class PreLateUpdateCommandBufferSystem : EntityCommandBufferSystem
     {
         /// <summary>

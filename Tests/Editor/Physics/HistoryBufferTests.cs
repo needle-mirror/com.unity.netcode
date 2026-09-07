@@ -5,13 +5,13 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.NetCode.Tests;
+using Unity.Netcode.Tests;
 using Unity.Physics;
 using Unity.Transforms;
 using UnityEngine;
 #pragma warning disable CS0618 // Using old version of CloneCollisionWorld.
 
-namespace Unity.NetCode.Physics.Tests
+namespace Unity.Netcode.Physics.Tests
 {
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]

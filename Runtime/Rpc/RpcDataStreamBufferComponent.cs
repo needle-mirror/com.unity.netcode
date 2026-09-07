@@ -1,7 +1,8 @@
 using System;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -35,6 +36,7 @@ namespace Unity.NetCode
     /// move the RPC data into and out of the chunk.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct OutgoingRpcDataStreamBuffer : IBufferElementData
     {
         /// <summary>
@@ -50,6 +52,7 @@ namespace Unity.NetCode
     /// move the RPC data into and out of the chunk.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct OutgoingOutOfBandRpcDataStreamBuffer : IBufferElementData
     {
         /// <summary>
@@ -65,6 +68,7 @@ namespace Unity.NetCode
     /// move the RPC data into and out of the chunk.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct IncomingRpcDataStreamBuffer : IBufferElementData
     {
         /// <summary>

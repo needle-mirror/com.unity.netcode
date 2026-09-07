@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using System.Reflection;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     /// <summary>
     /// Some helpers for debugging purpose. Notable entries:
@@ -95,7 +95,7 @@ namespace Unity.NetCode.Generators
 
         static Helpers()
         {
-            s_OutputFolder = new ThreadLocal<string>(()=> Path.Combine("Temp", "NetCodeGenerated"));
+            s_OutputFolder = new ThreadLocal<string>(()=> Path.Combine("Temp", "NetcodeGenerated"));
             s_ProjectPath = new ThreadLocal<string>();
             s_IsUnity2021_OrNewer = new ThreadLocal<bool>();
             s_SupportTemplatesFromAdditionalFiles = new ThreadLocal<bool>();

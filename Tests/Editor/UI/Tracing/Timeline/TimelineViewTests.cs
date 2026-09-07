@@ -4,14 +4,15 @@ using System.Reflection;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using Unity.Collections;
-using Unity.NetCode;
-using Unity.NetCode.Tracing;
-using Unity.NetCode.Editor.Tracing.UI;
+using Unity.Netcode;
+using Unity.Netcode.Tracing;
+using Unity.Netcode.Editor.Tracing.UI;
 using UnityEditor;
 using UnityEngine.UIElements;
 using UnityEngine.UIElements.TestFramework;
-using Unity.NetCode.Editor.Tracing.UI.Timeline;
-using Unity.NetCode.Tests;
+using Unity.Netcode.Editor.Tracing.UI.Timeline;
+using Unity.Netcode.NetcodeTime;
+using Unity.Netcode.Tests;
 
 namespace Tests.Editor.UI.Tracing.Timeline
 {

@@ -5,8 +5,9 @@ using Unity.Entities;
 using UnityEngine;
 using Unity.Transforms;
 using Unity.Burst;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.OnlyPredictedClients,
         OwnerSendType = SendToOwnerType.SendToNonOwner)]

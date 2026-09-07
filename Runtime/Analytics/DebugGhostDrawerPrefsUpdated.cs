@@ -1,7 +1,7 @@
 using System;
 using UnityEngine.Analytics;
 
-namespace Unity.NetCode.Analytics
+namespace Unity.Netcode.Analytics
 {
     [Serializable]
     internal class DebugGhostDrawerPreferencesUpdatedData : IAnalytic.IData, IEquatable<DebugGhostDrawerPreferencesUpdatedData>

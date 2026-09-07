@@ -5,12 +5,12 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Add this component to a singleton entity to configure the NetCode package logging level and to enable/disable packet dumps.
     /// </summary>
-    public struct NetCodeDebugConfig : IComponentData
+    public struct NetcodeDebugConfig : IComponentData
     {
         /// <summary>
         /// The logging level used by netcode. The default is <see cref="NetDebug.LogLevelType.Notify"/>.
@@ -25,8 +25,8 @@ namespace Unity.NetCode
 
 #if NETCODE_DEBUG
     /// <summary>
-    /// System that copy the <see cref="NetCodeDebugConfig"/> to the <see cref="NetDebug"/> singleton.
-    /// When the <see cref="NetCodeDebugConfig.DumpPackets"/> is set to true, a <see cref="EnablePacketLogging"/> component is added to all connection.
+    /// System that copy the <see cref="NetcodeDebugConfig"/> to the <see cref="NetDebug"/> singleton.
+    /// When the <see cref="NetcodeDebugConfig.DumpPackets"/> is set to true, a <see cref="EnablePacketLogging"/> component is added to all connection.
     /// </summary>
     [BurstCompile]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
@@ -37,7 +37,7 @@ namespace Unity.NetCode
         EntityQuery m_ConnectionsQueryWith;
 
         public bool EditorApplyLoggerSettings;
-        public NetCodeDebugConfig ForceSettings;
+        public NetcodeDebugConfig ForceSettings;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
@@ -49,7 +49,7 @@ namespace Unity.NetCode
         public void OnUpdate(ref SystemState state)
         {
             var netDbg = SystemAPI.GetSingletonRW<NetDebug>();
-            if (!SystemAPI.TryGetSingleton<NetCodeDebugConfig>(out var debugConfig))
+            if (!SystemAPI.TryGetSingleton<NetcodeDebugConfig>(out var debugConfig))
             {
                 // No user-defined config, so take the NetDebug defaults:
                 debugConfig.LogLevel = NetDebug.DefaultLogLevel;

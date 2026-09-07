@@ -2,13 +2,15 @@ using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Collection of utility that are used by the editor and runtime to compute and check ghost
     /// component variants hashes.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class GhostVariantsUtility
     {
         internal const string k_DefaultVariantName = "Default";
@@ -18,6 +20,9 @@ namespace Unity.NetCode
         static readonly FixedString32Bytes k_NetCodeGhostNetVariant = "NetCode.GhostNetVariant";
         static readonly ulong k_NetCodeGhostNetVariantHash = TypeHash.FNV1A64(k_NetCodeGhostNetVariant);
 
+        // The "Unity.NetCode." spellings below are deliberate: these strings are hash inputs baked into
+        // user prefab/scene data (ComponentOverride.VariantHash). Re-casing them to Unity.Netcode would
+        // orphan every serialized special-variant override. Pinned by LegacyVariantHashMigrationTests.
         /// <summary>Stable hash of the built-in <see cref="ClientOnlyVariant"/>. Use this from a baker to force a component to be client-only.</summary>
         public static readonly ulong ClientOnlyHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_ClientOnlyVariant}"));
         /// <summary>Stable hash of the built-in <see cref="ServerOnlyVariant"/>. Use this from a baker to force a component to be server-only.</summary>
@@ -119,5 +124,61 @@ namespace Unity.NetCode
             return UncheckedVariantHashNBC(variantType, componentType);
         }
 
+        // Pre-rename serialized-data support; remove with the Unity.NetCode compat stubs.
+        const string k_LegacyPrefix = "Unity.NetCode.";
+        const string k_CurrentPrefix = "Unity.Netcode.";
+
+        /// <summary>Old-cased spelling of a FullName, as hashed before the Unity.NetCode rename. Identity for non-package types.</summary>
+        internal static string ToLegacyFullName(string fullName) =>
+            fullName.StartsWith(k_CurrentPrefix, StringComparison.Ordinal)
+                ? k_LegacyPrefix + fullName.Substring(k_CurrentPrefix.Length)
+                : fullName;
+
+        /// <summary>New-cased spelling of a FullName serialized before the Unity.NetCode rename. Identity for non-package types.</summary>
+        internal static string ToCurrentFullName(string fullName) =>
+            fullName.StartsWith(k_LegacyPrefix, StringComparison.Ordinal)
+                ? k_CurrentPrefix + fullName.Substring(k_LegacyPrefix.Length)
+                : fullName;
+
+        /// <summary>Resolves a pre-rename serialized VariantHash to its current value. Candidates: the default
+        /// serializer and, editor-only, [GhostComponentVariation]s (players only remap the former). False = not legacy.</summary>
+        [ExcludeFromBurstCompatTesting("Use managed types")]
+        internal static bool TryMigrateLegacyVariantHash(ulong serializedHash, Type componentManagedType, out ulong currentHash)
+        {
+            var componentName = componentManagedType.FullName;
+            var legacyComponentName = ToLegacyFullName(componentName);
+
+            // Default serializer: the component is its own variant.
+            if (!string.Equals(legacyComponentName, componentName, StringComparison.Ordinal)
+                && serializedHash == UncheckedVariantHashNBC(legacyComponentName, legacyComponentName))
+            {
+                currentHash = UncheckedVariantHashNBC(componentName, componentName);
+                return true;
+            }
+
+#if UNITY_EDITOR
+            foreach (var variantType in UnityEditor.TypeCache.GetTypesWithAttribute<GhostComponentVariationAttribute>())
+            {
+                foreach (GhostComponentVariationAttribute attr in variantType.GetCustomAttributes(typeof(GhostComponentVariationAttribute), false))
+                {
+                    if (attr.ComponentType != componentManagedType)
+                        continue;
+                    var variantName = variantType.FullName;
+                    var legacyVariantName = ToLegacyFullName(variantName);
+                    // A pair is only stale if at least one half was renamed.
+                    if (string.Equals(legacyVariantName, variantName, StringComparison.Ordinal)
+                        && string.Equals(legacyComponentName, componentName, StringComparison.Ordinal))
+                        continue;
+                    if (serializedHash == UncheckedVariantHashNBC(legacyVariantName, legacyComponentName))
+                    {
+                        currentHash = UncheckedVariantHashNBC(variantName, componentName);
+                        return true;
+                    }
+                }
+            }
+#endif
+            currentHash = serializedHash;
+            return false;
+        }
     }
 }

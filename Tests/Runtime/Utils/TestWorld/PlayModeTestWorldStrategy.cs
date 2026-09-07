@@ -7,7 +7,7 @@ using Unity.Entities;
 using UnityEngine;
 using UnityEngine.LowLevel;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal partial class PlayModeTestWorldStrategy : NetCodeTestWorld.ITestWorldStrategy
     {

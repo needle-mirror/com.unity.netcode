@@ -5,8 +5,9 @@ using Unity.Entities;
 using Unity.Collections;
 using System;
 using System.Collections.Generic;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.Hybrid
+namespace Unity.Netcode.Hybrid
 {
     /// <summary>
     /// This class is an extension of regular PlayableBehaviour which can be used
@@ -18,6 +19,7 @@ namespace Unity.NetCode.Hybrid
     /// clips to the current time at the beginning of the call, not doing so will break
     /// root motion. You only need to set the time in PreparePredictedData if 'isRollback' is true,
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public abstract class GhostPlayableBehaviour : PlayableBehaviour
     {
         /// <summary>
@@ -35,6 +37,7 @@ namespace Unity.NetCode.Hybrid
     /// Interface used by GhostAnimationGraphAssets to communicate which components they are using
     /// to store animation data which should be ghosted.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public interface IRegisterPlayableData
     {
         /// <summary>
@@ -51,6 +54,7 @@ namespace Unity.NetCode.Hybrid
     /// needs to be synchronized should be expressed as an assets of this type. The asset
     /// can reference other assets to build a full graph.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public abstract class GhostAnimationGraphAsset : ScriptableObject
     {
         /// <summary>

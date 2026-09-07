@@ -4,13 +4,14 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 using Random = Unity.Mathematics.Random;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct InputComponentData : IInputComponentData
     {

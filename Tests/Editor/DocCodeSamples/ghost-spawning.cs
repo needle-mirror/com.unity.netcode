@@ -1,7 +1,8 @@
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode;
+using Unity.Netcode;
+using Unity.Netcode.NetcodeTime;
 
 namespace DocumentationCodeSamples
 {

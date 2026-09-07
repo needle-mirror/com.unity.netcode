@@ -7,7 +7,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Unity.Burst;
 
-namespace Unity.NetCode.LowLevel.Unsafe
+namespace Unity.Netcode.LowLevel.Unsafe
 {
     internal static class ManagedFunctionPtr<T, Key>
         where T: Delegate

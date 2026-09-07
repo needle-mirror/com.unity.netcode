@@ -6,8 +6,9 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Error;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     ///<summary>
     /// <para>A connection is represented by an entity having a NetworkStreamConnection.
@@ -24,6 +25,7 @@ namespace Unity.NetCode
     /// <para>Single world hosts and clients also have a <see cref="LocalConnection"/> to identify your local connection (vs other client connections). On a server world, all connections are "other client" connections.</para>
     ///</summary>
     /// <remarks>Never destroy this entity yourself. You'll receive an error if you attempt to do so.</remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkStreamConnection : ICleanupComponentData
     {
         /// <summary>
@@ -81,6 +83,7 @@ namespace Unity.NetCode
     /// A component used to signal that a connection should send and receive snapshots and commands.
     /// Before adding this component the connection only processes RPCs. Must be Added by game logic to start sending snapshots and commands.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkStreamInGame : IComponentData
     {
     }
@@ -89,6 +92,7 @@ namespace Unity.NetCode
     /// This tag is added to connections which have been reconnected (client reconnects to a server after diconnecting).
     /// It is added on both the server and client side.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkStreamIsReconnected : IComponentData { }
 
     /// <summary>
@@ -113,6 +117,7 @@ namespace Unity.NetCode
     /// <see cref="NetworkStreamDisconnectReason.ApprovalFailure"/>.
     /// </remarks>
     /// <seealso cref="ClientServerTickRate.HandshakeApprovalTimeoutMS"/>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ConnectionApproved : IComponentData
     {
     }
@@ -128,6 +133,7 @@ namespace Unity.NetCode
     /// - Does not include or affect RPCs, commands, control messages, or UDP header overhead.
     /// - Does include UTP packet header overhead.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkStreamSnapshotTargetSize : IComponentData
     {
         /// <summary>
@@ -147,6 +153,7 @@ namespace Unity.NetCode
 
     /// <inheritdoc cref="DisconnectReason"/>
     /// <remarks>Maps directly to <see cref="DisconnectReason"/>, with NetCode specific additions.</remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum NetworkStreamDisconnectReason
     {
         /// <inheritdoc cref="DisconnectReason.Default"/>
@@ -196,6 +203,7 @@ namespace Unity.NetCode
     /// <item>Reduces boilerplate.</item>
     /// </list>
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ConnectionState : ICleanupComponentData
     {
         /// <summary>
@@ -236,7 +244,7 @@ namespace Unity.NetCode
         /// </summary>
         public State CurrentState;
         /// <summary>
-        /// The id assigned to the connection. Identical to the <see cref="NetCode.NetworkId"/> value.
+        /// The id assigned to the connection. Identical to the <see cref="Unity.Netcode.NetworkId"/> value.
         /// </summary>
         public int NetworkId;
         /// <summary>
@@ -258,6 +266,7 @@ namespace Unity.NetCode
     /// <summary>
     /// A component used to signal that the game logic wants to close the connection
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkStreamRequestDisconnect : IComponentData
     {
         /// <summary>
@@ -268,6 +277,7 @@ namespace Unity.NetCode
     /// <summary>
     /// A component that can be added to a new entity to create a new connection instead of calling <see cref="NetworkStreamDriver.Connect"/>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkStreamRequestConnect : IComponentData
     {
         /// <summary>
@@ -279,6 +289,7 @@ namespace Unity.NetCode
     /// <summary>
     /// A component that can be added to a new entity to start listening to a new connection instead of calling <see cref="NetworkStreamDriver.Listen"/>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkStreamRequestListen : IComponentData
     {
         /// <summary>
@@ -295,6 +306,7 @@ namespace Unity.NetCode
     /// <remarks>
     /// Being a cleanup component it is responsibility of the request creator to proper handle the request entity life-cycle.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkStreamRequestListenResult : ICleanupComponentData
     {
         /// <summary>
@@ -373,6 +385,7 @@ namespace Unity.NetCode
     /// It also contains some timestamps etc for ping calculations.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct IncomingCommandDataStreamBuffer : IBufferElementData
     {
         /// <summary>
@@ -386,6 +399,7 @@ namespace Unity.NetCode
     /// It also contains some timestamps etc for ping calculations.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct OutgoingCommandDataStreamBuffer : IBufferElementData
     {
         /// <summary>
@@ -401,6 +415,7 @@ namespace Unity.NetCode
     /// so expect this to be MaxMessageSize or less.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct IncomingSnapshotDataStreamBuffer : IBufferElementData
     {
         /// <summary>
@@ -417,6 +432,7 @@ namespace Unity.NetCode
     /// <remarks>
     /// On a single world host, an alternative for finding the local connection is to query for entities WithAll <see cref="NetworkId"/> and WithNone <see cref="NetworkStreamConnection"/>. However, LocalConnection is more explicit.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct LocalConnection : IComponentData { }
 
     internal static class NetCodeBufferComponentExtensions

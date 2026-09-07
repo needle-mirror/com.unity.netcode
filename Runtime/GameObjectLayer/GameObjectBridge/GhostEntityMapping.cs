@@ -4,7 +4,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Assertions;
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Provides functionality for managing the mapping between GameObjects and entities in a Unity ECS environment.

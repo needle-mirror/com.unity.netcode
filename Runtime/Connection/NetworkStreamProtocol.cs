@@ -1,8 +1,10 @@
-namespace Unity.NetCode
+using UnityEngine.Scripting.APIUpdating;
+namespace Unity.Netcode
 {
     /// <summary>
     /// The message types sent by NetCode.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum NetworkStreamProtocol
     {
         /// <summary>

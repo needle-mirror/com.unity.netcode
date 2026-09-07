@@ -7,10 +7,11 @@ using System.Runtime.InteropServices;
 using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Add this component to any connection entities (i.e. entities with the <see cref="NetworkStreamConnection"/> component)
@@ -18,9 +19,10 @@ namespace Unity.NetCode
     /// </summary>
     /// <remarks>
     /// Packet dumps can be enabled for all connections globally via the Playmode Tools Window.
-    /// Alternatively, you can add the <see cref="NetCodeDebugConfig"/> to any sub-scene (via the `NetCodeDebugConfigAuthoring`)
-    /// and set the <see cref="NetCodeDebugConfig.DumpPackets"/> flag to true.
+    /// Alternatively, you can add the <see cref="NetcodeDebugConfig"/> to any sub-scene (via the `NetcodeDebugConfigAuthoring`)
+    /// and set the <see cref="NetcodeDebugConfig.DumpPackets"/> flag to true.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct EnablePacketLogging : IComponentData
     {
 #if NETCODE_DEBUG
@@ -71,7 +73,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Convert disconnection reason error code into human readable error messages.
     /// </summary>
-    [Obsolete("Use ToFixedString extension methods. (RemovedAfter Entities 2.0)", false)]
+    [Obsolete("Use ToFixedString extension methods. (RemovedAfter Entities 2.0)", true)]
     public struct DisconnectReasonEnumToString
     {
         /// <summary>
@@ -90,6 +92,7 @@ namespace Unity.NetCode
     /// <summary>
     /// ToFixedString utilities for enums.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class NetCodeUtils
     {
         /// <summary>
@@ -180,8 +183,9 @@ namespace Unity.NetCode
     /// <summary>
     /// Singleton handling NetCode logging and log management.
     /// Created in <see cref="NetDebugSystem"/>.
-    /// Use <see cref="NetCodeDebugConfig"/> to configure this programmatically.
+    /// Use <see cref="NetcodeDebugConfig"/> to configure this programmatically.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetDebug : IComponentData
     {
         internal const LogLevelType DefaultLogLevel = LogLevelType.Notify;
@@ -282,7 +286,7 @@ namespace Unity.NetCode
         internal bool HasWarnedAboutApplicationRunInBackground { get; set; }
 
         /// <summary>
-        ///     A NetCode RPC will trigger a warning if it hasn't been consumed or destroyed (which is a proxy for 'handled') after
+        ///     A Netcode RPC will trigger a warning if it hasn't been consumed or destroyed (which is a proxy for 'handled') after
         ///     this many simulation frames (inclusive).
         ///     <see cref="ReceiveRpcCommandRequest.Age" />.
         ///     Set to 0 to opt out.
@@ -329,7 +333,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// The available NetCode logging levels. <see cref="Notify"/> is the default. Use the
-        /// <see cref="NetCodeDebugConfig"/> component to configure the logging level.
+        /// <see cref="NetcodeDebugConfig"/> component to configure the logging level.
         /// </summary>
         public enum LogLevelType
         {

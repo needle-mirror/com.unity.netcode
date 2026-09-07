@@ -1,6 +1,7 @@
 using System.IO;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using Unity.Profiling;
 using Unity.Scripting.LifecycleManagement;
 using Unity.Transforms;
@@ -10,7 +11,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Assertions;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(PredictedFixedStepSimulationSystemGroup))]

@@ -1,5 +1,5 @@
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Networking.Transport.Relay;
 
 namespace DocumentationCodeSamples
@@ -36,7 +36,7 @@ namespace DocumentationCodeSamples
         /// For WebGL, WebSocket is always preferred for client in the Editor, to closely emulate the player behaviour.
         /// </para>
         /// </summary>
-        public void CreateClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
+        public void CreateClientDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             var settings = DefaultDriverBuilder.GetNetworkClientSettings();
             //if the Relay data is not valid, connect via local IPC
@@ -56,7 +56,7 @@ namespace DocumentationCodeSamples
             }
         }
 
-        public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
+        public void CreateServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             //The first driver is the IPC for internal client/server connection if necessary.
             // IPC can't use Relay and needs to be set up without Relay data.
@@ -75,7 +75,7 @@ namespace DocumentationCodeSamples
     #endregion
 
 #region SetupWorlds
-        public void SetupClientWorld(World world, ref RelayServerData relay)
+        public void SetupClientWorld(NetcodeWorld world, ref RelayServerData relay)
         {
             //we assume here we want to forcibly use Relay
             var settings = DefaultDriverBuilder.GetNetworkClientSettings();
@@ -87,7 +87,7 @@ namespace DocumentationCodeSamples
             networkStreamDriver.ResetDriverStore(world.Unmanaged, ref driverStore);
         }
 
-        public void SetupServerWorld(World world, ref RelayServerData relay)
+        public void SetupServerWorld(NetcodeWorld world, ref RelayServerData relay)
         {
             var driverStore = new NetworkDriverStore();
             var netDebug = world.EntityManager.CreateEntityQuery(typeof(NetDebug)).GetSingleton<NetDebug>();

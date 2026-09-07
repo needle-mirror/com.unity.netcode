@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
 #if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
     public

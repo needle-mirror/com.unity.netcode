@@ -23,7 +23,7 @@ There are two strategies for configuring the `NetworkDriverStore` to use Relay, 
 
 ### Set up the driver with a custom INetworkDriverConstructor
 
-Use an [`INetworkStreamDriverConstructor`](xref:Unity.NetCode.INetworkStreamDriverConstructor) to initialize the `NetworkSettings` with the Relay data before the worlds are created. For more information about custom driver constructors, refer to [Customize network driver creation](networking-network-drivers.md#customize-network-driver-creation).
+Use an [`INetworkStreamDriverConstructor`](xref:Unity.Netcode.INetworkStreamDriverConstructor) to initialize the `NetworkSettings` with the Relay data before the worlds are created. For more information about custom driver constructors, refer to [Customize network driver creation](networking-network-drivers.md#customize-network-driver-creation).
 
 To configure Relay before the client and server worlds are created:
 

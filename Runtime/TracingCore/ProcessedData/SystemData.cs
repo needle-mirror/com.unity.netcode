@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     internal struct SystemID : IEquatable<SystemID>, IComparer<SystemID>
     {

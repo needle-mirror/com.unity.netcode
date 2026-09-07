@@ -6,7 +6,7 @@ using Unity.Entities;
 using UnityEditor;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     internal enum TracingTargetKind : byte
     {
@@ -29,7 +29,7 @@ namespace Unity.NetCode.Editor.Tracing.UI
     internal static class TracingTargetTypes
     {
         static readonly bool k_NetcodePhysicsPresent =
-            Type.GetType("Unity.NetCode.PredictedPhysicsConfigSystem, Unity.NetCode.Physics") != null;
+            Type.GetType("Unity.Netcode.PredictedPhysicsConfigSystem, Unity.NetCode.Physics") != null;
 
         /// <summary>By name because Unity.NetCode.Editor does not reference the optional Unity.Physics assembly.</summary>
         const string k_PhysicsSystemGroupAssemblyQualifiedName = "Unity.Physics.Systems.PhysicsSystemGroup, Unity.Physics";

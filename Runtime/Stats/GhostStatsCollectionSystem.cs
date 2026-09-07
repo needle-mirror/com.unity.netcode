@@ -8,13 +8,14 @@ using Unity.Mathematics;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 using Unity.Profiling;
 
 // TODO have this available in release builds for DGS
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     internal struct GhostStats : IComponentData
     {

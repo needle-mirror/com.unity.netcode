@@ -2,7 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     internal unsafe static class GhostComponentSerializerExtension
     {

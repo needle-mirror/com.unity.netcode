@@ -8,7 +8,7 @@ using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class PredictionSwitchingTests
     {
@@ -19,8 +19,9 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
 
             var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("Switcher", autoRegister: false);
-            prefab.Ghost.SupportedGhostModes = GhostModeMask.All;
-            prefab.Ghost.DefaultGhostMode = GhostMode.Interpolated;
+            var ghost = prefab.GetComponent<GhostObject>();
+            ghost.SupportedGhostModes = GhostModeMask.All;
+            ghost.DefaultGhostMode = GhostMode.Interpolated;
             prefab.GetComponent<PredictionCallbackHelper>().CallbackHolder.OnPrediction += o =>
             {
                 o.transform.position += new Vector3(1f, 0f, 1f);
@@ -102,8 +103,9 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
 
             var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("Switcher", autoRegister: false);
-            prefab.Ghost.SupportedGhostModes = GhostModeMask.All;
-            prefab.Ghost.DefaultGhostMode = GhostMode.Predicted;
+            var ghost = prefab.GetComponent<GhostObject>();
+            ghost.SupportedGhostModes = GhostModeMask.All;
+            ghost.DefaultGhostMode = GhostMode.Predicted;
             prefab.CallbackHolder.OnPrediction += o =>
             {
                 o.transform.position += new Vector3(1f, 0f, 1f);
@@ -179,11 +181,12 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
 
             var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("Switcher", autoRegister: false);
-            prefab.Ghost.SupportedGhostModes = GhostModeMask.All;
+            var ghost = prefab.GetComponent<GhostObject>();
+            ghost.SupportedGhostModes = GhostModeMask.All;
             if (startWithPredicted)
-                prefab.Ghost.DefaultGhostMode = GhostMode.Predicted;
+                ghost.DefaultGhostMode = GhostMode.Predicted;
             else
-                prefab.Ghost.DefaultGhostMode = GhostMode.Interpolated;
+                ghost.DefaultGhostMode = GhostMode.Interpolated;
             Netcode.RegisterPrefab(prefab.gameObject);
 
             await testWorld.ConnectAsync(enableGhostReplication: true);

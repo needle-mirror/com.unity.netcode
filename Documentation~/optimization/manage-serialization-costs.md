@@ -22,10 +22,10 @@ As a result, three-baseline-based compression is primarily recommended for predi
 
 ### Using a single baseline
 
-You can reduce some of this encoding cost on a per-archetype basis with the `UseSingleBaseline` option in the [`GhostAuthoringComponent`](xref:Unity.NetCode.GhostAuthoringComponent).
+You can reduce some of this encoding cost on a per-archetype basis with the `UseSingleBaseline` option in the [`GhostAuthoringComponent`](xref:Unity.Netcode.GhostAuthoringComponent).
 When set, it instructs the server to always use a single baseline for delta compression for this specific prefab type.
 
-If you want to test the impact of using a single baseline for all ghosts without modifying all prefabs, you can use the[`GhostSendSystemData.ForceSingleBaseline`](xref:Unity.NetCode.GhostSendSystemData.ForceSingleBaseline) property. Use this option during development to test the impact of a single baseline in your game, in terms of both bandwidth and CPU.
+If you want to test the impact of using a single baseline for all ghosts without modifying all prefabs, you can use the[`GhostSendSystemData.ForceSingleBaseline`](xref:Unity.Netcode.GhostSendSystemData.ForceSingleBaseline) property. Use this option during development to test the impact of a single baseline in your game, in terms of both bandwidth and CPU.
 
 Using a single baseline can reduce CPU usage for both client and server, especially when the archetype has a large number of components or fields that rarely change. The impact is usually greater client-side, where deserialization time is often reduced by around 50%.
 
@@ -33,7 +33,7 @@ Moreover, using a single baseline enables a specific bandwidth optimization: whe
 
 The `UseSingleBaseline` option can lead to significant savings in two common scenarios:
 
-* When a ghost prefab is suited for [`GhostOptimizationMode.Dynamic`](xref:Unity.NetCode.GhostOptimizationMode), but has frequent periods of inactivity.
+* When a ghost prefab is suited for [`GhostOptimizationMode.Dynamic`](xref:Unity.Netcode.GhostOptimizationMode), but has frequent periods of inactivity.
 * When the majority of the component data changes on a ghost type don't follow linear, predictable patterns, and so the three baselines cost isn't justified.
 
 > [!NOTE]

@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TracingToolbar
+namespace Unity.Netcode.Editor.Tracing.UI.TracingToolbar
 {
     /// <summary>
     /// The toolbar entry point of the tracing filter: the dropdown button and the owner of the persistent
@@ -181,7 +181,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TracingToolbar
         {
             CreateDropdownButton();
             m_Button.clicked += OpenDropdown;
-            NetCodeTracingTargetSettings.OnSelectionChanged += OnRecordingTargetsChanged;
+            NetcodeTracingTargetSettings.OnSelectionChanged += OnRecordingTargetsChanged;
             TracingRecordingTargets.Changed += OnRecordingTargetsChanged;
             TracingDisplayState.Changed += OnRecordingTargetsChanged;
             RefreshChangedIndicator();
@@ -193,7 +193,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.TracingToolbar
             CloseDropdown();
             Remove(m_Button);
             m_Button.clicked -= OpenDropdown;
-            NetCodeTracingTargetSettings.OnSelectionChanged -= OnRecordingTargetsChanged;
+            NetcodeTracingTargetSettings.OnSelectionChanged -= OnRecordingTargetsChanged;
             TracingRecordingTargets.Changed -= OnRecordingTargetsChanged;
             TracingDisplayState.Changed -= OnRecordingTargetsChanged;
         }

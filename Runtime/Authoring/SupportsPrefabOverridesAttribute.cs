@@ -1,6 +1,6 @@
 using System;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Use this attribute to <b>allow</b> a GhostComponent to support any kind of Ghost variation.
@@ -9,7 +9,7 @@ namespace Unity.NetCode
     /// <remarks>Note that if a type implements <see cref="GhostComponentVariationAttribute"/>, it implicitly supports prefab overrides.</remarks>
     /// <example>Use Case: Disabling a rendering component on the `Server` version of a Ghost.</example>
     [AttributeUsage(AttributeTargets.Struct)]
-    [Obsolete("This attribute is now implicit (and thus this attribute does nothing), as all components (including components in other packages) should support user modification, and this prevented that. (RemovedAfter Entities 1.0)")]
+    [Obsolete("This attribute is now implicit (and thus this attribute does nothing), as all components (including components in other packages) should support user modification, and this prevented that. (RemovedAfter Entities 1.0)", true)]
     public class SupportsPrefabOverridesAttribute : Attribute
     {
     }

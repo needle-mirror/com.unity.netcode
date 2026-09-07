@@ -1,14 +1,16 @@
 using System;
 using Unity.Collections;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// The hash of all the ghost component data which exists in the scene. This can be
     /// used to sort the subscenes so the ghost IDs of the pre-spawned scene objects line
     /// up deterministically.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SubSceneGhostComponentHash : ISharedComponentData
     {
         /// <summary>
@@ -20,6 +22,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Unique within a subscene and used to deterministically assign ghost id to pre-spawned ghost entities.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PreSpawnedGhostIndex : IComponentData
     {
         /// <summary>
@@ -46,6 +49,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Added during conversion to all subscenes that contains pre-spawned ghosts.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct SubSceneWithPrespawnGhosts : IComponentData
     {
         /// <summary>
@@ -188,6 +192,7 @@ namespace Unity.NetCode
     /// The server streams prespawned ghost only for the sections that as been notified ready by the client.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PrespawnSectionAck : IBufferElementData
     {
         /// <summary>

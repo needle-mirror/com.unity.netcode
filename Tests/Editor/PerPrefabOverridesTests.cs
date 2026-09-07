@@ -6,12 +6,12 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     /// <summary>
     /// Registers <see cref="ClientOnlyVariant"/> as the default rule for <see cref="GhostGen_IntStruct"/> so
@@ -760,7 +760,7 @@ namespace Unity.NetCode.Tests
                 {
                     new GhostAuthoringInspectionComponent.ComponentOverride
                     {
-                        FullTypeName = "Unity.NetCode.Tests.NonExistentType_RenamedAway",
+                        FullTypeName = "Unity.Netcode.Tests.NonExistentType_RenamedAway",
                         EntityIndex = 0,
                         PrefabType = GhostPrefabType.Server,
                         SendTypeOptimization = GhostSendType.AllClients,

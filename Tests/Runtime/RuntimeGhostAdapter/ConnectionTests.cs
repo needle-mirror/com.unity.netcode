@@ -10,7 +10,7 @@ using Unity.Networking.Transport;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct TestMessage : IRpcCommand
     {
@@ -424,18 +424,18 @@ namespace Unity.NetCode.Tests
             // test on shutdown that ondisconnect is called
             var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
             await using var testWorld = new NetCodeTestWorld();
-            NetCodeConfig.Global.ConnectTimeoutMS = 1000;
-            NetCodeConfig.Global.MaxConnectAttempts = 1;
+            NetcodeConfig.Global.ConnectTimeoutMS = 1000;
+            NetcodeConfig.Global.MaxConnectAttempts = 1;
             await testWorld.SetupGameObjectTest(serverCount: 0, clientCount: 0, singleWorldHostCount: 0);
 
-            List<(Connection connection, NetCodeConnectionEvent ev, ConnectionState.State currentState, NetworkId connectionId)> eventHistory = new();
-            void EventHandler(Connection connection, NetCodeConnectionEvent connectionEvent)
+            List<(Connection connection, NetcodeConnectionEvent ev, ConnectionState.State currentState, NetworkId connectionId)> eventHistory = new();
+            void EventHandler(Connection connection, NetcodeConnectionEvent connectionEvent)
             {
                 eventHistory.Add((connection, connectionEvent, connection.GetConnectionState(), connection.NetworkId));
             }
 
             const string normalError = "normal exception that shouldn't affect other events";
-            void ExceptionEventHandler(Connection connection, NetCodeConnectionEvent connectionEvent)
+            void ExceptionEventHandler(Connection connection, NetcodeConnectionEvent connectionEvent)
             {
                 throw new Exception(normalError);
             }
@@ -603,7 +603,7 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest(userSystems: typeof(TestMessageReceiver), clientCount: 0, serverCount: 0, singleWorldHostCount: 0);
 
             // make sure "0.0.0.0" works for binary world and that the generated client world is able to connect to it properly
-            Netcode.StartAsHost(NetworkEndpoint.AnyIpv4.WithPort(k_TestPort), NetCodeConfig.HostWorldMode.BinaryWorlds);
+            Netcode.StartAsHost(NetworkEndpoint.AnyIpv4.WithPort(k_TestPort), NetcodeConfig.HostWorldMode.BinaryWorlds);
 
             await testWorld.TickUntilConnectedAsync(testWorld.ClientWorlds[0]);
             Assert.AreNotEqual(testWorld.ServerWorld.SequenceNumber, testWorld.ClientWorlds[0].SequenceNumber);
@@ -623,7 +623,7 @@ namespace Unity.NetCode.Tests
             var client = testWorld.ClientWorlds[0];
             Assert.AreNotEqual(server, client);
 
-            Netcode.StartAsHost(ServerListenEndpoint, hostWorldMode: NetCodeConfig.HostWorldMode.BinaryWorlds);
+            Netcode.StartAsHost(ServerListenEndpoint, hostWorldMode: NetcodeConfig.HostWorldMode.BinaryWorlds);
             Assert.IsTrue(Netcode.LocalConnection.IsValid());
             Assert.AreEqual(1, testWorld.m_ServerWorlds.Count);
             Assert.AreEqual(1, testWorld.ClientWorlds.Length);
@@ -651,7 +651,7 @@ namespace Unity.NetCode.Tests
             client = testWorld.ClientWorlds[0];
             Assert.IsFalse(client.IsServer());
 
-            Netcode.StartAsHost(ServerListenEndpoint, hostWorldMode: NetCodeConfig.HostWorldMode.SingleWorld);
+            Netcode.StartAsHost(ServerListenEndpoint, hostWorldMode: NetcodeConfig.HostWorldMode.SingleWorld);
             Assert.AreEqual(1, testWorld.m_ServerWorlds.Count);
             Assert.AreEqual(1, testWorld.ClientWorlds.Length);
             Assert.IsTrue(Netcode.LocalConnection.IsValid());

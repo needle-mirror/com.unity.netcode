@@ -4,7 +4,7 @@ using Unity.Entities;
 using Unity.PerformanceTesting;
 using Unity.Profiling;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
 #if UNITY_EDITOR
     [DisableAutoCreation]

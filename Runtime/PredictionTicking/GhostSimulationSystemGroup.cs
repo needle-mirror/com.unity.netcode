@@ -1,7 +1,8 @@
 using System;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>Present for both client and server worlds (and Local, for singleplayer input support).
@@ -21,6 +22,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateBefore(typeof(FixedStepSimulationSystemGroup))]
     [UpdateBefore(typeof(PredictedSimulationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class GhostSimulationSystemGroup : ComponentSystemGroup
     {
     }

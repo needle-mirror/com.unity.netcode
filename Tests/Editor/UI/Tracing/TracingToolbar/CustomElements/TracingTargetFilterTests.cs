@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Unity.NetCode.Editor.Tracing;
-using Unity.NetCode.Editor.Tracing.UI;
-using Unity.NetCode.Editor.Tracing.UI.TracingToolbar;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Editor.Tracing;
+using Unity.Netcode.Editor.Tracing.UI;
+using Unity.Netcode.Editor.Tracing.UI.TracingToolbar;
+using Unity.Netcode.Tracing;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -68,7 +68,7 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
         static void CloseTracingToolWindows()
         {
             foreach (var window in Resources.FindObjectsOfTypeAll<EditorWindow>()
-                         .Where(w => w.titleContent != null && w.titleContent.text == "Tracing Tool")
+                         .Where(w => w.titleContent != null && w.titleContent.text == "Prediction Tracing Tool")
                          .ToArray())
             {
                 window.Close();
@@ -92,14 +92,14 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
         [Test]
         public void CreateListItems_ListsGhostInstance_OnlyWhenSelected()
         {
-            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostSendSystem>();
+            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostSendSystem>();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(system);
 
             // The list follows the persisted tracing target selection; force a known one and restore it.
-            var backup = CloneSelection(NetCodeTracingTargetSettings.GetSelection());
+            var backup = CloneSelection(NetcodeTracingTargetSettings.GetSelection());
             try
             {
-                NetCodeTracingTargetSettings.SaveSelection(new TracingTargetSelectionFile());
+                NetcodeTracingTargetSettings.SaveSelection(new TracingTargetSelectionFile());
                 var items = InvokeCreateListItems();
                 Assert.AreEqual(1, items.Count, "An unselected GhostInstance must not appear in the filter list");
                 StringAssert.Contains("GhostSendSystem", items[0].Name);
@@ -109,10 +109,10 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
                 var selection = new TracingTargetSelectionFile();
                 selection.entries.Add(new TracingTargetSelectionEntry
                 {
-                    assemblyQualifiedName = typeof(Unity.NetCode.GhostInstance).AssemblyQualifiedName,
+                    assemblyQualifiedName = typeof(Unity.Netcode.GhostInstance).AssemblyQualifiedName,
                     kind = (int)TracingTargetKind.Component,
                 });
-                NetCodeTracingTargetSettings.SaveSelection(selection);
+                NetcodeTracingTargetSettings.SaveSelection(selection);
                 items = InvokeCreateListItems();
                 Assert.AreEqual(2, items.Count);
                 StringAssert.Contains("GhostInstance", items[1].Name);
@@ -121,7 +121,7 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
             }
             finally
             {
-                NetCodeTracingTargetSettings.SaveSelection(backup);
+                NetcodeTracingTargetSettings.SaveSelection(backup);
             }
         }
 
@@ -229,12 +229,12 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
         public void CreateListItems_MarksAddedAndRemovedTargets_InGroupedOrder()
         {
             TracingDisplayState.SetShowingTraces(true);
-            var keptSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostSendSystem>();
-            var removedSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostReceiveSystem>();
-            var addedSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostUpdateSystem>();
+            var keptSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostSendSystem>();
+            var removedSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostReceiveSystem>();
+            var addedSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostUpdateSystem>();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(keptSystem);
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(removedSystem);
-            Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
+            Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
             TracingDataAccess.Config.Data.RemoveSystemTypeToTrace(removedSystem);
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(addedSystem);
 
@@ -250,25 +250,25 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
             StringAssert.Contains("GhostUpdateSystem", items[2].Name);
             Assert.IsTrue(items[2].IsUntraced, "the target added after the recording started is marked untraced");
 
-            Assert.IsTrue(Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.SelectionDiffersFromRecording());
+            Assert.IsTrue(Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.SelectionDiffersFromRecording());
         }
 
         [Test]
         public void ResumeMerge_ClearsUntracedFlag_ButKeepsRemovedFlag()
         {
             TracingDisplayState.SetShowingTraces(true);
-            var keptSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostSendSystem>();
-            var removedSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostReceiveSystem>();
-            var addedSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostUpdateSystem>();
+            var keptSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostSendSystem>();
+            var removedSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostReceiveSystem>();
+            var addedSystem = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostUpdateSystem>();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(keptSystem);
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(removedSystem);
-            Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
+            Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
             TracingDataAccess.Config.Data.RemoveSystemTypeToTrace(removedSystem);
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(addedSystem);
 
             // Resuming merges the live selection into the recording set: the added target starts being
             // traced (flag gone), while the removed one's traces remain in the data (flag kept).
-            Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.MergeFromConfig();
+            Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.MergeFromConfig();
 
             var items = InvokeCreateListItems();
             Assert.AreEqual(3, items.Count, "both selected systems and the removed system");
@@ -282,23 +282,23 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
             Assert.AreEqual(1, removedNames.Count, "the removed target's traces are still in the recording, so it stays flagged");
             StringAssert.Contains("GhostReceiveSystem", removedNames[0]);
 
-            Assert.IsTrue(Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.SelectionDiffersFromRecording(),
+            Assert.IsTrue(Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.SelectionDiffersFromRecording(),
                 "a removal keeps the top-level indicator on after a resume");
         }
 
         [Test]
         public void ResumeMerge_WithOnlyAddedTargets_ClearsTheChangedIndicator()
         {
-            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostSendSystem>();
-            var added = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostReceiveSystem>();
+            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostSendSystem>();
+            var added = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostReceiveSystem>();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(system);
-            Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
+            Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(added);
-            Assert.IsTrue(Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.SelectionDiffersFromRecording());
+            Assert.IsTrue(Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.SelectionDiffersFromRecording());
 
-            Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.MergeFromConfig();
+            Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.MergeFromConfig();
 
-            Assert.IsFalse(Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.SelectionDiffersFromRecording(),
+            Assert.IsFalse(Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.SelectionDiffersFromRecording(),
                 "only additions were pending, so resuming brings the selection back in sync");
         }
 
@@ -309,10 +309,10 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
             var listView = InvokeCreateListView();
             Assert.AreEqual(0, listView.itemsSource.Count, "no targets configured yet");
 
-            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostSendSystem>();
-            var added = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostReceiveSystem>();
+            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostSendSystem>();
+            var added = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostReceiveSystem>();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(system);
-            Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
+            Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(added);
 
             m_TracingTargetFilter.RefreshTargetList();
@@ -324,14 +324,14 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
         [Test]
         public void ChangedIndicator_ShownOnlyWhileShowingTracesAndSelectionDiffers()
         {
-            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostSendSystem>();
-            var added = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostReceiveSystem>();
+            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostSendSystem>();
+            var added = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostReceiveSystem>();
             var indicator = m_TracingTargetFilter.Q<VisualElement>(className: TracingToolbarUssClasses.DropdownChangedIndicator);
             Assert.IsNotNull(indicator);
 
             // An out-of-sync selection against a captured recording...
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(system);
-            Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
+            Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(added);
 
             // ...means nothing while no traces are on screen.
@@ -351,11 +351,11 @@ namespace Tests.Editor.UI.Tracing.TracingToolbar.CustomElements
         [Test]
         public void CreateListItems_WithoutDisplayedTraces_ShowsPlainSelection()
         {
-            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostSendSystem>();
-            var removed = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.NetCode.GhostReceiveSystem>();
+            var system = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostSendSystem>();
+            var removed = Unity.Entities.TypeManager.GetSystemTypeIndex<Unity.Netcode.GhostReceiveSystem>();
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(system);
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(removed);
-            Unity.NetCode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
+            Unity.Netcode.Editor.Tracing.UI.TracingRecordingTargets.CaptureFromConfig();
             TracingDataAccess.Config.Data.RemoveSystemTypeToTrace(removed);
 
             TracingDisplayState.SetShowingTraces(false);

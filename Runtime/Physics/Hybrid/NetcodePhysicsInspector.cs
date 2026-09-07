@@ -2,10 +2,10 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
-    [CustomEditor(typeof(NetCodePhysicsConfig))]
-    public sealed class NetCodePhysicsInspector : UnityEditor.Editor
+    [CustomEditor(typeof(NetcodePhysicsConfig))]
+    public sealed class NetcodePhysicsInspector : UnityEditor.Editor
     {
         private SerializedProperty EnableLagCompensation;
         private SerializedProperty ServerHistorySize;
@@ -19,13 +19,13 @@ namespace Unity.NetCode.Editor
 
         private void OnEnable()
         {
-            EnableLagCompensation = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.EnableLagCompensation));
-            ServerHistorySize = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.ServerHistorySize));
-            ClientHistorySize = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.ClientHistorySize));
-            ClientNonGhostWorldIndex = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.ClientNonGhostWorldIndex));
-            DeepCopyDynamicColliders = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.DeepCopyDynamicColliders));
-            DeepCopyStaticColliders = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.DeepCopyStaticColliders));
-            PhysicGroupRunMode = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.PhysicGroupRunMode));
+            EnableLagCompensation = serializedObject.FindProperty(nameof(NetcodePhysicsConfig.EnableLagCompensation));
+            ServerHistorySize = serializedObject.FindProperty(nameof(NetcodePhysicsConfig.ServerHistorySize));
+            ClientHistorySize = serializedObject.FindProperty(nameof(NetcodePhysicsConfig.ClientHistorySize));
+            ClientNonGhostWorldIndex = serializedObject.FindProperty(nameof(NetcodePhysicsConfig.ClientNonGhostWorldIndex));
+            DeepCopyDynamicColliders = serializedObject.FindProperty(nameof(NetcodePhysicsConfig.DeepCopyDynamicColliders));
+            DeepCopyStaticColliders = serializedObject.FindProperty(nameof(NetcodePhysicsConfig.DeepCopyStaticColliders));
+            PhysicGroupRunMode = serializedObject.FindProperty(nameof(NetcodePhysicsConfig.PhysicGroupRunMode));
         }
 
         public override void OnInspectorGUI()

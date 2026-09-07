@@ -3,14 +3,16 @@ using System;
 using System.IO;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     ///     In the Editor, <see cref="MultiplayerPlayModePreferences"/> are used.
     ///     In development builds, json params can be loaded and enabled via command line arg.
     ///     In prod builds, the network simulator is always disabled.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class NetworkSimulatorSettings
     {
 #if UNITY_EDITOR

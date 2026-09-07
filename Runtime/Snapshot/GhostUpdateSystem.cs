@@ -8,12 +8,14 @@ using Unity.Burst.Intrinsics;
 using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Mathematics;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     struct GhostPredictionGroupTickState : IComponentData
     {
@@ -33,6 +35,7 @@ namespace Unity.NetCode
     [UpdateBefore(typeof(GhostInputSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe partial struct GhostUpdateSystem : ISystem
     {
         /// <summary>

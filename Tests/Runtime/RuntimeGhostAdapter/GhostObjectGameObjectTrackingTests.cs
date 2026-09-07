@@ -11,7 +11,7 @@ using Unity.Transforms;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostObjectGameObjectTrackingTests
     {
@@ -554,6 +554,7 @@ namespace Unity.NetCode.Tests
         // TODO-release add more tests for destroying GhostBehaviour at runtime
 
         [Test]
+        [Ignore("Disabled for Instability https://jira.unity3d.com/browse/UUM-151026")]
         public async Task Destroy_ClientSideGhost_ErrorsProperly([Values] bool destroyImmediate)
         {
             await using var testWorld = new NetCodeTestWorld();

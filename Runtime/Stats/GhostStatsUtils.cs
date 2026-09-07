@@ -2,9 +2,9 @@
 
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     static class GhostStatsUtils
     {

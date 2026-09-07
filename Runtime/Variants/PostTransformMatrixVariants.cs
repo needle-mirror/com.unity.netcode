@@ -4,7 +4,7 @@ using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.Scripting;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A serialization strategy for <see cref="Unity.Transforms.PostTransformMatrix"/> that replicates only the

@@ -5,8 +5,9 @@ using Unity.Burst;
 using Unity.Transforms;
 using Unity.Collections;
 using UnityEngine.Jobs;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.Hybrid
+namespace Unity.Netcode.Hybrid
 {
     /// <summary>
     /// Obsolete. Use <see cref="UnmanagedGhostPresentationGameObjectPrefab"/> instead.
@@ -19,6 +20,7 @@ namespace Unity.NetCode.Hybrid
     /// <summary>
     /// The GameObject prefabs which should be used as a visual representation of an entity.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public struct UnmanagedGhostPresentationGameObjectPrefab : IComponentData
     {
         /// <summary>
@@ -39,6 +41,7 @@ namespace Unity.NetCode.Hybrid
     /// prefabs are not stored directly on the ghosts, instead a separate entity is created for storing the prefab
     /// references and this component has a reference to that entity.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public struct GhostPresentationGameObjectPrefabReference : IComponentData
     {
         /// <summary>
@@ -68,6 +71,7 @@ namespace Unity.NetCode.Hybrid
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderFirst = true)]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public partial class GhostPresentationGameObjectSystem : SystemBase
     {
         internal List<GameObject> m_GameObjects;
@@ -143,7 +147,7 @@ namespace Unity.NetCode.Hybrid
                     var owner = go.GetComponent<GhostPresentationGameObjectEntityOwner>();
                     if (owner != null)
                     {
-                        owner.Initialize(entity, World);
+                        owner.Initialize(entity, (NetcodeWorld)World);
                     }
                     idx = m_GameObjects.Count;
                     m_GameObjects.Add(go);
@@ -185,6 +189,7 @@ namespace Unity.NetCode.Hybrid
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(TransformSystemGroup))]
     [UpdateAfter(typeof(LocalToWorldSystem))]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public partial class GhostPresentationGameObjectTransformSystem : SystemBase
     {
         private GhostPresentationGameObjectSystem m_GhostPresentationGameObjectSystem;

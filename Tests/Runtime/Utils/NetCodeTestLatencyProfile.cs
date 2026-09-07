@@ -1,4 +1,4 @@
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     /// <summary>
     /// Static-optimization can APPEAR to work when acking is 100% reliable and instantaneous

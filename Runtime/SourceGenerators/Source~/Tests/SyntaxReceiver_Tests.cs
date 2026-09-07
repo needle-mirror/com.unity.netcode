@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using NUnit.Framework;
 
-namespace Unity.NetCode.GeneratorTests
+namespace Unity.Netcode.GeneratorTests
 {
     class SyntaxReceiver_Tests : BaseTest
     {
@@ -29,7 +29,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             public struct MyTest : IEquatable<MyTest>, IComponentData
             {
@@ -52,7 +52,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             public struct MyTest<T> : IComponentData
             {
@@ -71,7 +71,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
 
@@ -85,12 +85,12 @@ namespace Unity.NetCode.GeneratorTests
             {
                 [GhostField] public float3 Value;
             }
-            [Unity.NetCode.GhostComponentVariation(typeof(Translation))]
+            [Unity.Netcode.GhostComponentVariation(typeof(Translation))]
             public struct MyFirstVariantC
             {
                 [GhostField(Quantization=1000)] public float3 Value;
             }
-            [Unity.NetCode.GhostComponentVariationAttribute(typeof(Translation))]
+            [Unity.Netcode.GhostComponentVariationAttribute(typeof(Translation))]
             public struct MyFirstVariantD
             {
                 [GhostField] public float3 Value;
@@ -109,7 +109,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
 
@@ -119,7 +119,7 @@ namespace Unity.NetCode.GeneratorTests
             }
             public struct IsCommandData : ICommandData
             {
-                public Unity.NetCode.NetworkTick Tick {get;set;}
+                public Unity.Netcode.NetworkTick Tick {get;set;}
                 [GhostField] public int Value;
             }
             public struct IsComponent : IComponentData
@@ -147,7 +147,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             public struct MyTest
             {
@@ -182,7 +182,7 @@ namespace Unity.NetCode.GeneratorTests
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             namespace MyTestNS
             {

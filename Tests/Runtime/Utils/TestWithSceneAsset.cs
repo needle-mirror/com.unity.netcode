@@ -7,7 +7,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal abstract class TestWithSceneAsset
     {

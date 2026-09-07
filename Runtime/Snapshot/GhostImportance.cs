@@ -5,8 +5,9 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Structure that contains the ghost <see cref="ArchetypeChunk"/> to serialize.
@@ -14,6 +15,7 @@ namespace Unity.NetCode
     /// factor (set for each ghost prefab at authoring time) and that can be further scaled
     /// using a custom <see cref="GhostImportance.BatchScaleImportanceFunction"/>.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PrioChunk : IComparable<PrioChunk>
     {
         /// <summary>
@@ -79,6 +81,7 @@ namespace Unity.NetCode
     /// does exactly that.
     /// </remarks>
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostImportance : IComponentData
     {
         /// <summary>
@@ -121,15 +124,11 @@ namespace Unity.NetCode
         /// It is also valid to set both, in which case the BatchScaleImportanceFunction is preferred.
         /// </para>
         /// </summary>
-        [Obsolete("Prefer `BatchScaleImportanceDelegate` as it significantly reduces the total number of function pointer calls. RemoveAfter 1.x", false)]
+        [Obsolete("Prefer `BatchScaleImportanceDelegate` as it significantly reduces the total number of function pointer calls. RemoveAfter 1.x", true)]
         public PortableFunctionPointer<ScaleImportanceDelegate> ScaleImportanceFunction;
         /// <summary>
-        /// <para>
         /// This function pointer will be invoked with collected data as described in <see cref="BatchScaleImportanceDelegate"/>.
-        /// </para>
-        /// <para>It is mandatory to set either this or <see cref="ScaleImportanceFunction"/> function pointer.
-        /// It is also valid to set both, in which case the BatchScaleImportanceFunction is preferred.
-        /// </para>
+        /// It is mandatory to set this function pointer to enable importance scaling.
         /// </summary>
         public PortableFunctionPointer<BatchScaleImportanceDelegate> BatchScaleImportanceFunction;
         /// <summary>
@@ -161,13 +160,5 @@ namespace Unity.NetCode
         {
             return basePriority;
         }
-
-#pragma warning disable 618 // Type or member is obsolete.
-        /// <summary>
-        /// This property successfully suppresses the obsolete warning.
-        /// Attempting to do so inside the <see cref="GhostSendSystem"/> did not work (presumably for SystemAPI code-gen reasons).
-        /// </summary>
-        internal PortableFunctionPointer<ScaleImportanceDelegate> ScaleImportanceFunctionSuppressedWarning => ScaleImportanceFunction;
-#pragma warning restore 618 // Type or member is obsolete.
     }
 }

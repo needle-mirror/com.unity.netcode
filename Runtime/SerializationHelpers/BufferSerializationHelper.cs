@@ -6,9 +6,10 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Helper class used by code-gen to setup the serialisation function pointers.
@@ -16,6 +17,7 @@ namespace Unity.NetCode
     /// <typeparam name="TComponentType">The unmanaged buffer the helper serialise</typeparam>
     /// <typeparam name="TSnapshot">The snaphost data struct that contains the <see cref="IBufferElementData"/> data.</typeparam>
     /// <typeparam name="TSerializer">A concrete type that implement the <see cref="IGhostSerializer"/> interface.</typeparam>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class BufferSerializationHelper<TComponentType, TSnapshot, TSerializer>
         where TComponentType: unmanaged
         where TSnapshot: unmanaged

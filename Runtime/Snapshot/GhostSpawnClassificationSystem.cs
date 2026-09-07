@@ -3,11 +3,13 @@ using Unity.Entities;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel;
+using Unity.Netcode.LowLevel;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 using Hash128 = Unity.Entities.Hash128;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -19,6 +21,7 @@ namespace Unity.NetCode
     /// <summary>
     /// GhostSPawnQueue is used to identify the singleton component which contains the GhostSpawnBuffer.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostSpawnQueue : IComponentData
     {
 
@@ -33,6 +36,7 @@ namespace Unity.NetCode
     /// InternalBufferCapacity allocated to almost max out chunk memory.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostSpawnBuffer : IBufferElementData
     {
         /// <summary>
@@ -158,6 +162,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation, WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateBefore(typeof(GhostInputSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class GhostSpawnClassificationSystemGroup : ComponentSystemGroup
     {
     }
@@ -175,6 +180,7 @@ namespace Unity.NetCode
     [CreateAfter(typeof(GhostCollectionSystem))]
     [CreateAfter(typeof(GhostReceiveSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct GhostSpawnClassificationSystem : ISystem
     {
         private SnapshotDataLookupHelper m_spawnBufferHelper;

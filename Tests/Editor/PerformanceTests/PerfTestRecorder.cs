@@ -4,7 +4,7 @@ using Unity.Entities;
 using Unity.PerformanceTesting;
 using Unity.Profiling;
 
-namespace Unity.NetCode.Tests.Performance
+namespace Unity.Netcode.Tests.Performance
 {
     internal class PerfTestRecorder
     {

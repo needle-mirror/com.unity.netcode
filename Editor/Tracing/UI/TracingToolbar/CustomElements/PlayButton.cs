@@ -3,7 +3,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TracingToolbar
+namespace Unity.Netcode.Editor.Tracing.UI.TracingToolbar
 {
     [UxmlElement]
     partial class PlayButton : VisualElement

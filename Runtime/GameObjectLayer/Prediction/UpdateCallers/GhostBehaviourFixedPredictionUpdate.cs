@@ -2,7 +2,7 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// System responsible to track all the <see cref="GhostBehaviour"/> component and run their

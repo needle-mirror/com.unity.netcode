@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     internal class RemotesFactory
     {
@@ -41,7 +41,7 @@ namespace Unity.NetCode.Generators
                 if ( candidateTypeSymbol != null )
                 {
                     var disableCommandCodeGen = Roslyn.Extensions.GetAttribute(candidateTypeSymbol,
-                    "Unity.NetCode", "NetCodeDisableCommandCodeGenAttribute");
+                    "Unity.Netcode", "NetcodeDisableCommandCodeGenAttribute");
                     if (disableCommandCodeGen != null)
                         continue;
 
@@ -111,7 +111,7 @@ namespace Unity.NetCode.Generators
                 }
 
                 replacements.Clear();
-                replacements.Add("REMOTES_NAMESPACE", context.generatedNs != null ? context.generatedNs : "Unity.NetCode.Generated.Remotes");
+                replacements.Add("REMOTES_NAMESPACE", context.generatedNs != null ? context.generatedNs : "Unity.Netcode.Generated.Remotes");
 
                 registrationSystemCodeGen.GenerateFile("RemotesAutoInvokeCollection.cs", replacements, context.batch);
             }

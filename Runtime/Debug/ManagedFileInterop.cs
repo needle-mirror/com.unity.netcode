@@ -9,7 +9,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
-namespace Unity.NetCode.LowLevel.Unsafe
+namespace Unity.Netcode.LowLevel.Unsafe
 {
     internal unsafe struct ManagedFileInterop
     {

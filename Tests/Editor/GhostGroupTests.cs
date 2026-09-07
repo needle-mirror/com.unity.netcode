@@ -9,7 +9,7 @@ using Unity.Entities;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostGroupGhostConverter : TestNetCodeAuthoring.IConverter
     {
@@ -60,26 +60,26 @@ namespace Unity.NetCode.Tests
                 baker.AddComponent(entity, default(GhostChildEntity));
                 if ((index == 0))
                 {
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_0));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_1));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_2));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_3));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_4));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_5));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_0));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_1));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_2));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_3));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_4));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_5));
                 }
                 else if ((index == 1))
                 {
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_0));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_1));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_2));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_0));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_1));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_2));
                 }
                 else
                 {
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_0));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_1));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_2));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_3));
-                    baker.AddComponent(entity, default(Unity.NetCode.Tests.EnableableComponent_4));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_0));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_1));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_2));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_3));
+                    baker.AddComponent(entity, default(Unity.Netcode.Tests.EnableableComponent_4));
                 }
                 var buffer = baker.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
                 buffer.Length = 200;
@@ -313,7 +313,7 @@ namespace Unity.NetCode.Tests
 
                 serverEntities[i] = serverEnt;
                 serverEntities[32+i] = serverChildEnt;
-                
+
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
                 testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
@@ -332,7 +332,7 @@ namespace Unity.NetCode.Tests
             var groupQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroup));
             Assert.AreEqual(64, ghostQuery.CalculateEntityCount());
             Assert.AreEqual(32, groupQuery.CalculateEntityCount());
-            
+
             // Ensure GhostGroup values are correct:
             VerifyClientsBufferValues(testWorld, serverEntities);
 

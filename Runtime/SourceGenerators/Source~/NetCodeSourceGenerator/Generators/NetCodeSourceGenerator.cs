@@ -7,9 +7,9 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Operations;
 using Microsoft.CodeAnalysis.Text;
-using static Unity.NetCode.Generators.NetCodeSourceGenerator;
+using static Unity.Netcode.Generators.NetCodeSourceGenerator;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     public static class GlobalOptions
     {
@@ -34,7 +34,7 @@ namespace Unity.NetCode.Generators
         /// </summary>
         public const string WriteFilesToDisk = "unity.netcode.sourcegenerator.write_files_to_disk";
         /// <summary>
-        /// Enable/Disable writing logs to the file (default is Temp/NetCodeGenerated/sourcegenerator.log)
+        /// Enable/Disable writing logs to the file (default is Temp/NetcodeGenerated/sourcegenerator.log)
         /// </summary>
         public const string WriteLogsToDisk = "unity.netcode.sourcegenerator.write_logs_to_disk";
         /// <summary>
@@ -42,11 +42,11 @@ namespace Unity.NetCode.Generators
         /// </summary>
         public const string LoggingLevel = "unity.netcode.sourcegenerator.logging_level";
         /// <summary>
-        /// Enable/Disable writing logs to the file (default is Temp/NetCodeGenerated/sourcegenerator.log)
+        /// Enable/Disable writing logs to the file (default is Temp/NetcodeGenerated/sourcegenerator.log)
         /// </summary>
         public const string EmitTimings = "unity.netcode.sourcegenerator.emit_timing";
         /// <summary>
-        /// Enable/Disable writing logs to the file (default is Temp/NetCodeGenerated/sourcegenerator.log)
+        /// Enable/Disable writing logs to the file (default is Temp/NetcodeGenerated/sourcegenerator.log)
         /// </summary>
         public const string AttachDebugger = "unity.netcode.sourcegenerator.attach_debugger";
 
@@ -112,13 +112,15 @@ namespace Unity.NetCode.Generators
         static bool ShouldRunGenerator(GeneratorExecutionContext executionContext)
         {
             //Skip running if no references to netcode are passed to the compilation
-            if (executionContext.Compilation.Assembly.Name.StartsWith("Unity.NetCode", StringComparison.Ordinal))
+            //Ignore-case: assembly identities are case-insensitive, and the Unity.NetCode -> Unity.Netcode rename left mixed casings around (asmdefs kept the old one).
+            if (executionContext.Compilation.Assembly.Name.StartsWith("Unity.NetCode", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
             foreach (var assemblyName in executionContext.Compilation.ReferencedAssemblyNames)
             {
-                if (assemblyName.Name is "Unity.NetCode" or "Unity.NetCode.ref")
+                if (string.Equals(assemblyName.Name, "Unity.NetCode", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(assemblyName.Name, "Unity.NetCode.ref", StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }
@@ -162,6 +164,7 @@ namespace Unity.NetCode.Generators
 
         private static void Generate(GeneratorExecutionContext executionContext, IDiagnosticReporter diagnostic)
         {
+            NetCodeNamespaceCompat.Emit(executionContext, diagnostic);
             //Try to dispatch any unknown candidates to the right array by checking what interface the struct is implementing
             var receiver = (NetCodeSyntaxReceiver)executionContext.SyntaxReceiver;
             var candidates = ResolveCandidates(executionContext, receiver, diagnostic);
@@ -217,7 +220,7 @@ namespace Unity.NetCode.Generators
                     if (missingReferences.Count > 0)
                     {
                         codeGenerationContext.diagnostic.LogError(
-                            $"Assembly {executionContext.Compilation.AssemblyName} contains NetCode replicated types. The serialization code will use " +
+                            $"Assembly {executionContext.Compilation.AssemblyName} contains Netcode replicated types. The serialization code will use " +
                             $"burst, collections, mathematics and network data streams but the assembly does not have references to: {string.Join(",", missingReferences)}. " +
                             $"Please add the missing references in the asmdef for {executionContext.Compilation.AssemblyName}.");
                     }
@@ -275,7 +278,7 @@ namespace Unity.NetCode.Generators
                 Remotes = receiver.Remotes,
             };
 
-            // check the remote candidates that are method nodes who have the remote attribute have the right one `Unity.NetCode.Remotes`
+            // check the remote candidates that are method nodes who have the remote attribute have the right one `Unity.Netcode.Remotes`
             for (int i = candidates.Remotes.Count - 1; i >= 0; i--)
             {
                 var remote = candidates.Remotes[i];
@@ -292,7 +295,7 @@ namespace Unity.NetCode.Generators
                             {
                                 var symbolModel = executionContext.Compilation.GetSemanticModel(remote.SyntaxTree);
                                 var type = (symbolModel.GetSymbolInfo(attr).Symbol as IMethodSymbol)?.ContainingType;
-                                keep = type?.ToDisplayString() == "Unity.NetCode.RemoteAttribute";
+                                keep = type?.ToDisplayString() == "Unity.Netcode.RemoteAttribute";
                             }
                         }
                     }

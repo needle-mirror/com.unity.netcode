@@ -2,7 +2,7 @@
 
 ## The motivation for moving toward a new worflow
 In the previous code-generation system we were relying on Unity Editor compilation hooks to add generated serialization code to the project.
-By simplifying the logic, at the end of the compilation for every assembly who were referencing Unity.NetCode and have some types to serialize,
+By simplifying the logic, at the end of the compilation for every assembly who were referencing Unity.Netcode and have some types to serialize,
 we generated:
 - a new derived assembly definition, with suffix .generated
 - all the component/rpc/command serializers
@@ -62,7 +62,7 @@ That give us the guarantee that if the extracted type trees are correct we would
 ## SOURCE GENERATOR FOR DEVS
 The project is organize as follow
 
-    Unity.NetCode
+    Unity.Netcode
     - Editor
     - Runtime
     -- SourceGenerators      Labels

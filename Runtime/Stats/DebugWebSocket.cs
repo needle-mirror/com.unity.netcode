@@ -8,7 +8,7 @@ using System.Text;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     class DebugWebSocket : IDisposable
     {

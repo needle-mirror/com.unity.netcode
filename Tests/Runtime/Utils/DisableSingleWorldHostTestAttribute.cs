@@ -1,7 +1,7 @@
 using NUnit.Framework;
 using NUnit.Framework.Interfaces;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     class DisableSingleWorldHostTestAttribute : CategoryAttribute
     {

@@ -6,19 +6,22 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Core;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.StateSave;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 using Hash128 = Unity.Entities.Hash128;
 using MemoryStream = System.IO.MemoryStream;
 
-namespace Unity.NetCode.HostMigration
+namespace Unity.Netcode.HostMigration
 {
     /// <summary>
     /// Host migration class used to access the host migration system, like getting the host migration data blob and
     /// deploying migration data to a new world.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public static class HostMigrationData
     {
         internal struct Data
@@ -35,7 +38,7 @@ namespace Unity.NetCode.HostMigration
         /// </summary>
         /// <param name="fromWorld">The world where the migration data is stored</param>
         /// <param name="toData">Destination list to copy the data, this will be resized if it is too small to store all the data</param>
-        public static void Get(World fromWorld, ref NativeList<byte> toData)
+        public static void Get(NetcodeWorld fromWorld, ref NativeList<byte> toData)
         {
             var hostMigrationDataQuery = fromWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationStorage>());
             var hostMigrationData = hostMigrationDataQuery.GetSingletonRW<HostMigrationStorage>();
@@ -194,7 +197,7 @@ namespace Unity.NetCode.HostMigration
         /// </summary>
         /// <param name="toWorld">Destination world to deploy the migration data</param>
         /// <param name="fromData">Host migration data collected by the host migration system</param>
-        public static unsafe void Set(in NativeArray<byte> fromData, World toWorld)
+        public static unsafe void Set(in NativeArray<byte> fromData, NetcodeWorld toWorld)
         {
             // Extract host data part
             int hostDataSize = 0;

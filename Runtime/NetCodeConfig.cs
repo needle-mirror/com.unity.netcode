@@ -1,25 +1,27 @@
+
 using System;
 using System.Text;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Relay;
 using Unity.Networking.Transport.Utilities;
 using UnityEngine;
+using UnityEngine.Serialization;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     ///     Config file, allowing the package user to tweak netcode variables without having to write code.
     ///     Create as many instances as you like.
     /// </summary>
     [CreateAssetMenu(menuName = "Multiplayer/NetCodeConfig Asset", fileName = "NetCodeConfig", order = 1)]
-    public class NetCodeConfig : ScriptableObject, IComparable<NetCodeConfig>
+    public class NetcodeConfig : ScriptableObject, IComparable<NetcodeConfig>
     {
         /// <summary>
         ///     The Default NetcodeConfig asset, selected in ProjectSettings via the NetCode tab,
         ///     and fetched at runtime via the PreloadedAssets. Set via <see cref="RuntimeInitializeOnLoadMethodAttribute"/>.
         /// </summary>
-        public static NetCodeConfig Global { get; internal set; }
+        public static NetcodeConfig Global { get; internal set; }
 
         /// <summary> <see cref="ClientServerBootstrap"/> to either be <see cref="EnableAutomaticBootstrap"/> or <see cref="DisableAutomaticBootstrap"/>.</summary>
         public enum AutomaticBootstrapSetting
@@ -34,17 +36,12 @@ namespace Unity.NetCode
         /// <summary>
         /// Which client-hosted mode to use.
         /// </summary>
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST || NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
         public enum HostWorldMode
-#else
-        internal enum HostWorldMode
-#endif
         {
             /// <summary>
             /// A local client and server world are used to host a server on a client. A local IPC connection is used for communication between the two.
             /// </summary>
-            BinaryWorlds = 0, // TODO change this so SingleWorld is default in N4E 2.0.
-            // TODO start host methods in Unified Netcode should have single world as the default
+            BinaryWorlds = 0,
 
             /// <summary>
             /// This world acts as both client and server. There's no client to server connection, only a listening driver. A fake connection entity is generated for convenience.
@@ -53,55 +50,71 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Netcode helper: Allows you to add multiple configs to the PreloadedAssets list. There can only be one global one.
+        /// Internal version of the obsoleted public <see cref="IsGlobalConfig" /> field.
+        /// Only one <see cref="NetcodeConfig"/> asset should have this field set to true.
+        /// </summary>
+        /// <remarks>
+        /// This field is used to pull the <see cref="NetcodeClientAndServerSettings.GlobalNetcodeConfig" /> setting into the build.
+        /// This is needed because ScriptableSingletons are only available in the editor.
+        /// This field set in <see cref="NetcodeConfigEditor.ValidateConfig"/>
+        /// </remarks>
+        /// <remarks>
+        /// This field will removed by MTT-15267.
+        /// After that ticket, the only config that should be included in the build is the one set by the <see cref="NetcodeClientAndServerSettings.GlobalNetcodeConfig" /> setting.
+        /// </remarks>
+        [SerializeField, FormerlySerializedAs("IsGlobalConfig")]
+        internal bool m_IsGlobalConfig;
+
+        /// <summary>
+        /// Marks which single <see cref="NetcodeConfig"/> is the global one so builds can resolve it deterministically.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// DEPRECATED: Support for multiple <see cref="NetCodeConfig"/> assets is being removed. The single global config
-        /// is now resolved via <c>NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig</c> (in the Editor) and via the
+        /// DEPRECATED: Support for multiple <see cref="NetcodeConfig"/> assets is being removed. The single global config
+        /// is now resolved via <c>NetcodeClientAndServerSettings.instance.GlobalNetcodeConfig</c> (in the Editor) and via the
         /// single preloaded asset (in builds). This field is retained only so that builds can continue to resolve the global
         /// config deterministically while existing user projects are migrated. It is set automatically during the build
         /// pre-process step; you should not need to set it manually.
         /// </para>
         /// <para>
-        /// TODO (6.8): Remove this field entirely. By then, the build pre-processor should be marking all non-global configs
+        /// TODO (6.8): Remove this entirely (MTT-15267). By then, the build pre-processor should be marking all non-global configs
         /// with <c>HideFlags.DontSaveInBuild</c> so that only the single global config is ever loaded at runtime, making this
         /// flag (and the deterministic sort in <see cref="CompareTo"/>) unnecessary.
         /// </para>
         /// </remarks>
-        [Obsolete("Support for multiple NetCodeConfigs is deprecated. There can only be one global config, resolved via NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig (Editor) or the single preloaded asset (builds). This field is now managed automatically by the build pre-processor and will be removed. (RemovedAfter 6.8)", false)]
-        public bool IsGlobalConfig;
+        [Obsolete("Support for multiple NetcodeConfigs is deprecated. There can only be one global config, resolved via NetcodeClientAndServerSettings.instance.GlobalNetcodeConfig (Editor) or the single preloaded asset (builds). This field is now managed automatically by the build pre-processor and will be removed. (RemovedAfter 6.8)", true)]
+        public bool IsGlobalConfig
+        {
+            get => m_IsGlobalConfig;
+            set => m_IsGlobalConfig = value;
+        }
 
         /// <summary>
         ///     Denotes if the ClientServerBootstrap (or any derived version of it) should be triggered on game boot. Project-wide
-        ///     setting, overridable via the OverrideAutomaticNetCodeBootstrap MonoBehaviour.
+        ///     setting, overridable via the OverrideAutomaticNetcodeBootstrap MonoBehaviour.
         /// </summary>
         [Header("NetCode")]
-        [Tooltip("Denotes if the ClientServerBootstrap (or any derived version of it) should be triggered on game boot. Project-wide setting (when this config is applied in the Netcode tab), overridable via the OverrideAutomaticNetCodeBootstrap MonoBehaviour.")] [SerializeField]
+        [Tooltip("Denotes if the ClientServerBootstrap (or any derived version of it) should be triggered on game boot. Project-wide setting (when this config is applied in the Netcode tab), overridable via the OverrideAutomaticNetcodeBootstrap MonoBehaviour.")] [SerializeField]
         public AutomaticBootstrapSetting EnableClientServerBootstrap = AutomaticBootstrapSetting.EnableAutomaticBootstrap;
 
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
         /// <summary>
-        /// Denotes which client-hosted server world mode to use. Single world mode will create a world that acts as both client and server. Binary world mode will create a client and a server world, connected together through intra-process communication (IPC).
+        /// Denotes which client-hosted server world mode to use. Single world mode will create a world that acts as both client and server. Binary world mode will create a client and a server world, connected together through intra-process communication (IPC). Defaults to <see cref="HostWorldMode.SingleWorld"/>.
         /// </summary>
         /// <remarks>
         /// Once this is set, the expectation is that users will create their whole project with this assumption. This shouldn't be something you change lightly once in a while to test things. This should be commited to your project's source control.
         /// </remarks>
         [Tooltip("Denotes which client-hosted server world mode to use. Single world mode will create a world that acts as both client and server. Binary world mode will create a client and a server world, connected together through intra-process communication (IPC).")]
         [SerializeField]
-        public HostWorldMode HostWorldModeSelection;
-#else
-        internal HostWorldMode HostWorldModeSelection;
-#endif
+        public HostWorldMode HostWorldModeSelection = HostWorldMode.SingleWorld;
 
         // TODO - Add a helper link to open the NetDbg when viewing the NetConfig asset.
-        /// <inheritdoc cref="Unity.NetCode.ClientServerTickRate" path="/summary"/>
+        /// <inheritdoc cref="Unity.Netcode.ClientServerTickRate" path="/summary"/>
         public ClientServerTickRate ClientServerTickRate;
-        /// <inheritdoc cref="Unity.NetCode.ClientTickRate"/>
+        /// <inheritdoc cref="Unity.Netcode.ClientTickRate"/>
         public ClientTickRate ClientTickRate;
         // TODO - World creation options.
         // TODO - Thin Client options.
-        /// <inheritdoc cref="Unity.NetCode.GhostSendSystemData"/>
+        /// <inheritdoc cref="Unity.Netcode.GhostSendSystemData"/>
         public GhostSendSystemData GhostSendSystemData;
         // TODO - Importance.
         // TODO - Relevancy.
@@ -203,15 +216,7 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
         [Range(64, NetworkParameterConstants.AbsoluteMaxMessageSize)]
         public int MaxMessageSize;
 
-        [SerializeField]
-#if NETCODE_TRACING_TOOL
-        public
-#else
-        internal
-#endif
-        TracingConfig TracingConfig;
-
-        internal NetCodeConfig()
+        internal NetcodeConfig()
         {
             // Note that these will be clobbered by any ScriptableObject in-place deserialization.
             Reset();
@@ -227,9 +232,6 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
             ClientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             GhostSendSystemData = default;
             GhostSendSystemData.Initialize();
-
-            TracingConfig = new TracingConfig();
-            TracingConfig.ResetToDefault();
 
             ResetIfDefault(ref ConnectTimeoutMS, NetworkParameterConstants.ConnectTimeoutMS);
             ResetIfDefault(ref MaxConnectAttempts, NetworkParameterConstants.MaxConnectAttempts);
@@ -251,7 +253,7 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
         }
 
         /// <summary>
-        ///     Fetch the existing NetCodeConfig (from Resources), or, if not found, create one.
+        ///     Fetch the existing NetcodeConfig (from Resources), or, if not found, create one.
         /// </summary>
         /// <remarks><see cref="RuntimeInitializeLoadType.AfterAssembliesLoaded"/> guarantees that this is called BEFORE Entities initialization.</remarks>
         /// <returns></returns>
@@ -274,7 +276,7 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
 
         internal static void FindAndAssignGlobalConfig()
         {
-            var configs = Resources.FindObjectsOfTypeAll<NetCodeConfig>();
+            var configs = Resources.FindObjectsOfTypeAll<NetcodeConfig>();
             // CompareTo sorts the deterministically-chosen global config (IsGlobalConfig == true) to index 0.
             // TODO (6.8): Once the build pre-processor strips non-global configs via HideFlags.DontSaveInBuild and we rely on the project settings for the source of truth, builds will only ever load a single config, so this whole method can be removed.
             Array.Sort(configs);
@@ -284,22 +286,20 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
                 // here implies either an in-Editor session (where all loaded assets are visible) or a user project that
                 // still ships multiple configs. Multiple configs are deprecated: warn loudly but keep resolving
                 // deterministically (via the sort above) so existing projects don't hard-break.
-                NetCodeConfig erringConfig = default;
-                var errSb = new StringBuilder($"[NetCodeConfig] Discovered {configs.Length} loaded NetCodeConfig assets. Support for multiple NetCodeConfigs is deprecated (RemovedAfter 6.8); there should only be a single global config. Using '{configs[0].name}'.");
+                NetcodeConfig erringConfig = default;
+                var errSb = new StringBuilder($"[NetCodeConfig] Discovered {configs.Length} loaded NetCodeConfig assets. Support for multiple NetcodeConfigs is deprecated (RemovedAfter 6.8); there should only be a single global config. Using '{configs[0].name}'.");
                 bool isUsingGlobalConfig = false;
-#pragma warning disable 618 // IsGlobalConfig is obsolete, but still required to resolve deterministically until 6.8.
                 for (var i = 0; i < configs.Length; i++)
                 {
                     var config = configs[i];
-                    errSb.Append($"\n[{i}] '{config.name}' (global: {config.IsGlobalConfig})");
-                    if (i != 0 && config.IsGlobalConfig && isUsingGlobalConfig)
+                    errSb.Append($"\n[{i}] '{config.name}' (global: {config.m_IsGlobalConfig})");
+                    if (i != 0 && config.m_IsGlobalConfig && isUsingGlobalConfig)
                     {
                         erringConfig = config;
                         errSb.Append($"\t <-- Expected this NOT to have IsGlobalConfig set!");
                     }
-                    isUsingGlobalConfig |= config.IsGlobalConfig;
+                    isUsingGlobalConfig |= config.m_IsGlobalConfig;
                 }
-#pragma warning restore 618
 
                 if (configs.Length > 1)
                 {
@@ -319,8 +319,8 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
             }
             else
             {
-                Debug.LogError($"No {nameof(NetCodeConfig)} found, generating one for this session. This won't be saved. To fix this error, open your Project Settings and go to the Multiplayer section which will automatically create the appropriate config. Or create a new config using Assets/Create/Multiplayer/NetCodeConfig Asset.");
-                var newInstance = ScriptableObject.CreateInstance<NetCodeConfig>();
+                Debug.LogError($"No {nameof(NetcodeConfig)} found, generating one for this session. This won't be saved. To fix this error, open your Project Settings and go to the Multiplayer section which will automatically create the appropriate config. Or create a new config using Assets/Create/Multiplayer/NetCodeConfig Asset.");
+                var newInstance = ScriptableObject.CreateInstance<NetcodeConfig>();
                 newInstance.Reset();
                 Global = newInstance;
             }
@@ -329,16 +329,14 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
         /// <summary>
         ///     Makes Find deterministic.
         /// </summary>
-        /// <param name="other">Instance of <see cref="NetCodeConfig"/></param>
+        /// <param name="other">Instance of <see cref="NetcodeConfig"/></param>
         /// <returns>Whether the config and names match.</returns>
-        public int CompareTo(NetCodeConfig other)
+        public int CompareTo(NetcodeConfig other)
         {
             // TODO (6.8): Remove the IsGlobalConfig tie-break once non-global configs are stripped from builds; only the
             // name comparison should be needed (or this whole comparer can go if multiple configs are fully removed).
-#pragma warning disable 618 // IsGlobalConfig is obsolete, but still required to resolve deterministically until 6.8.
-            if (IsGlobalConfig != other.IsGlobalConfig)
-                return -IsGlobalConfig.CompareTo(other.IsGlobalConfig);
-#pragma warning restore 618
+            if (m_IsGlobalConfig != other.m_IsGlobalConfig)
+                return -m_IsGlobalConfig.CompareTo(other.m_IsGlobalConfig);
             return string.Compare(name, other.name, StringComparison.Ordinal);
         }
     }

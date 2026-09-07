@@ -6,12 +6,14 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.Assertions;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Index information per entity used for distance based Importance scaling.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostDistancePartitionShared : ISharedComponentData
     {
         /// <summary>
@@ -47,6 +49,7 @@ namespace Unity.NetCode
     // Update before almost everything to make sure there is no DestroyEntity pending in the command buffer
     [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct GhostDistancePartitioningSystem : ISystem, ISystemStartStop
     {
         /// <summary>

@@ -6,7 +6,7 @@ using Unity.Entities;
 using UnityEditor;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Extract from the prefab the converted entities components, in respect to the selected variant and default
@@ -36,35 +36,52 @@ namespace Unity.NetCode.Editor
 
                 // TODO - Handle exceptions due to invalid prefab setup. E.g.
                 // "InvalidOperationException: OwnerPrediction mode can only be used on prefabs which have a GhostOwner"
-                using var world = new NetcodeWorld(nameof(EntityPrefabComponentsPreview));
+                using var tempWorld = new NetcodeWorld(nameof(EntityPrefabComponentsPreview));
                 using var blobAssetStore = new BlobAssetStore(128);
                 ghostAuthoring.ForcePrefabConversion = true;
                 var bakingSettings = new BakingSettings(BakingUtility.BakingFlags.AddEntityGUID, blobAssetStore);
 
-                var bakeResult = new BakedResult
-                {
-                    GhostAuthoring = ghostAuthoring,
-                    GameObjectResults = new (32),
-                };
-
                 Entity primaryEntity;
+                World existingWorld = null;
+                var reusedRegisteredPrefab = false;
 
-                bool isGhostObject = false;
-                var primaryEntitiesMap = new HashSet<Entity>(16);
-
+                var isGhostObject = false;
                 if (ghostAuthoring is GhostObject ghostObject)
                 {
                     isGhostObject = true;
-                    BakingUtility.PrepareWorldForBaking(world, bakingSettings); // initializes a few required singletons like GhostComponentSerializerCollectionData
-                    Netcode.RegisterPrefab(ghostObject.gameObject, world);
-                    primaryEntity = ghostObject.Entity;
+                    // Check if this GhostObject is an instance that was created from an already registered prefab
+                    var registeredLink = GetRegisteredLinkForPrefab(ghostObject);
+                    if (registeredLink.WasInitialized)
+                    {
+                        // If so, use the values from the already registered prefab
+                        primaryEntity = registeredLink.Entity;
+                        existingWorld = registeredLink.World.EntityManager.World;
+                        // Mark this as a reused prefab so we can ensure the inspector is greyed out.
+                        reusedRegisteredPrefab = true;
+                    }
+                    else
+                    {
+                        BakingUtility.PrepareWorldForBaking(tempWorld, bakingSettings); // initializes a few required singletons like GhostComponentSerializerCollectionData
+                        Netcode.RegisterPrefab(ghostObject.gameObject, tempWorld);
+                        primaryEntity = ghostObject.Entity;
+                    }
                 }
                 else
                 {
-                    BakingUtility.BakeGameObjects(world, new[] {ghostAuthoring.gameObject}, bakingSettings);
-                    var bakingSystem = world.GetExistingSystemManaged<BakingSystem>();
+                    BakingUtility.BakeGameObjects(tempWorld, new[] { ghostAuthoring.gameObject }, bakingSettings);
+                    var bakingSystem = tempWorld.GetExistingSystemManaged<BakingSystem>();
                     primaryEntity = bakingSystem.GetEntity(ghostAuthoring.gameObject);
                 }
+
+                var bakeResult = new BakedResult
+                {
+                    GhostAuthoring = ghostAuthoring,
+                    GameObjectResults = new(32),
+                    ReusedRegisteredPrefab = reusedRegisteredPrefab,
+                };
+
+                var world = existingWorld ?? tempWorld;
+
                 var ghostBlobAsset = world.EntityManager.GetComponentData<GhostPrefabMetaData>(primaryEntity).Value;
 
                 // One-shot collection of baker-contributed GhostVariantOverride entries from every linked entity.
@@ -72,7 +89,9 @@ namespace Unity.NetCode.Editor
                 // equality. Mirrors the aggregation in GhostAuthoringBakingSystem.ProcessRoot.
                 var bakerOverrides = CollectBakerVariantOverrides(world, primaryEntity);
 
-                CreatedBakedResultForPrimaryEntities(bakeResult, world, primaryEntitiesMap, ghostBlobAsset, cachedBakedResults, isGhostObject, bakerOverrides);
+                var primaryEntitiesMap = new HashSet<Entity>(16);
+
+                CreatedBakedResultForPrimaryEntities(bakeResult, world, primaryEntitiesMap, ghostBlobAsset, cachedBakedResults, isGhostObject, bakerOverrides, primaryEntity);
                 CreatedBakedResultForAdditionalEntities(bakeResult, world, primaryEntitiesMap, ghostBlobAsset, bakerOverrides);
             }
             finally
@@ -113,7 +132,7 @@ namespace Unity.NetCode.Editor
             return collected;
         }
 
-        static void CreatedBakedResultForPrimaryEntities(BakedResult bakedResult, World world, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference, Dictionary<GhostAuthoringInspectionComponent, BakedResult> cachedBakedResults, bool isGhostObject, List<GhostVariantBakedOverride> bakerOverrides)
+        static void CreatedBakedResultForPrimaryEntities(BakedResult bakedResult, World world, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference, Dictionary<GhostAuthoringInspectionComponent, BakedResult> cachedBakedResults, bool isGhostObject, List<GhostVariantBakedOverride> bakerOverrides, Entity ghostObjectEntity)
         {
             foreach (var t in bakedResult.GhostAuthoring.GetComponentsInChildren<Transform>())
             {
@@ -136,9 +155,16 @@ namespace Unity.NetCode.Editor
                 Entity primaryEntity;
                 if (isGhostObject)
                 {
-                    Netcode.RegisterPrefab(go, world);
-                    var link = GhostEntityMapping.LookupEntityReferencePrefab(go, world.Unmanaged);
-                    primaryEntity = link.Entity;
+                    // Only for GhostObjects
+                    if (bakedResult.GhostAuthoring.gameObject != t.gameObject)
+                    {
+                        // Breaks the inspector window to bake children of the rootObject
+                        // GhostObjects are not allowed to be nested so this is accurate.
+                        continue;
+                    }
+
+                    // Use the provided already baked entity, because nested GhostObjects are not supported in prefabs
+                    primaryEntity = ghostObjectEntity;
                 }
                 else
                 {
@@ -383,6 +409,33 @@ namespace Unity.NetCode.Editor
 
                 newComponents.Add(componentItem);
             }
+        }
+
+        /// <summary>
+        /// Gets the registered entity information for the prefab of a given ghostObject.
+        /// Ensure you check <see cref="GhostEntityMapping.EntityLink.WasInitialized"/> on the returned link.
+        /// </summary>
+        /// <remarks>
+        /// This allows the <see cref="GhostAuthoringInspectionComponentEditor"/> to display the UI for the already baked prefab of this GhostObject instance.
+        /// This saves processing as it's only valid to edit the inspector values from a prefab, the instance of that prefab is only ever ephemeral.
+        /// </remarks>
+        private static GhostEntityMapping.EntityLink GetRegisteredLinkForPrefab(GhostObject ghostObject)
+        {
+            if (ghostObject == null)
+            {
+                return default;
+            }
+
+            var prefabObj = ghostObject.IsPrefab() ? ghostObject.gameObject : ghostObject.prefabReference.Prefab;
+            var prefab = prefabObj.GetComponent<GhostObject>();
+            if (prefab == null || prefab.m_CachedEntity == Entity.Null || !prefab.m_CachedWorld.ExistsAndIsCreated())
+            {
+                return default;
+            }
+            return new GhostEntityMapping.EntityLink()
+            {
+                Entity = prefab.m_CachedEntity, World = prefab.m_CachedWorld.Unmanaged
+            };
         }
     }
 }

@@ -2,14 +2,16 @@ using System;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode.NetcodeTime
 {
     /// <summary>
     /// Flags used by <see cref="NetworkTime"/> singleton to add some properties to the current simulated tick.
     /// See the individual flags documentation for further information.
     /// </summary>
     [Flags]
+    [MovedFrom(true, "Unity.NetCode")]
     public enum NetworkTimeFlags : byte
     {
         /// <summary>
@@ -44,6 +46,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Present on both client and server world, singleton component that contains all the timing characterist of the client/server simulation loop.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkTime : IComponentData
     {
         /// <summary>
@@ -74,7 +77,7 @@ namespace Unity.NetCode
         /// to be processed by the server.
         /// It is identical to the <see cref="ServerTick"/> except; a) when using <see cref="ClientTickRate.MaxPredictAheadTimeMS"/>
         /// with a very high ping connection, b) when using <see cref="ClientTickRate.ForcedInputLatencyTicks"/>,
-        /// c) when in an "off frame" in <see cref="NetCodeConfig.HostWorldMode.SingleWorld"/> mode (in this case,
+        /// c) when in an "off frame" in <see cref="NetcodeConfig.HostWorldMode.SingleWorld"/> mode (in this case,
         /// <see cref="InputTargetTick"/> is for the next tick, as we're accumulating inputs for it in those off frames).
         /// The four timelines are therefore in this order: <c>Interpolation Tick (oldest) -> Snapshot Arrival Tick (from the server)
         /// -> ServerTick (client prediction) -> InputTargetTick (i.e. inputs being raised and sent)</c>.
@@ -233,6 +236,7 @@ namespace Unity.NetCode
     /// Component added to the NetworkTime singleton entity when it is created in a client world. Contains the unscaled application
     /// ElapsedTime and DeltaTime.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct UnscaledClientTime : IComponentData
     {
         /// <summary>
@@ -287,6 +291,7 @@ namespace Unity.NetCode
     /// </summary>
     [UpdateInGroup(typeof(InitializationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct UpdateNetworkTimeSystem : ISystem
     {
         /// <inheritdoc cref="ISystem.OnUpdate"/>

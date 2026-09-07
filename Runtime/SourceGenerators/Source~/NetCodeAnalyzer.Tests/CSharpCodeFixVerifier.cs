@@ -11,7 +11,7 @@ using Microsoft.CodeAnalysis.Testing.Verifiers;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 
 namespace NetCodeAnalyzer.Tests
 {

@@ -2,8 +2,9 @@ using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
@@ -19,6 +20,7 @@ namespace Unity.NetCode
     /// Thus, there is no guarantee that a disconnecting client will receive the same network id once reconnected.
     /// As such, the network identifier should never be used to persist - and then retrieve - information for a given client/player.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct NetworkId : IComponentData, IEquatable<NetworkId>
     {
         /// <summary>
@@ -64,7 +66,7 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// System RPC sent from the server to client to assign a <see cref="NetCode.NetworkId"/> to a newly accepted connection.
+    /// System RPC sent from the server to client to assign a <see cref="Unity.Netcode.NetworkId"/> to a newly accepted connection.
     /// I.e. <see cref="ConnectionState.State.Handshake"/> and <see cref="ConnectionState.State.Approval"/> (if enabled) succeeded!
     /// </summary>
     /// <remarks>

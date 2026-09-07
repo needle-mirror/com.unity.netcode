@@ -13,7 +13,7 @@ public class IJobEntityAnalyzerTests
     {
         const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             [WithAll(typeof(Simulate)), WithOptions(EntityQueryOptions.IgnoreComponentEnabledState)]
             partial struct SampleJob : IJobEntity
@@ -34,7 +34,7 @@ public class IJobEntityAnalyzerTests
     {
             const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             [WithOptions(EntityQueryOptions.IgnoreComponentEnabledState)]
             partial struct SampleJob : IJobEntity
@@ -55,7 +55,7 @@ public class IJobEntityAnalyzerTests
     {
         const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             [WithAll(typeof(Simulate))]
             partial struct SampleJob : IJobEntity
@@ -74,7 +74,7 @@ public class IJobEntityAnalyzerTests
     {
         const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             [WithOptions(EntityQueryOptions.IgnoreComponentEnabledState)]
             partial struct SampleJob : IJobEntity
@@ -93,7 +93,7 @@ public class IJobEntityAnalyzerTests
     {
         const string text = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
             partial struct SampleJob : IJobEntity
             {

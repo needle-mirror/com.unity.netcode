@@ -6,10 +6,11 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using NUnit.Framework.Constraints;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct GhostGenTest_Buffer : IBufferElementData
     {
@@ -400,7 +401,7 @@ namespace Unity.NetCode.Tests
                 {
 #if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
                     var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager
-                        .GetBuffer<NetCode.SnapshotDynamicDataBuffer>(clientEntities[0]);
+                        .GetBuffer<Unity.Netcode.SnapshotDynamicDataBuffer>(clientEntities[0]);
                     BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, len1, b1, len2, b2);
 #endif
                     BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
@@ -753,7 +754,7 @@ namespace Unity.NetCode.Tests
                 //Verify that the client snapshot data contains the right things
                 var shouldChildReceiveData = GhostSerializationTestsForEnableableBits.IsExpectedToReplicateBuffer<GhostGenTest_Buffer>(sendForChildrenTestCase, false);
 #if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
-                var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<NetCode.SnapshotDynamicDataBuffer>(clientEntities[0]);
+                var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<Unity.Netcode.SnapshotDynamicDataBuffer>(clientEntities[0]);
                 if(shouldChildReceiveData)
                     BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, 3, 0, 10, 10);
 #endif

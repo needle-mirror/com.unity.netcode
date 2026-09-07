@@ -1,16 +1,19 @@
 using System;
 using System.Runtime.CompilerServices;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine.Serialization;
+using UnityEngine.Scripting.APIUpdating;
 
 [assembly: InternalsVisibleTo("Unity.NetCode.Physics.Hybrid")]
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Instrument how and when the <see cref="Unity.Physics.Systems.PhysicsSystemGroup"/> inside
     /// the <see cref="PredictedFixedStepSimulationSystemGroup"/> should run.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum PhysicGroupRunMode
     {
         /// <summary>

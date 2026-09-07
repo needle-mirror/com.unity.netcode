@@ -2,9 +2,10 @@ using System;
 using System.Diagnostics;
 using Unity.Entities;
 using UnityEngine;
-using Unity.NetCode.Hybrid;
+using Unity.Netcode.Hybrid;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A baking-only buffer entry that overrides how a ghost component is serialized for the prefab being baked,
@@ -24,6 +25,7 @@ namespace Unity.NetCode
     /// to construct and append entries in one call.</para>
     /// </remarks>
     [BakingType]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostVariantBakedOverride : IBufferElementData
     {
         /// <summary>Sentinel value meaning "no override" for <see cref="PrefabType"/> and <see cref="SendTypeOptimization"/>.
@@ -97,6 +99,7 @@ namespace Unity.NetCode
     /// </code>
     /// <para>To target a different GameObject (e.g. the root from a child baker), pass the <c>targetGameObject</c> parameter.</para>
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class GhostVariantOverrideBakerExtensions
     {
         /// <summary>Append an override that forces <paramref name="componentType"/> to use <typeparamref name="TVariant"/>.</summary>

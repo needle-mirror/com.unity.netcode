@@ -2,14 +2,16 @@ using System;
 using Unity.Burst;
 using Unity.Collections;
 using UnityEngine.Scripting;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Interface that expose a raw, unsafe interface to copy all the component ghost fields to
     /// the snapshot buffer. It is mostly for internal use by code-gen and should not be used direcly nor implemented
     /// by user code.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public interface IGhostSerializer
     {
         /// <summary>
@@ -152,7 +154,7 @@ namespace Unity.NetCode
     /// <typeparam name="TSnapshot">The snapshot struct type that will contains the component data.</typeparam>
     /// <typeparam name="TComponent">The component type that this interface serialize.</typeparam>
     [RequireImplementors]
-    [Obsolete("The IGhostSerializer<TComponent, TSnapshot> has been deprecated. Please use the IGhostComponentSerializer instead")]
+    [Obsolete("The IGhostSerializer<TComponent, TSnapshot> has been deprecated. Please use the IGhostComponentSerializer instead", true)]
     public interface IGhostSerializer<TComponent, TSnapshot>
         where TSnapshot: unmanaged
         where TComponent: unmanaged

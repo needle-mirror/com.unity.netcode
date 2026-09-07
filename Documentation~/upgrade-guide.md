@@ -1,3 +1,84 @@
+# Upgrading from 1.x to 7.0
+
+## NetCode to Netcode rename
+
+This package's namespace used NetCode with capital C in quite a few places. This version updates all namespaces and types names that uses the NetCode casing to use the Netcode with lower case c name. Auto updaters are in place to make this transition easier. Please report any issues with the auto update process.
+
+### Manual Updates needed
+
+There's cases where the auto updaters won't work.
+1. Custom serializers (see NetcodeSamples' Assets/Samples/CustomSerializer/CustomChunkSerializer.cs for an example) aren't updatable automatically. To update, change Unity_NetCode_Generated_Unity_NetCode to Unity_NetCode_Generated_Unity_Netcode and update your Unity.NetCode using to use Unity.Netcode.
+2. Users that have defined custom templates (see NetcodeSamples' Assets/Samples/NetCodeGen/UserDefined/UserDefinedTemplates.cs and Assets/Samples/NetCodeGen/UserDefined/UserDefinedGhostSubTypes.cs) will have to fix their Netcode namespace themselves. Unity.NetCode to Unity.Netcode.
+
+### Duplicate Type Suggestions in your IDE
+
+Types like NetcodeConfig have shims to allow for auto updating that still live in the old namespace. If trying to "Find Symbol" or auto complete on those few types, your IDE might suggest two versions, one with capital C and the other with lower case c. You can setup IDEs to ignore EditorBrowsable(never) APIs. Most don't by default so you'll likely have to change that setting.
+We have added a NETCODE_NO_OBSOLETE_HELPER define symbol you can set in your project settings to define out those duplicated types once you're done with updating your project.
+
+### Auto Updater Notes
+
+It can happen the auto updater doesn't fix all your assemblies in one go. If this happens, please retrigger your compilation a second time to let the auto updater continue applying its changes.
+
+The auto updater will prefix all your usages of netcode types with a Unity.Netcode. e.g. `new GhostOwner` becomes `new Unity.Netcode.GhostOwner`. This can be noisy. You might want to add a `using Unity.Netcode;` to all your files and let your IDE automatically cleanup those prefixes. The auto updater will help your project get into a working state, not necessarily a clean code one.
+For example with bash you can do the following
+```
+git diff -G "Unity.NetCode" --name-only -- "*.cs" > filesWithDiff.txt
+cat filesWithDiff.txt | while IFS= read -r f; do { echo "using Unity.Netcode;"; cat "$f"; } > "$f.tmp" && mv "$f.tmp" "$f"; done
+```
+And then with your favorite IDE do a pass of "remove redundant qualifiers".
+Be careful if you're doing manual changes, NetworkTime has changed namespace and went from Unity.NetCode to Unity.Netcode.NetcodeTime.
+
+### Hash Changes
+
+Variant hashes are name based. We have namespace migration logic for the GhostAuthoringInspectionComponent that will automatically try to find the hash with the old namespace and update your prefabs with the new hash. If you see hash changes in your prefabs, that's why.
+
+### System Ordering Changes
+
+Since entities uses system's full name to generate a hash that's used to order when there's no ordering attributes like `[UpdateBefore]`, this namespace rename basically shuffles all systems that weren't properly configured. Please keep this in mind if you encounter behaviour breaking changes when updating to this new version.
+
+
+## NetcodeWorld
+
+Various Netcode APIs dealing with worlds used to fail at runtime if using a non-netcode world. NetcodeWorld, previously internal only, is now public and is used in many of the Netcode public APIs in place of the ECS defined World to produce early compile errors instead of runtime errors. Since several public APIs now use NetcodeWorld in place of the ECS defined Wolrd, you could run into compilation errors. You can resolve them by swapping to NetcodeWorld. As it inherits from World, this should work in most cases.
+
+## Auto Connect Port
+
+Auto Connect Port is now non-zero by default. First time user experience will be with netcode worlds automatically created and connecting instead of just created, but not connected.
+To revert back to the old behaviour, update your bootstrapper to set Auto Connect Port to 0;
+
+## Single-world host mode is now the default host mode
+
+Single-world host mode is no longer experimental: the `NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST` scripting define symbol has been removed and can be deleted from your project's **Scripting Define Symbols**.
+
+**Breaking change:** client-hosted games (`PlayType.ClientAndServer`) now default to a single-world host instead of separate client and server worlds connected through IPC. `NetCodeConfig.HostWorldModeSelection` defaults to `HostWorldMode.SingleWorld`. To keep the previous behaviour, set **Host World Mode Selection** to **Binary Worlds** on your global `NetCodeConfig` asset. Refer to [Single-world host mode](single-world-host-mode.md) for behavioural differences, such as prediction switching and partial ticks not being supported on the host.
+
+## Removed and hard-error obsolete APIs
+
+APIs that were previously deprecated (and only produced warnings) are now hard errors (`[Obsolete(..., true)]`) and no longer functional. They are still present as compile-time guidance and will be deleted in a later release, so update your code to the replacements below:
+
+| Removed / hard-error API | Replacement |
+| --- | --- |
+| `NetworkDriverStore.GetDriverInstance` | `GetDriverInstanceRW` / `GetDriverInstanceRO` (avoids copying) |
+| `NetworkDriverStore.GetNetworkDriver` | `GetDriverRW` / `GetDriverRO` (avoids copying) |
+| `NetworkDriverStore.ForEachDriver` | Iterate manually between the `FirstDriver` and `LastDriver` ids |
+| `NetworkDriverStore.Disconnect` | `NetworkStreamDriver.Disconnect` |
+| `GhostSendSystemData.MaxSendEntities` | `MaxSendChunks` and `MaxIterateChunks` |
+| `GhostCount.GhostCountOnClient` | `GhostCountInstantiatedOnClient` or `GhostCountReceivedOnClient` |
+| `GhostDistanceImportance.ScaleFunctionPointer` (single-scale path) | `GhostDistanceImportance.BatchScaleFunctionPointer` / `GhostImportance.BatchScaleImportanceDelegate` |
+| `GhostComponentSerializer.SerializeChild` / `SerializeChildDelegate` | `Serialize` / `SerializeDelegate` |
+| `GhostComponentSerializer.SendMask` | `GhostSendType` |
+| `IGhostSerializer<TComponent, TSnapshot>` | `IGhostComponentSerializer` |
+| `SimulatorPreset`'s legacy constructor | The current `SimulatorPreset` constructor |
+| The `Disabled` simulator option | `MultiplayerPlayModePreferences.SimulatorEnabled` |
+| `NetDebugPacket`, `NetDebug.DisconnectReasonEnumToString` | The `ToFixedString` extension methods |
+| `SupportsPrefabOverridesAttribute` | No longer needed; prefab overrides are now always supported |
+
+The code-generation-only input helpers (`CopyInputToCommandBuffer`, `CopyInputToBufferJob`, `ApplyCurrentInputBufferElementToInputData`, `ApplyInputDataFromBufferJob`) and `DebugGhostDrawer.RefreshWorldCaches` were also promoted to hard errors; they were meant for internal/code-generated use and have no replacement.
+
+`DebugGhostDrawer.FirstServerWorld` and `DebugGhostDrawer.FirstClientWorld` have been removed entirely. Use `ClientServerBootstrap.ServerWorld` and `ClientServerBootstrap.ClientWorld` instead.
+
+
+
 # Upgrading from Entities 0.51 to 1.0
 
 The Netcode for Entities introduces many changes and the upgrade process from 0.51 to 1.0 can be a little laborious.
@@ -94,11 +175,11 @@ All Netcode systems (apart some exception) should be considered stateless. All t
 | `[UpdateInGroup(typeof(ClientPresentationSystemGroup))]`            | `[UpdateInGroup(typeof(PresentationSystemGroup)]`                                                                                                             |
 | `[UpdateInGroup(typeof(ServerInitializationSystemGroup))]`          | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`                                              |
 | `[UpdateInGroup(typeof(ServerSimulationSystemGroup))]`              | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`                                                                                                |
-| `[UpdateInGroup(typeof(ClientAndServerInitializationSystemGroup))]` | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]` |
- | `[UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]`     | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]`                                                   |
+| `[UpdateInGroup(typeof(ClientAndServerInitializationSystemGroup))]` | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation\|WorldSystemFilterFlags.ClientSimulation)]` |
+ | `[UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]`     | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation\|WorldSystemFilterFlags.ClientSimulation)]`                                                   |
 | `[UpdateInWorld(TargetWorld.Client)]`                               | `[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`                                                                                                |
 | `[UpdateInWorld(TargetWorld.Server)]`                               | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`                                                                                                |
-| `[UpdateInWorld(TargetWorld.ClientAndServer)]`                      | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]`                                                   |
+| `[UpdateInWorld(TargetWorld.ClientAndServer)]`                      | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation\|WorldSystemFilterFlags.ClientSimulation)]`                                                   |
 | `[UpdateInWorld(TargetWorld.Default)]`                              | `[WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]`                                                                                                 |
 | `if (World.GetExistingSystem<ServerSimulationSystemGroup>()!=null)` | `if (World.IsServer())`                                                                                                                                       |
 | `if (World.GetExistingSystem<ClientSimulationSystemGroup>()!=null)` | `if (World.IsClient())`                                                                                                                                       |

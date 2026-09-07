@@ -1,8 +1,9 @@
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.LowLevel
+namespace Unity.Netcode.LowLevel
 {
     /// <summary>
     /// Helper struct that can be used in your spawn classification systems (and classification
@@ -12,6 +13,7 @@ namespace Unity.NetCode.LowLevel
     /// of the need to retrieve the <see cref="SpawnedGhostEntityMap"/> and the <see cref="SnapshotDataLookupCache"/>
     /// data.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.LowLevel")]
     public struct SnapshotDataLookupHelper
     {
         [ReadOnly] private BufferLookup<GhostCollectionPrefabSerializer> m_GhostCollectionPrefabSerializerLookup;

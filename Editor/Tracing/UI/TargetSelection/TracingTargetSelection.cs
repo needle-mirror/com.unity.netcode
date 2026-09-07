@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using Unity.NetCode.Editor.Tracing.UI;
+using Unity.Netcode.Editor.Tracing.UI;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor.Tracing
+namespace Unity.Netcode.Editor.Tracing
 {
     internal delegate bool TryResolveTracingTarget(string key, out Type type, out TracingTargetKind kind);
 
@@ -132,7 +132,7 @@ namespace Unity.NetCode.Editor.Tracing
 
             try
             {
-                var data = NetCodeTracingTargetSettings.GetSelection();
+                var data = NetcodeTracingTargetSettings.GetSelection();
                 if (data?.entries == null)
                 {
                     return;
@@ -183,7 +183,7 @@ namespace Unity.NetCode.Editor.Tracing
                     });
                 }
 
-                NetCodeTracingTargetSettings.SaveSelection(new TracingTargetSelectionFile { entries = list });
+                NetcodeTracingTargetSettings.SaveSelection(new TracingTargetSelectionFile { entries = list });
             }
             catch (Exception ex)
             {

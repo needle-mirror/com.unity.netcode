@@ -2,19 +2,22 @@ using Unity.Burst;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using System;
 using Unity.Assertions;
 using Unity.Burst.CompilerServices;
 using Unity.Burst.Intrinsics;
 using Unity.Jobs;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Tag added to the singleton entity that contains the <see cref="PredictedGhostSpawn"/> buffer.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PredictedGhostSpawnList : IComponentData
     {}
 
@@ -27,6 +30,7 @@ namespace Unity.NetCode
     /// ghost entities per frame, which is typically in the range 0 - 1.
     /// </summary>
     [InternalBufferCapacity(0)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PredictedGhostSpawn : IBufferElementData
     {
         /// <summary>
@@ -59,6 +63,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateAfter(typeof(EndPredictedSimulationEntityCommandBufferSystem))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class PredictedSpawningSystemGroup : ComponentSystemGroup
     {
         protected override void OnCreate()
@@ -77,6 +82,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(GhostSpawnSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct PredictedGhostSpawnSystem : ISystem
     {
         [BurstCompile]
@@ -383,6 +389,7 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(GhostDespawnSystem))]
     [CreateAfter(typeof(GhostDespawnSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct PredictedGhostDespawnSystem : ISystem
     {
         ComponentLookup<GhostGameObjectLink> m_GameObjectLookup;

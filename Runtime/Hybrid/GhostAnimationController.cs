@@ -7,14 +7,17 @@ using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.Hybrid
+namespace Unity.Netcode.Hybrid
 {
     /// <summary>
     /// A component used by the GhostAnimationController to figure out what needs a
     /// managed update call and what can use a system based fast path.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public struct EnableAnimationControllerPredictionUpdate : IComponentData
     {}
 
@@ -28,6 +31,7 @@ namespace Unity.NetCode.Hybrid
     [RequireComponent(typeof(Animator), typeof(GhostPresentationGameObjectEntityOwner))]
     [DisallowMultipleComponent]
     [HelpURL(HelpURLs.GhostAnimationController)]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public class GhostAnimationController : MonoBehaviour, IRegisterPlayableData
     {
         interface IAnimationDataReference : IDisposable
@@ -257,6 +261,7 @@ namespace Unity.NetCode.Hybrid
     /// and also trigger graph evaluation if enabled.
     /// </summary>
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public partial class GhostAnimationControllerPredictionSystem : SystemBase
     {
         GhostPresentationGameObjectSystem m_GhostPresentationGameObjectSystem;
@@ -313,6 +318,7 @@ namespace Unity.NetCode.Hybrid
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(PresentationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public partial class GhostAnimationControllerInterpolationSystem : SystemBase
     {
         GhostPresentationGameObjectSystem m_GhostPresentationGameObjectSystem;
@@ -357,6 +363,7 @@ namespace Unity.NetCode.Hybrid
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast=true)]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public partial class GhostAnimationControllerServerSystem : SystemBase
     {
         GhostPresentationGameObjectSystem m_GhostPresentationGameObjectSystem;

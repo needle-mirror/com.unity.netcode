@@ -9,10 +9,10 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Profiling;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>Handles sending of despawn messages in ghost snapshots.</summary>
     internal struct PendingGhostDespawn : IComparable<PendingGhostDespawn>

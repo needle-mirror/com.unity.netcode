@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     internal class InputFactory
     {

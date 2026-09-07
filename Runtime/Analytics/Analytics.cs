@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEditor;
 using UnityEngine.Analytics;
 
-namespace Unity.NetCode.Analytics
+namespace Unity.Netcode.Analytics
 {
 
     internal interface IAnalyticsSender

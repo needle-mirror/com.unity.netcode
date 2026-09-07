@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     class CodeGenMenu
     {

@@ -6,7 +6,7 @@ using Unity.Entities.Serialization;
 using Unity.Transforms;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Component added during the baking process to signal that this pre-spawned ghost has been baked.

@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     // replicated to all
     internal partial class BehaviourAllData : GhostBehaviour

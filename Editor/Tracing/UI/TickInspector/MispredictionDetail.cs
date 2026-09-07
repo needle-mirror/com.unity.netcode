@@ -1,7 +1,7 @@
 using System;
 using Unity.Entities;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
+namespace Unity.Netcode.Editor.Tracing.UI.TickInspector
 {
     /// <summary>
     /// Client/server component values before/after the traced system ran. Backs a MispredictionTable row.

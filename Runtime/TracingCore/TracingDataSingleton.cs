@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Threading;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.StateSave;
 using Unity.Profiling;
 using Unity.Assertions;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     // Tracing backend internal class,<see cref="TracingDataAccess"/> for public API.
     // These world singletons are added to the client and server to enable tracing. They hold the raw and processed trace data.

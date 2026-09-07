@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Unity.NetCode.Roslyn;
+using Unity.Netcode.Roslyn;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     internal class RpcFactory
     {
@@ -33,11 +33,11 @@ namespace Unity.NetCode.Generators
                 if (candidateSymbol != null)
                 {
                     var disableCommandCodeGen = Roslyn.Extensions.GetAttribute(candidateSymbol,
-                    "Unity.NetCode", "NetCodeDisableCommandCodeGenAttribute");
+                    "Unity.Netcode", "NetcodeDisableCommandCodeGenAttribute");
                     if (disableCommandCodeGen != null)
                         continue;
                     // If the serializer type already exist we can just skip generation
-                    if (candidateSymbol.ImplementsGenericInterface("Unity.NetCode.IRpcCommandSerializer"))
+                    if (candidateSymbol.ImplementsGenericInterface("Unity.Netcode.IRpcCommandSerializer"))
                     {
                         codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because an IRpcCommandSerializer for it already exists");
                         continue;

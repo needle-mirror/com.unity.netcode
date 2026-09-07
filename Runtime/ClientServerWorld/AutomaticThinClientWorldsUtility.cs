@@ -4,12 +4,14 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Scenes;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Have netcode automatically manage thin clients for you by assigning <see cref="NumThinClientsRequested"/>.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public class AutomaticThinClientWorldsUtility
     {
         /// <summary>Set the desired number of thin client worlds.</summary>
@@ -30,7 +32,7 @@ namespace Unity.NetCode
         /// The world to use for data injection (like to know which sub-scene(s) to load).
         /// If null, we'll try to use any existing client or server worlds, found via <see cref="ClientServerBootstrap.ClientWorld"/> etc.
         /// </summary>
-        public static World ReferenceWorld;
+        public static NetcodeWorld ReferenceWorld;
 
         /// <summary>
         ///     If your automatic thin clients need custom initialization during bootstrap (e.g. due to custom scene management settings),
@@ -57,7 +59,7 @@ namespace Unity.NetCode
         /// If you add a thin client to this list, netcode will take ownership of it.
         /// This list prevents the netcode package from deleting your thin client worlds.
         /// </summary>
-        public static List<World> AutomaticallyManagedWorlds { get; } = new();
+        public static List<NetcodeWorld> AutomaticallyManagedWorlds { get; } = new();
 
         private static double s_LastSpawnRealtime;
 
@@ -65,7 +67,7 @@ namespace Unity.NetCode
         /// <see cref="DefaultRuntimeThinClientWorldInitialization"/>.</summary>
         /// <param name="referenceWorld">The world to reference when creating this one (for the purposes of scene loading etc.).</param>
         /// <returns>The newly created world, otherwise null.</returns>
-        public delegate World ThinClientWorldInitializationDelegate(World referenceWorld);
+        public delegate NetcodeWorld ThinClientWorldInitializationDelegate(NetcodeWorld referenceWorld);
 
         /// <summary>
         /// Resets the utility to starting values via <see cref="RuntimeInitializeOnLoadMethodAttribute"/>
@@ -93,7 +95,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="referenceWorld">The world to reference when creating this one (for the purposes of scene loading etc.).</param>
         /// <returns>The newly created world, otherwise null.</returns>
-        public static World DefaultBootstrapThinClientWorldInitialization(World referenceWorld)
+        public static NetcodeWorld DefaultBootstrapThinClientWorldInitialization(NetcodeWorld referenceWorld)
         {
             return ClientServerBootstrap.CreateThinClientWorld();
         }
@@ -101,7 +103,7 @@ namespace Unity.NetCode
         /// <inheritdoc cref="RuntimeInitialization"/>
         /// <param name="referenceWorld">The world to reference when creating this one (for the purposes of scene loading etc.).</param>
         /// <returns>The newly created world, otherwise null.</returns>
-        public static World DefaultRuntimeThinClientWorldInitialization(World referenceWorld)
+        public static NetcodeWorld DefaultRuntimeThinClientWorldInitialization(NetcodeWorld referenceWorld)
         {
             if (referenceWorld?.IsCreated != true)
             {
@@ -191,7 +193,7 @@ namespace Unity.NetCode
         /// <param name="maxAllowedSpawn">Rate limiting feature. Worlds are disposed immediately, but only instantiated at this frequency.</param>
         /// <param name="didCreateOrDestroy">True if worlds were created or destroyed.</param>
         /// <returns>The list of successfully created worlds, otherwise default.</returns>
-        public static NativeList<WorldUnmanaged> UpdateAutomaticThinClientWorldsImmediate(World referenceWorld, int targetThinClientCount, int maxAllowedSpawn, out bool didCreateOrDestroy)
+        public static NativeList<WorldUnmanaged> UpdateAutomaticThinClientWorldsImmediate(NetcodeWorld referenceWorld, int targetThinClientCount, int maxAllowedSpawn, out bool didCreateOrDestroy)
         {
             referenceWorld ??= ClientServerBootstrap.ServerWorld ?? ClientServerBootstrap.ClientWorld;
             didCreateOrDestroy = false;

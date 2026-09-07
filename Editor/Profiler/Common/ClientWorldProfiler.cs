@@ -2,7 +2,7 @@ using Unity.Profiling.Editor;
 using System;
 using Unity.Profiling;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// The profiler module for the client world in Netcode for Entities.

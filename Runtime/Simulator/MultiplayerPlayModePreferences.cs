@@ -9,14 +9,16 @@ using Unity.Networking.Transport.Utilities;
 using Unity.Scenes;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
 #if UNITY_USE_MULTIPLAYER_ROLES
 using Unity.Multiplayer;
 #endif
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>Developer preferences for the `MultiplayerPlayModeWindow`. Only applicable in editor.</summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class MultiplayerPlayModePreferences
     {
         public const bool DefaultSimulatorEnabled = true;
@@ -68,9 +70,8 @@ namespace Unity.NetCode
             get => (SimulatorView) EditorPrefs.GetInt(s_RequestedSimulatorViewKey, (int) DefaultSimulatorView);
             set
             {
-#pragma warning disable CS0618
-                if (value == SimulatorView.Disabled)
-#pragma warning restore CS0618
+                // 0 is the legacy 'Disabled' value; treat setting it as turning the simulator off.
+                if ((int)value == 0)
                 {
                     SimulatorEnabled = false;
                     return;
@@ -349,9 +350,10 @@ namespace Unity.NetCode
     }
 
     /// <summary>For the PlayMode Tools Window.</summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum SimulatorView
     {
-        [Obsolete("Disabled is no longer supported. Use MultiplayerPlayModePreferences.SimulatorEnabled instead. RemovedAfter Entities 1.x")]
+        [Obsolete("Disabled is no longer supported. Use MultiplayerPlayModePreferences.SimulatorEnabled instead. RemovedAfter Entities 1.x", true)]
         Disabled = 0,
         PingView = 1,
         PerPacketView = 2,

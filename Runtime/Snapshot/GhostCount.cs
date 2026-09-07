@@ -2,13 +2,15 @@ using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Singleton component with APIs and collections required for Ghost counting.
     /// </summary>
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostCount : IComponentData
     {
         /// <summary>
@@ -20,7 +22,7 @@ namespace Unity.NetCode
         public int GhostCountOnServer => IsCreated ? m_GhostCompletionCount[0] : 0;
 
         /// <inheritdoc cref="GhostCountReceivedOnClient"/>
-        [Obsolete("Prefer either GhostCountInstantiatedOnClient or GhostCountReceivedOnClient, as this variable is ambiguous (and maps to GhostCountReceivedOnClient). RemoveAfter 1.x.", false)]
+        [Obsolete("Prefer either GhostCountInstantiatedOnClient or GhostCountReceivedOnClient, as this variable is ambiguous (and maps to GhostCountReceivedOnClient). RemoveAfter 1.x.", true)]
         public int GhostCountOnClient => IsCreated ? m_GhostCompletionCount[1] : 0;
 
         /// <summary>

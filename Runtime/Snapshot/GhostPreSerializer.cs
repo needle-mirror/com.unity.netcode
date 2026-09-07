@@ -6,10 +6,11 @@ using System;
 using System.Diagnostics;
 using Unity.Assertions;
 using Unity.Burst.Intrinsics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Jobs;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
 
     /// <summary>
@@ -20,6 +21,7 @@ namespace Unity.NetCode
     /// one player every frame and it contains complex serialization (serialized data on
     /// child entities or buffers).
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PreSerializedGhost : IComponentData
     {}
 

@@ -8,10 +8,10 @@ using Unity.Burst.CompilerServices;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Mathematics;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     internal enum SerializeEnitiesResult
     {
@@ -1693,7 +1693,7 @@ namespace Unity.NetCode
                     groupSnapshot.AlreadyUsedChunk = 1;
                     wasWriteIndexBumped[i] = false;
                 }
-                
+
                 // setup dynamic data offset to not overwrite previous write
                 groupSnapshot.SnapshotDynamicDataOffset = childChunkState.GetDynamicDataOffset();
                 groupSnapshot.SnapshotDynamicDataSize += groupSnapshot.SnapshotDynamicDataOffset;
@@ -1795,7 +1795,7 @@ namespace Unity.NetCode
                     // so we only check the hashmap if we actually need to.
                     if (!isRelevant)
                     {
-                        
+
                         var key = new RelevantGhostForConnection(NetworkId, ghost[ent].ghostId);
                         isRelevant = relevantGhostForConnection.ContainsKey(key);
                     }

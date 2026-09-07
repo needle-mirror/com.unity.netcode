@@ -1,9 +1,9 @@
-namespace Unity.NetCode.GeneratorTests
+namespace Unity.Netcode.GeneratorTests
 {
     internal static class TestDataSource
     {
         public const string TestComponentsData = @"
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Entities;
 using Unity.Mathematics;
 
@@ -51,10 +51,10 @@ public struct PrimitiveTypeTest : IComponentData
 
         public static string AllComponentsTypesData = @"
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Mathematics;
 
-namespace Unity.NetCode { public struct NetworkTick { } }
+namespace Unity.Netcode { public struct NetworkTick { } }
 
 public struct MyTest : IComponentData
 {
@@ -67,7 +67,7 @@ public struct MyRpcType : IRpcCommand
 
 public struct MyCommandType : ICommandData
 {
-    public Unity.NetCode.NetworkTick Tick { get; set; }
+    public Unity.Netcode.NetworkTick Tick { get; set; }
     public byte up;
     public byte down;
     public byte left;
@@ -76,7 +76,7 @@ public struct MyCommandType : ICommandData
 }";
 
         public const string MathematicsTestData = @"
-using Unity.NetCode;
+using Unity.Netcode;
 using Unity.Entities;
 using Unity.Mathematics;
 
@@ -105,7 +105,7 @@ public struct MathTest : IComponentData
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Collections;
-using Unity.NetCode;
+using Unity.Netcode;
 
 public struct int3
 {

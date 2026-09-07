@@ -1,7 +1,7 @@
 using System;
 using UnityEngine.Analytics;
 
-namespace Unity.NetCode.Editor.Analytics
+namespace Unity.Netcode.Editor.Analytics
 {
     // Schema: com.unity3d.data.schemas.editor.analytics.n4eToolsPlayModeLogCommandStats_v1
     // Taxonomy: editor.analytics.n4eToolsPlayModeLogCommandStats.v1

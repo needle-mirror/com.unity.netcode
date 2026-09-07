@@ -11,7 +11,7 @@ using UnityEngine.Assertions;
 // The classes here are in charge of that.
 // A lot of the work here will change with entities integration.
 // Right now, we're dynamically generating prefab entities at runtime and registering them to N4E's ghost collection, as if they were (already supported) runtime created ghost types (which they sort of are).
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Resides on the entity associated with a GameObject and links back to the GameObject
@@ -80,9 +80,10 @@ namespace Unity.NetCode
                 if (!prefabReference.SkipAutomaticPrefabRegistration)
                     toRegister.Add(prefabReference.Prefab);
             }
-            PrefabsRegistry.RegisterPrefabBatch(toRegister, this.World);
+            var netcodeWorld = (NetcodeWorld)World; // this system only runs in netcode simulation worlds
+            PrefabsRegistry.RegisterPrefabBatch(toRegister, netcodeWorld);
 
-            Netcode.Instance.m_OfflineCache.InitializeWorld((NetcodeWorld)World);
+            Netcode.Instance.m_OfflineCache.InitializeWorld(netcodeWorld);
 
             Enabled = false;
         }
@@ -98,7 +99,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="prefabs"></param>
         /// <param name="forWorld"></param>
-        internal static void RegisterPrefabBatch(List<GameObject> prefabs, World forWorld)
+        internal static void RegisterPrefabBatch(List<GameObject> prefabs, NetcodeWorld forWorld)
         {
             foreach (var prefab in prefabs)
                 RegisterPrefab(prefab, forWorld, autoStrip: false);
@@ -118,22 +119,29 @@ namespace Unity.NetCode
         /// <param name="prefab">GameObject prefab to register</param>
         /// <param name="forWorld">World to link the registration with</param>
         /// <param name="autoStrip">Keep this as true if calling this method alone. Set to false if you plan to do a batch of prefab creation and want to strip all of them in a single batch afterward. <see cref="GhostCollectionSystem.RuntimeStripPrefabs"/></param>
-        internal static void RegisterPrefab(GameObject prefab, World forWorld, bool autoStrip = true)
+        internal static void RegisterPrefab(GameObject prefab, NetcodeWorld forWorld, bool autoStrip = true)
         {
             // already initialized for this world
             if (prefab.EntityExt(isPrefab: true, forWorld.Unmanaged) != default)
+            {
+                Debug.LogWarning($"Cannot register prefab! Prefab {prefab.name} is already registered.");
                 return;
+            }
 
             var ghostObject = prefab.GetComponent<GhostObject>();
+            if (ghostObject == null)
+            {
+                Debug.LogError($"Cannot register prefab! No {nameof(GhostObject)} was found on {prefab.name}!");
+                return;
+            }
+
             var prefabLink = GhostEntityMapping.AcquireEntityReferencePrefab(prefab.GetEntityId(), prefab.transform.GetEntityId(), forWorld: forWorld.Unmanaged);
             var prefabEntity = prefabLink.Entity;
             ghostObject.InitializePrefabGhostBehaviours(prefabLink);
 
             // TODO-release handle child GOs that could have networked data as well
-            var transforms = prefab.GetComponentsInChildren<Transform>(includeInactive: true);
             var entityManager = forWorld.EntityManager;
             entityManager.SetName(prefabEntity, prefab.name);
-            var goEntityId = prefab.gameObject.GetEntityId();
             entityManager.AddComponentData(prefabEntity, EntityGuidFromGameObject(prefab));
 
             FixedList128Bytes<ComponentType> componentsWithDefaultValuesToAdd = new(); // TODO should replace the Add by Set and just add all components in one batch. micro optim, should wait to see a real perf problem with this
@@ -249,16 +257,14 @@ namespace Unity.NetCode
                 }
             }
             GhostPrefabCreation.ConvertToGhostPrefab(entityManager, prefabEntity, config, overrides);
-            if (autoStrip && forWorld is NetcodeWorld netWorld)
+            if (autoStrip)
             {
-                // It's possible for a world here to not be a netcode world (for baking preview for example). This runtime stripping is only valid for runtime netcode worlds so we do the casting here.
-
                 // individual per prefab stripping is useful in case users add prefabs later at runtime. With this, we can guarantee a call to register prefab will have all the right components stripped right after the callsite
                 // This way if we do
                 // Netcode.RegisterPrefab(myAddressable); // at anytime in the frame
                 // GameObject.Instantiate(myAddressable); // prefab is already stripped, so instantiating is valid nowThis way we're sure we can call those two right one after the other and not have to wait for the next ECS update to Instantiate.
                 // And this way we're sure we have all the appropriate stripping no matter the world
-                GhostCollectionSystem.RuntimeStripPrefabs(entityManager, NetDebugSystem.GetDefaultNetDebug(), netWorld.RuntimeStripQuery);
+                GhostCollectionSystem.RuntimeStripPrefabs(entityManager, NetDebugSystem.GetDefaultNetDebug(), forWorld.RuntimeStripQuery);
             }
 
             // TODO-release the below was what we used with entities integration, since then we use baking/persistent worlds to generate GO prefabs. We'll need to come back to this once we have something concrete

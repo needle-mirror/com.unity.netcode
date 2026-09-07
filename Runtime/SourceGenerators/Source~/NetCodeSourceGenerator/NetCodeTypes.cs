@@ -1,6 +1,6 @@
 using System;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     // The following enums are copies of the one present in NetCode.GhostModifiers
     // Any changes to those enums in the the package must be reflected also here.
@@ -54,9 +54,9 @@ namespace Unity.NetCode.Generators
         public bool SendData { get; set; } = true;
     }
 
-    //Internal copy of the TypeRegistryEntry in NetCode package. Is used to declare the default type registry and
+    //Internal copy of the TypeRegistryEntry in Netcode package. Is used to declare the default type registry and
     //by in user land, to specify the custom type list inside the UserDefinedTemplate.RegisterTemplates.
-    //Please reflect here any changes to NetCode/Authoring/TypeRegistryEntry.cs
+    //Please reflect here any changes to Netcode/Authoring/TypeRegistryEntry.cs
     class TypeRegistryEntry
     {
         public string Type;

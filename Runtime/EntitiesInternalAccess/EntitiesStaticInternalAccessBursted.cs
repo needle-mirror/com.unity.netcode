@@ -6,7 +6,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 
-namespace Unity.NetCode.EntitiesInternalAccess
+namespace Unity.Netcode.EntitiesInternalAccess
 {
     /// <summary>
     /// In order to tracing and some GhostField operations more efficiently and with a better UX for users, we need to use some internal ECS methods.

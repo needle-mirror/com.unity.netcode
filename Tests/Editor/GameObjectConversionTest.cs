@@ -4,7 +4,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [GhostComponentVariation(typeof(ComponentWeWillOverride), "Client Only")]
     [GhostComponent(PrefabType = GhostPrefabType.Client)]

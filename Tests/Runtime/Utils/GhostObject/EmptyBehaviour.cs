@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal partial class EmptyBehaviour : GhostBehaviour
     {

@@ -1,7 +1,7 @@
 using Unity.Collections;
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// System that invoke the <see cref="GhostBehaviour.GatherInput"/> method on <see cref="GhostBehaviour"/>

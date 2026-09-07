@@ -2,15 +2,17 @@ using System;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Jobs;
 using System.Runtime.InteropServices;
 using Unity.Assertions;
 using Unity.Burst.Intrinsics;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
 
     /// <summary>
@@ -20,6 +22,7 @@ namespace Unity.NetCode
     /// <para>- A smoothing action without argument. See <see cref="RegisterSmoothingAction{T}"/></para>
     /// <para>- A smoothing action that take a component data as argument. See <see cref="RegisterSmoothingAction{T,U}"/></para>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostPredictionSmoothing : IComponentData
     {
         internal GhostPredictionSmoothing(NativeParallelHashMap<ComponentType, SmoothingActionState> actions, NativeList<ComponentType> userComp, EntityQuery singletonQuery)
@@ -153,6 +156,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(GhostPredictionHistorySystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct GhostPredictionSmoothingSystem : ISystem
     {
 

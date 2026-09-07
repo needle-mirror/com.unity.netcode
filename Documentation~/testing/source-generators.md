@@ -18,7 +18,7 @@ Netcode for Entities uses a [Roslyn source generator](https://docs.unity3d.com/D
 The project is organized as follows:
 
 ```
-Unity.NetCode
+Unity.Netcode
 - Editor
 - Runtime
   -- SourceGenerators      Labels
@@ -70,7 +70,7 @@ Netcode for Entities supports the following keys:
 
 | Key                                               | Available values                            | Description                                                                                                                                                                        |
 |---------------------------------------------------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `unity.netcode.sourcegenerator.outputfolder`        | A valid relative string .         | Override the output folder where the generator puts logs and generated files. File path must be relative to the project path. Default is `Temp/NetCodeGenerated`.                           |
+| `unity.netcode.sourcegenerator.outputfolder`        | A valid relative string .         | Override the output folder where the generator puts logs and generated files. File path must be relative to the project path. Default is `Temp/NetcodeGenerated`.                           |
 | `unity.netcode.sourcegenerator.write_files_to_disk` | Empty or 1 (enabled), or 0 (disabled). | Set whether to write generated files to disk.                                                                                                                                      |
 | `unity.netcode.sourcegenerator.write_logs_to_disk`  | Empty or 1 (enabled), or 0 (disabled). | Set whether to write logs to disk. All logs are redirected to the Editor logs if disabled.                                                                       |
 | `unity.netcode.sourcegenerator.emit_timing`         | Empty or 1 (enabled), or 0 (disabled). | Set whether to log timing information for each compiled assembly.                                                                                                                               |
@@ -100,7 +100,7 @@ Add the `unity.netcode.sourcegenerator.attach_debugger` option to the config fil
 
 ### Modify the generator code
 
-You can use the `Debug.LaunchDebugger` helper method to launch the debugger at any point during source generation. It's recommended to call it from within `NetcodeSourceGenerator.cs`, inside the `Execute` method.
+You can use the `Debug.LaunchDebugger` helper method to launch the debugger at any point during source generation. It's recommended to call it from within `NetCodeSourceGenerator.cs`, inside the `Execute` method.
 
 ```csharp
 // Launch the debugger unconditionally

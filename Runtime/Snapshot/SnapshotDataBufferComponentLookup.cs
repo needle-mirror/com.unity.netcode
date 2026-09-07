@@ -2,9 +2,10 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.LowLevel
+namespace Unity.Netcode.LowLevel
 {
     /// <summary>
     /// Helper struct that can be used to inspect the presence of components from a <see cref="SnapshotData"/> buffer
@@ -14,6 +15,7 @@ namespace Unity.NetCode.LowLevel
     /// <remarks>
     /// The helper only allows you to read component data. Buffers are not supported.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode.LowLevel")]
     public struct SnapshotDataBufferComponentLookup
     {
         [ReadOnly]DynamicBuffer<GhostCollectionPrefabSerializer> m_ghostPrefabType;

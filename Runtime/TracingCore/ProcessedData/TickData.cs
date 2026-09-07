@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     internal struct TickID : IEquatable<TickID>, IComparer<TickID>
     {
@@ -66,19 +67,16 @@ namespace Unity.NetCode.Tracing
             DiffInfo.Dispose();
         }
 
-        public bool ProcessDiff(TickData serverTickData, TracingConfig config)
+        public bool ProcessDiff(TickData serverTickData)
         {
             var clientTickData = this;
-            if (clientTickData.TraceType == TraceType.Default && // ghost update system runs while the DT and network time is not set yet, so partial tick information is invalid as that point
-                clientTickData.NetworkTime.IsPartialTick && config.IgnorePartialTicks)
-                return false;
 
             // Which (system, entity, component) values either side actually changed this tick; stamped into the aggregates.
             using var valueChanges = new ValueChangeSet(16, Allocator.Temp);
             CollectValueChanges(clientTickData, valueChanges);
             CollectValueChanges(serverTickData, valueChanges);
 
-            if (clientTickData.TraceType == TraceType.Default && !config.IgnoreDTDiffs && CurrentDeltaTimeSeconds != serverTickData.CurrentDeltaTimeSeconds && !NetworkTime.IsPartialTick)
+            if (clientTickData.TraceType == TraceType.Default && CurrentDeltaTimeSeconds != serverTickData.CurrentDeltaTimeSeconds && !NetworkTime.IsPartialTick)
             {
                 DiffInfo.AddDiff(DiffInfo.DiffReasons.DeltaTime);
             }

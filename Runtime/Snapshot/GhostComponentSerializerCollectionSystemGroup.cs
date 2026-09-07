@@ -4,10 +4,11 @@ using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.EntitiesInternalAccess;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.LowLevel.Unsafe;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
 
     // TODO - Make internal if possible.
@@ -27,6 +28,7 @@ namespace Unity.NetCode
     /// </para>
     /// </summary>
     /// <remarks>This type was renamed from "VariantType" for 1.0.</remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ComponentTypeSerializationStrategy : IComparable<ComponentTypeSerializationStrategy>
     {
         /// <summary>Denotes why this strategy is the default (or not). Higher value = more important.</summary>
@@ -166,6 +168,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem,
         WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
     [CreateBefore(typeof(DefaultVariantSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class GhostComponentSerializerCollectionSystemGroup : ComponentSystemGroup
     {
         /// <summary>HashSets and HashTables have a fixed capacity.</summary>
@@ -219,6 +222,7 @@ namespace Unity.NetCode
     /// <summary>Blittable. <see cref="GhostComponentSerializerCollectionSystemGroup"/>. For internal use only.</summary>
     [StructLayout(LayoutKind.Sequential)]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostComponentSerializerCollectionData : IComponentData
     {
         /// <summary>
@@ -376,7 +380,7 @@ namespace Unity.NetCode
         /// <param name="bufferType">Buffer type</param>
         /// <returns>True if the component has an assosiated buffer to use, false if it does not.</returns>
         [Obsolete("TryGetBufferForInputComponent has been deprecated. In order to find the buffer associated with an IInputComponentData please just use" +
-                  "IInputBuffer<T> where T is the IInputComponentData type you are looking for.", false)]
+                  "IInputBuffer<T> where T is the IInputComponentData type you are looking for.", true)]
         public bool TryGetBufferForInputComponent(ComponentType inputType, out ComponentType bufferType)
         {
             bufferType = default;

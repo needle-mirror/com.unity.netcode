@@ -2,7 +2,7 @@ using System;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class TestGameObjectSpawner : MonoBehaviour
     {
@@ -20,7 +20,7 @@ namespace Unity.NetCode.Tests
         void SpawnPlayer(Connection connection)
         {
             var go = GameObject.Instantiate(prefab, transform.position, transform.rotation);
-            void OnDisconnect(Connection disconnectedConnection, NetCodeConnectionEvent @event)
+            void OnDisconnect(Connection disconnectedConnection, NetcodeConnectionEvent @event)
             {
                 if (@event.State != ConnectionState.State.Disconnected)
                     return;
@@ -37,7 +37,7 @@ namespace Unity.NetCode.Tests
                 ghostObject.OwnerNetworkId = connection.NetworkId;
         }
 
-        void OnConnect(Connection connection, NetCodeConnectionEvent @event)
+        void OnConnect(Connection connection, NetcodeConnectionEvent @event)
         {
             if (@event.State != ConnectionState.State.Connected)
                 return;

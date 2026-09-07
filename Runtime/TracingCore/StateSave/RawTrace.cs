@@ -6,11 +6,12 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.StateSave;
+using Unity.Netcode.NetcodeTime;
 using Unity.Profiling;
 using UnityEngine;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     /// Wrapper around WorldStateSave that adds metadata for tracing
     internal struct RawTracingStateSave : IDisposable

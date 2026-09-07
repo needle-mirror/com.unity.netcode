@@ -3,9 +3,9 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using NUnit.Framework;
-using Unity.NetCode.Generators;
+using Unity.Netcode.Generators;
 
-namespace Unity.NetCode.GeneratorTests
+namespace Unity.Netcode.GeneratorTests
 {
     [TestFixture]
     class GlobalQualifiedTypeNameTests : BaseTest
@@ -14,7 +14,7 @@ namespace Unity.NetCode.GeneratorTests
         public void GetGlobalQualifiedTypeName_ArraySuffix_QualifiesElementTypeViaSymbol()
         {
             var testData = @"
-namespace Unity.NetCode.Test
+namespace Unity.Netcode.Test
 {
     public struct Elem
     {
@@ -23,7 +23,7 @@ namespace Unity.NetCode.Test
 
     public struct Holder
     {
-        public Unity.NetCode.Test.Elem[] Items;
+        public Unity.Netcode.Test.Elem[] Items;
     }
 }";
             var compilation = GeneratorTestHelpers.CreateCompilation(CSharpSyntaxTree.ParseText(testData));
@@ -32,16 +32,16 @@ namespace Unity.NetCode.Test
 
             var qualified = Roslyn.Extensions.GetGlobalQualifiedTypeName(itemsField.Type);
 
-            Assert.That(qualified, Does.Contain("global::Unity.NetCode.Test.Elem"));
+            Assert.That(qualified, Does.Contain("global::Unity.Netcode.Test.Elem"));
             Assert.That(qualified, Does.EndWith("[]"));
-            Assert.That(qualified, Does.Not.StartWith("Unity.NetCode.Test.Elem[]"));
+            Assert.That(qualified, Does.Not.StartWith("Unity.Netcode.Test.Elem[]"));
         }
 
         [Test]
         public void GetGlobalQualifiedTypeName_ConstructedGenericWithNestedSuffix_QualifiesTypeArguments()
         {
             var testData = @"
-namespace Unity.NetCode.Test
+namespace Unity.Netcode.Test
 {
     public struct Payload
     {
@@ -64,7 +64,7 @@ namespace Unity.NetCode.Test
 
             var qualified = Roslyn.Extensions.GetGlobalQualifiedTypeName(inner);
 
-            Assert.That(qualified, Does.Contain("global::Unity.NetCode.Test.Payload"));
+            Assert.That(qualified, Does.Contain("global::Unity.Netcode.Test.Payload"));
             Assert.That(qualified, Does.Contain("Inner"));
         }
 
@@ -73,10 +73,10 @@ namespace Unity.NetCode.Test
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Collections;
 
-            namespace Unity.NetCode.Test
+            namespace Unity.Netcode.Test
             {
                 public struct Item : IComponentData
                 {
@@ -89,7 +89,7 @@ namespace Unity.NetCode.Test
                 }
             }
 
-            namespace Unity.NetCode.Test.Unity.NetCode.Test
+            namespace Unity.Netcode.Test.Unity.Netcode.Test
             {
             }";
 
@@ -106,7 +106,7 @@ namespace Unity.NetCode.Test
             Assert.IsNotNull(serializerSource, "Expected ghost serializer for Container");
 
             var serializerText = serializerSource!.SyntaxTree.GetText().ToString();
-            Assert.That(serializerText, Does.Contain("global::Unity.NetCode.Test.Container"),
+            Assert.That(serializerText, Does.Contain("global::Unity.Netcode.Test.Container"),
                 "GHOST_COMPONENT_TYPE should be emitted via ITypeSymbol fully-qualified formatting");
             Assert.AreEqual(0, serializerSource.SyntaxTree.GetDiagnostics().Count(d => d.Severity == DiagnosticSeverity.Error));
         }
@@ -116,10 +116,10 @@ namespace Unity.NetCode.Test
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
             using Unity.Mathematics;
             using Unity.Transforms;
-            namespace Unity.NetCode
+            namespace Unity.Netcode
             {
                 [GhostComponentVariation(typeof(Transforms.LocalTransform))]
                 [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
@@ -153,9 +153,9 @@ namespace Unity.NetCode.Test
         {
             var testData = @"
             using Unity.Entities;
-            using Unity.NetCode;
+            using Unity.Netcode;
 
-            namespace Unity.NetCode.Test
+            namespace Unity.Netcode.Test
             {
                 internal class Host
                 {
@@ -166,7 +166,7 @@ namespace Unity.NetCode.Test
                 }
             }
 
-            namespace Unity.NetCode.Test.Unity.NetCode.Test
+            namespace Unity.Netcode.Test.Unity.Netcode.Test
             {
             }";
 
@@ -183,8 +183,8 @@ namespace Unity.NetCode.Test
                 .First(s => s.HintName.Contains("GhostComponentSerializerCollection"))
                 .SyntaxTree.GetText().ToString();
 
-            Assert.That(registrationText, Does.Contain("global::Unity.NetCode.Test.Host.NestedInput"));
-            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<Unity\.NetCode\.Test\.Host\.NestedInput>"));
+            Assert.That(registrationText, Does.Contain("global::Unity.Netcode.Test.Host.NestedInput"));
+            Assert.That(registrationText, Does.Not.Match(@"ComponentType\.ReadWrite<Unity\.Netcode\.Test\.Host\.NestedInput>"));
         }
     }
 }

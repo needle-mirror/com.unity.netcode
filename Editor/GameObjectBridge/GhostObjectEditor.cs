@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.Assertions;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /*
      GhostAuthoring is meant as a baking interface. You setup stuff and then it's baked. It's not meant to exist at runtime

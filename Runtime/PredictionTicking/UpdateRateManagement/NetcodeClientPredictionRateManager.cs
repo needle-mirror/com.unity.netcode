@@ -4,8 +4,9 @@ using Unity.Collections;
 using Unity.Core;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     unsafe class NetcodeClientPredictionRateManager : IRateManager
     {

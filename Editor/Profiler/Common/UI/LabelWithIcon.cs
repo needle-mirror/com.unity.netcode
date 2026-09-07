@@ -1,7 +1,7 @@
 using System;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     class LabelWithIcon : VisualElement
     {

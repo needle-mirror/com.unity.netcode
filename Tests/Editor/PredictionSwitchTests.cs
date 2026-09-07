@@ -3,9 +3,10 @@ using NUnit.Framework;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct PredictionSwitchComponent : IComponentData { } // Component to identify the ghosts we're testing
 
@@ -172,7 +173,7 @@ namespace Unity.NetCode.Tests
         }
 
         [DisableAutoCreation]
-        [CreateBefore(typeof(Unity.NetCode.TransformDefaultVariantSystem))]
+        [CreateBefore(typeof(Unity.Netcode.TransformDefaultVariantSystem))]
         sealed partial class ClampedTransformVariantRegisterSystem : DefaultVariantSystemBase
         {
             protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)

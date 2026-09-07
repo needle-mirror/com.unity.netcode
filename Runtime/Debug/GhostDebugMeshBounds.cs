@@ -2,8 +2,9 @@ using System.Collections.Generic;
 using Unity.Entities;
 using Unity.Transforms;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Self contained component to hold a mesh's bounds for debug drawing.
@@ -12,6 +13,7 @@ namespace Unity.NetCode
     /// This should stay active even when the GameObject is inactive. This is really showing boxes for the netcode of your GameObject, which is linked to the entity lifecycle
     /// If the entity is still moving and your GO is inactive, you'd potentially still want to know about it.
     /// </remarks>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostDebugMeshBounds : IComponentData
     {
         static List<Renderer> s_AllRenderers = new();

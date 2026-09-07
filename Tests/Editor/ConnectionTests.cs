@@ -3,13 +3,13 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
-using State = Unity.NetCode.ConnectionState.State;
-namespace Unity.NetCode.Tests
+using State = Unity.Netcode.ConnectionState.State;
+namespace Unity.Netcode.Tests
 {
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
@@ -671,7 +671,7 @@ namespace Unity.NetCode.Tests
                         LogAssert.Expect(LogType.Error, "The Game version mismatched between remote and local. Ensure that you are using the same version of the game on both client and server.");
                         break;
                     case DifferenceType.NetCodeVersion:
-                        LogAssert.Expect(LogType.Error, "The NetCode version mismatched between remote and local. Ensure that you are using the same version of Netcode for Entities on both client and server.");
+                        LogAssert.Expect(LogType.Error, "The Netcode version mismatched between remote and local. Ensure that you are using the same version of Netcode for Entities on both client and server.");
                         break;
                     case DifferenceType.RpcVersion:
                         LogAssert.Expect(LogType.Error, "The RPC Collection mismatched between remote and local. Compare the following list of RPCs against the set produced by the remote, to find which RPCs are misaligned. You can also enable `RpcCollection.DynamicAssemblyList` to relax this requirement (which is recommended during development, see documentation for more details).");
@@ -809,7 +809,7 @@ namespace Unity.NetCode.Tests
             Assert.AreNotEqual(0, rpcs.Length, "Sanity.");
             LogAssert.Expect(LogType.Error, "RPC List (for above 'bad protocol version' error): " + rpcs.Length);
             for (int i = 0; i < rpcs.Length; ++i)
-                LogAssert.Expect(LogType.Error, new Regex("Unity.NetCode"));
+                LogAssert.Expect(LogType.Error, new Regex("Unity.Netcode"));
             using var collection = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
             // GhostCollection serializers do not get reset to 0.
             ref var ghostCollection = ref testWorld.GetSingletonRW<GhostComponentSerializerCollectionData>(testWorld.ClientWorlds[0]).ValueRW;

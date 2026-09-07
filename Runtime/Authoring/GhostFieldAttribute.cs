@@ -1,6 +1,7 @@
 using System;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Attribute used to specify how and which fields and properties of <see cref="Unity.Entities.IComponentData"/> or
@@ -11,6 +12,7 @@ namespace Unity.NetCode
     /// <remarks>Note that "enableable components" (<see cref="Unity.Entities.IEnableableComponent"/>) will still have their fields replicated, even when disabled.
     /// See <see cref="GhostEnabledBitAttribute"/> to replicate the enabled flag itself.</remarks>
     [AttributeUsage(AttributeTargets.Field|AttributeTargets.Property)]
+    [MovedFrom(true, "Unity.NetCode")]
     public class GhostFieldAttribute : Attribute
     {
         /// <summary>
@@ -74,6 +76,7 @@ namespace Unity.NetCode
     /// <remarks>A type will not replicate its enableable flag unless it has this attribute attached to the class.
     /// This can (and should) also be added to variants that serialize enable bits.</remarks>
     [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class)]
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed class GhostEnabledBitAttribute : Attribute
     {
     }
@@ -82,6 +85,7 @@ namespace Unity.NetCode
     /// Add the attribute to prevent a field ICommandData struct to be serialized.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field|AttributeTargets.Property, Inherited = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public class DontSerializeForCommandAttribute : Attribute
     {
     }
@@ -93,6 +97,7 @@ namespace Unity.NetCode
     /// </summary>
     // Design note: So we don't need to maintain two lists of ghost field arguments, we reuse the one in GhostField, but as a parameter in GhostField.
     // TODO-release@Netcode2.0BreakingChanges we should probably refactor this and make a breaking change on GhostFields.
+    [MovedFrom(true, "Unity.NetCode")]
     public class FieldConfig : GhostFieldAttribute
     {
 

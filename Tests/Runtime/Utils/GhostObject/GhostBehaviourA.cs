@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [DefaultExecutionOrder(100)]
     internal class GhostBehaviourA : GhostBehaviourWithPriority

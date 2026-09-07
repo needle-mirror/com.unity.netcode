@@ -5,8 +5,9 @@ using System.Diagnostics;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Burst;
-using Unity.NetCode.EntitiesInternalAccess;
-namespace Unity.NetCode
+using Unity.Netcode.EntitiesInternalAccess;
+using UnityEngine.Scripting.APIUpdating;
+namespace Unity.Netcode
 {
     /// <summary>
     /// Systems responsible to initialize and create the <see cref="NetDebug"/> singleton and to flush all logs.
@@ -17,6 +18,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [CreateBefore(typeof(NetworkStreamReceiveSystem))]
     [UpdateAfter(typeof(GhostCollectionSystem))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct NetDebugSystem : ISystem
     {
         private ComponentLookup<GhostPrefabMetaData> m_GhostPrefabMetadata;

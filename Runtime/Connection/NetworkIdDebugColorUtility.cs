@@ -1,13 +1,15 @@
 using System;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// A collection of utility to assign constant colors for the NetworkId's. There are in total 13 unique colors,
     /// with 14+ mapping to the original.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class NetworkIdDebugColorUtility
     {
         /// <summary>

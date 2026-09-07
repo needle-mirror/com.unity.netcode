@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Base class for all the tick system, provide a common update mehod that deal with proper and safe

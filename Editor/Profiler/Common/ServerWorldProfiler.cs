@@ -3,7 +3,7 @@ using System;
 using Unity.Profiling;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// The profiler module for the server world in Netcode for Entities.

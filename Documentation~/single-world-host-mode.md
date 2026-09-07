@@ -2,9 +2,6 @@
 
 Configure a host that combines the client and server roles into a single world to reduce the host's CPU and memory overhead.
 
-> [!NOTE]
-> Single-world host mode is experimental. To enable it, add the `NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST` scripting define symbol to your project.
-
 A single-world host is primarily a server with some limited client systems running on it to render the local player's view. The host player's process contains one [world](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-worlds.html) that acts as both client and server. Unlike [binary-worlds host mode](binary-worlds-host-mode.md), there's no client-to-server IPC connection: the host runs a single simulation, owns the authoritative ghost state, and renders the local player directly from that state. The host opens a listening driver so that remote players can connect, and a fake connection entity (a `LocalConnection` singleton with a `NetworkId` component and no `NetworkStreamConnection`) represents the host's own player for convenience.
 
 Because the host doesn't serialize and deserialize its own state, single-world host mode avoids the extra work a binary-world host performs for its local player, such as snapshot serialization, deserialization, rollback, and re-simulation. This makes it a good fit when the host's CPU and memory budget is tight. The trade-off is that the host no longer matches a dedicated server's code paths, and several features behave differently or aren't supported. For a setup that keeps parity with a dedicated server, refer to [Binary-worlds host mode](binary-worlds-host-mode.md).
@@ -14,11 +11,11 @@ Because the host doesn't serialize and deserialize its own state, single-world h
 
 ## Select single-world host mode
 
-Use the **Host World Mode Selection** dropdown on the active [`NetCodeConfig`](xref:Unity.NetCode.NetCodeConfig) asset to select single-world host mode. Binary-worlds host mode is the default value for new projects.
+Use the **Host World Mode Selection** dropdown on the active [`NetcodeConfig`](xref:Unity.Netcode.NetcodeConfig) asset to select single-world host mode. This is the default value for new projects.
 
 ## Bootstrap a single-world host manually
 
-When you need more control over when worlds are created, for example to delay world creation until a menu transition, derive from [`ClientServerBootstrap`](xref:Unity.NetCode.ClientServerBootstrap) and create the host world yourself.
+When you need more control over when worlds are created, for example to delay world creation until a menu transition, derive from [`ClientServerBootstrap`](xref:Unity.Netcode.ClientServerBootstrap) and create the host world yourself.
 
 The following example overrides the default bootstrap so that no networked worlds are created on startup, then creates a single-world host on demand when the player chooses to host a game:
 
@@ -65,5 +62,5 @@ Single-world host mode behaves differently from binary-worlds host mode in sever
 ## Additional resources
 
 - [Network topologies](network-topologies.md)
-- [Binary worldshost mode](binary-worlds-host-mode.md)
+- [Binary-worlds host mode](binary-worlds-host-mode.md)
 - [Client and server worlds networking model](client-server-worlds.md)

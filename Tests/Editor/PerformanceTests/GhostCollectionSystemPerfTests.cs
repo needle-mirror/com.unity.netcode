@@ -8,7 +8,7 @@ using Unity.PerformanceTesting;
 using Unity.Profiling;
 using Unity.Transforms;
 
-namespace Unity.NetCode.Tests.Performance
+namespace Unity.Netcode.Tests.Performance
 {
     internal class PerformanceTests
     {

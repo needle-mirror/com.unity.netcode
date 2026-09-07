@@ -3,14 +3,16 @@ using Unity.Assertions;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Jobs;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     // The header of prediction backup state
     // The header is followed by:
@@ -250,6 +252,7 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(GhostPredictionEnableSimulateSystem))]
     [UpdateBefore(typeof(EndPredictedSimulationEntityCommandBufferSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe partial struct GhostPredictionHistorySystem : ISystem
     {
         /// <summary>

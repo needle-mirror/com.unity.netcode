@@ -1,6 +1,7 @@
 using System;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>Generate a serialization variant for a component using the <see cref="GhostFieldAttribute"/> annotations
@@ -13,6 +14,7 @@ namespace Unity.NetCode
     /// not present in the original struct will not be serialized.
     /// </remarks>
     [AttributeUsage(AttributeTargets.Struct)]
+    [MovedFrom(true, "Unity.NetCode")]
     public class GhostComponentVariationAttribute : Attribute
     {
         /// <summary>Type that this variant is overriding.  Assigned at construction time.</summary>

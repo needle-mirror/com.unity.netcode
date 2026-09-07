@@ -7,7 +7,7 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     // All asserts are exact (bit-identical), no epsilons:
     // - Server: the GO->entity capture writes localScale verbatim into an axis-aligned PostTransformMatrix and keeps

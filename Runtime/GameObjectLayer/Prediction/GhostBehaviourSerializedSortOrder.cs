@@ -16,7 +16,7 @@ using UnityEditor.Build;
 #endif
 
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Asset used to store the script execution order for all the GhostBehaviour. The asset is necessary
@@ -245,7 +245,7 @@ namespace Unity.NetCode
             AssetDatabase.DeleteAsset(GhostBehaviourTypeManager.m_AssetPath);
             var preloadedAssets = new List<UnityEngine.Object>(UnityEditor.PlayerSettings.GetPreloadedAssets());
             preloadedAssets.RemoveAll(x => x is GhostBehaviourSortOrder);
-            preloadedAssets.RemoveAll(x => x is NetCodeConfig);
+            preloadedAssets.RemoveAll(x => x is NetcodeConfig);
             bool wasDirty = IsPlayerSettingsDirty();
             PlayerSettings.SetPreloadedAssets(preloadedAssets.ToArray());
             FileUtil.DeleteFileOrDirectory($"Assets/{Netcode.kTempBuildFolder}");

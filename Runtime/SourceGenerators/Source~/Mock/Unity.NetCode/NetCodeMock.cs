@@ -1,6 +1,6 @@
 using Unity.Entities;
 
-namespace Unity.NetCode;
+namespace Unity.Netcode;
 
 public class NetCodeMock { }
 

@@ -15,7 +15,7 @@ How you select the client-server roles depends on whether you're in the Unity Ed
 
 ## Bootstrap client and server worlds manually
 
-The default [`ClientServerBootstrap`](xref:Unity.NetCode.ClientServerBootstrap) creates the appropriate worlds automatically when your game starts. When you need more control over when worlds are created, for example to delay creation until a player chooses to host or join from a menu, derive from `ClientServerBootstrap` and create the worlds yourself.
+The default [`ClientServerBootstrap`](xref:Unity.Netcode.ClientServerBootstrap) creates the appropriate worlds automatically when your game starts. When you need more control over when worlds are created, for example to delay creation until a player chooses to host or join from a menu, derive from `ClientServerBootstrap` and create the worlds yourself.
 
 The following example overrides the default bootstrap so that no networked worlds are created on startup, then creates a server or client world on demand:
 
@@ -23,7 +23,7 @@ The following example overrides the default bootstrap so that no networked world
 
 After the worlds exist, configure the server world to listen for incoming connections and the client world to connect to the server's address and port. For more information about establishing the connection, refer to [Connecting server and clients](network-connection.md).
 
-Alternatively, you can let the bootstrap connect the worlds for you. If you set `ClientServerBootstrap.AutoConnectPort` to a valid port, any server world that's created listens on that port, and any client world that's created connects to `ClientServerBootstrap.DefaultConnectAddress` on that port.
+Alternatively, you can let the bootstrap connect the worlds for you, which is the default behavior: `ClientServerBootstrap.AutoConnectPort` defaults to 7979, and while it's set to a valid port any server world that's created listens on that port, and any client world that's created connects to `ClientServerBootstrap.DefaultConnectAddress` on that port. Set `AutoConnectPort` to 0 to disable this and manage the connection yourself.
 
 ## How clients and the server communicate
 

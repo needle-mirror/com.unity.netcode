@@ -1,10 +1,10 @@
 using System;
 using Unity.Entities;
 using Unity.Entities.Editor;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.StateSave;
 using UnityEditor;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     [InitializeOnLoad]
     static class NetcodeEditorUtility

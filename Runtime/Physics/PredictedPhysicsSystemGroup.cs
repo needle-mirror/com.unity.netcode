@@ -15,8 +15,10 @@ using System.Collections.Generic;
 using System.Reflection;
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Rate manager that control when the physics simulation will run.
@@ -176,6 +178,7 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(InitializationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class PredictedPhysicsConfigSystem : SystemBase
     {
         protected override void OnUpdate()
@@ -221,6 +224,7 @@ namespace Unity.NetCode
     /// This is required because the predicted physics loop cannot process objects which
     /// are not rolled back.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PredictedPhysicsNonGhostWorld : IComponentData
     {
         /// <summary>
@@ -237,6 +241,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct PredictedPhysicsValidationSystem : ISystem
     {
         #if NETCODE_DEBUG
@@ -305,6 +310,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(TransformSystemGroup))]
     [UpdateBefore(typeof(SwitchPredictionSmoothingSystem))]
     [UpdateAfter(typeof(SmoothRigidBodiesGraphicalMotion))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class SwitchPredictionSmoothingPhysicsOrderingSystem : SystemBase
     {
         internal struct Disabled : IComponentData

@@ -6,7 +6,7 @@ using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace Unity.NetCode.Samples.Common
+namespace Unity.Netcode.Samples.Common
 {
     [BurstCompile]
     internal static class DrawerHelpers

@@ -215,6 +215,26 @@
 .tab-header__sub-element-column-value {
 }
 
+.prediction-errors-header {
+    flex-direction: row;
+    align-items: center;
+}
+
+.open-tracing-tool-button {
+    flex-direction: row;
+    align-items: center;
+}
+
+.open-tracing-tool-button--standalone {
+    align-self: flex-start;
+}
+
+.open-tracing-tool-button__icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+}
+
 .ghost-snapshot__filter{
     margin-bottom: 8px;
 }

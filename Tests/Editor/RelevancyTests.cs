@@ -9,10 +9,10 @@ using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Transforms;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostRelevancyTestConverter : TestNetCodeAuthoring.IConverter
     {

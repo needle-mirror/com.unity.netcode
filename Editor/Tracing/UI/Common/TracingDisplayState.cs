@@ -1,6 +1,6 @@
 using System;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     /// <summary>
     /// Whether the tracing tool is currently presenting a recorded trace (timeline, tick inspector and the rest are populated).

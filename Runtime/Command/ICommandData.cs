@@ -5,10 +5,12 @@ using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// When using MaxPredictionStepBatchSize the client will batch
@@ -19,6 +21,7 @@ namespace Unity.NetCode
     /// while starting to move cannot be batched.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field|AttributeTargets.Property)]
+    [MovedFrom(true, "Unity.NetCode")]
     public class BatchPredictAttribute : Attribute
     {}
 
@@ -58,6 +61,7 @@ namespace Unity.NetCode
     /// <para>- <b>AllPredicted: Interpolated ghost will not have the command buffer.</b></para>
     /// <para>- <b>All: All ghost will have the command buffer.</b></para>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public interface ICommandData : IBufferElementData
     {
         /// <summary>
@@ -80,11 +84,12 @@ namespace Unity.NetCode
     /// <summary>
     /// Interface that must be implemented to serialize/deserialize <see cref="ICommandData"/>.
     /// Usually commands serialization / deserialization is automatically generated, unless a
-    /// <see cref="NetCodeDisableCommandCodeGenAttribute"/> is added to the command struct to opt-in for manual serializaton.
+    /// <see cref="NetcodeDisableCommandCodeGenAttribute"/> is added to the command struct to opt-in for manual serializaton.
     /// If you enable manual serializaton, you must create a public struct that implement the ICommandDataSerializer for your type, as
     /// well as the necessary send and received systems in order to have your RPC sent and received.
     /// </summary>
     /// <typeparam name="T">Your data type.</typeparam>
+    [MovedFrom(true, "Unity.NetCode")]
     public interface ICommandDataSerializer<T> where T: unmanaged, ICommandData
     {
         /// <summary>
@@ -155,6 +160,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Contains utility methods to add and retrieve commands from <see cref="ICommandData"/> dynamic buffers.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class CommandDataUtility
     {
         /// <summary>

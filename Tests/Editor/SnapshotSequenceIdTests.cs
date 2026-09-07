@@ -1,10 +1,10 @@
 using NUnit.Framework;
-using Unity.NetCode;
-using Unity.NetCode.Tests;
+using Unity.Netcode;
+using Unity.Netcode.Tests;
 using Unity.Networking.Transport.Utilities;
 using UnityEngine;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [Category(NetcodeTestCategories.Foundational)]
     internal class SnapshotSequenceIdTests

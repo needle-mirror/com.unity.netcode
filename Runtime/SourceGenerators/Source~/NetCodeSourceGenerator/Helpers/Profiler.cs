@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     /// <summary>
     /// Simple hierarchical profiler

@@ -1,5 +1,5 @@
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 
 namespace DocumentationCodeSamples
 {
@@ -21,10 +21,8 @@ namespace DocumentationCodeSamples
         {
             public static void StartSingleWorldHost()
             {
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
-                // A single world runs both server and client systems for the host.
+                // A single world runs both server and client systems for the host in the same world.
                 var hostWorld = ClientServerBootstrap.CreateSingleWorldHost("HostWorld");
-#endif
             }
         }
         #endregion

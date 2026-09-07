@@ -3,7 +3,7 @@ using Unity.Entities;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Binding methods for the MultiColumnTreeView used in the Netcode Profiler GhostSnapshotTab.

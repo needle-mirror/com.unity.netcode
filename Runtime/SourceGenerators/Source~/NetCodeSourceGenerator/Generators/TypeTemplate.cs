@@ -1,6 +1,6 @@
 using System;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     internal struct TypeDescription
     {

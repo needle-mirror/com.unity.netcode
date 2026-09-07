@@ -5,9 +5,9 @@ using System.Runtime.InteropServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Unity.NetCode.Roslyn;
+using Unity.Netcode.Roslyn;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     /// <summary>
     /// Helper builder that let you to construct a TypeInformation tree from a Rosylin ITypeSymbol
@@ -72,9 +72,9 @@ namespace Unity.NetCode.Generators
             m_context.CancellationToken.ThrowIfCancellationRequested();
             m_Reporter.LogDebug($"Building type info for {symbol}");
             var isEnableableComponent = Roslyn.Extensions.ImplementsInterface(symbol, "Unity.Entities.IEnableableComponent");
-            var hasGhostEnabledBitAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "GhostEnabledBitAttribute") != null;
+            var hasGhostEnabledBitAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.Netcode", "GhostEnabledBitAttribute") != null;
             var fullTypeName = Roslyn.Extensions.GetFullTypeName(symbol);
-            var isRemote = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "RemoteAttribute") != null || Roslyn.Extensions.ImplementsInterface(symbol, "Unity.NetCode.IRemote");
+            var isRemote = Roslyn.Extensions.GetAttribute(symbol, "Unity.Netcode", "RemoteAttribute") != null || Roslyn.Extensions.ImplementsInterface(symbol, "Unity.Netcode.IRemote");
 
             if (hasGhostEnabledBitAttribute && !isEnableableComponent)
             {
@@ -99,7 +99,7 @@ namespace Unity.NetCode.Generators
                 Location = symbol.Locations[0],
                 Symbol = symbol,
                 ShouldSerializeEnabledBit = isEnableableComponent && hasGhostEnabledBitAttribute,
-                HasDontSupportPrefabOverridesAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "DontSupportPrefabOverridesAttribute") != null,
+                HasDontSupportPrefabOverridesAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.Netcode", "DontSupportPrefabOverridesAttribute") != null,
                 IsTestVariant = false,
                 IsRemote = isRemote,
                 IsAutoInvokeRemote = false,
@@ -204,7 +204,7 @@ namespace Unity.NetCode.Generators
                 m_Reporter.LogError($"{variantSymbol.Name}: the target component type must be publicly accessible (or internally accessible if in the same assembly)", variantSymbol.Locations[0]);
                 return null;
             }
-            if (Roslyn.Extensions.GetAttribute(adapteeType, "Unity.NetCode", "DontSupportPrefabOverridesAttribute") != null)
+            if (Roslyn.Extensions.GetAttribute(adapteeType, "Unity.Netcode", "DontSupportPrefabOverridesAttribute") != null)
             {
                 m_Reporter.LogError($"{variantSymbol.Name}: the target component does not support variation because it has the DontSupportPrefabOverridesAttribute", variantSymbol.Locations[0]);
                 return null;
@@ -297,7 +297,7 @@ namespace Unity.NetCode.Generators
 
             m_context.CancellationToken.ThrowIfCancellationRequested();
             var fullTypeName = Roslyn.Extensions.GetFullTypeName(adapteeType);
-            var hasGhostEnabledBitAttribute = Roslyn.Extensions.GetAttribute(variantSymbol, "Unity.NetCode", "GhostEnabledBitAttribute") != null;
+            var hasGhostEnabledBitAttribute = Roslyn.Extensions.GetAttribute(variantSymbol, "Unity.Netcode", "GhostEnabledBitAttribute") != null;
             var adapteeIsEnableableComponent = Roslyn.Extensions.ImplementsInterface(adapteeType, "Unity.Entities.IEnableableComponent");
 
             // TODO - Tests for `[GhostEnabledBit]`s on variants.
@@ -353,7 +353,7 @@ namespace Unity.NetCode.Generators
             var ns = Roslyn.Extensions.GetFullyQualifiedNamespace(symbol);
             var generatedName = NameUtils.GetRemoteGeneratedTypeName(symbol.ContainingType, symbol); // generated backing remote RPC component type
             var fullTypeName = string.IsNullOrEmpty(ns) ? generatedName : string.Concat(ns, ".", generatedName);
-            var isRemote = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "RemoteAttribute") != null;
+            var isRemote = Roslyn.Extensions.GetAttribute(symbol, "Unity.Netcode", "RemoteAttribute") != null;
             var isGhostBehaviourMethod = Roslyn.Extensions.InheritsFromBase(symbol.ContainingType, RemotesCodeGen.GetGhostBehaviourFullTypeName());
 
             // Perform validity checks
@@ -365,9 +365,9 @@ namespace Unity.NetCode.Generators
                     diagnostic.LogError("Remote methods must return void.", symbol.Locations[0]);
                 }
 
-                foreach( var arg in Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "RemoteAttribute").ConstructorArguments )
+                foreach( var arg in Roslyn.Extensions.GetAttribute(symbol, "Unity.Netcode", "RemoteAttribute").ConstructorArguments )
                 {
-                    if (Roslyn.Extensions.GetFullTypeName(arg.Type) == "Unity.NetCode.Directionality")
+                    if (Roslyn.Extensions.GetFullTypeName(arg.Type) == "Unity.Netcode.Directionality")
                     {
                         if ((int)arg.Value == 0)
                         {
@@ -396,7 +396,7 @@ namespace Unity.NetCode.Generators
                 Symbol = null, //symbol, ugh this might get messy
                 MethodSymbol = symbol,
                 ShouldSerializeEnabledBit = false,
-                HasDontSupportPrefabOverridesAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "DontSupportPrefabOverridesAttribute") != null,
+                HasDontSupportPrefabOverridesAttribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.Netcode", "DontSupportPrefabOverridesAttribute") != null,
                 IsTestVariant = false,
                 IsRemote = isRemote,
                 IsAutoInvokeRemote = true, // this is depoending on usage, I think we can just make it true since the RPC generator won't care
@@ -756,14 +756,14 @@ namespace Unity.NetCode.Generators
                 var returnTypeFullTypename = Roslyn.Extensions.GetFullTypeName(f.GetMethod.ReturnType);
                 switch (returnTypeFullTypename)
                 {
-                    case "Unity.NetCode.NetworkTick": return null;
+                    case "Unity.Netcode.NetworkTick": return null;
                     case "Unity.Mathematics.float3": return null;
                     case "Unity.Mathematics.float2": return null;
                     case "Unity.Mathematics.float4": return null;
                     case "Unity.Mathematics.quaternion": return null;
                     default:
                         return $"it returns a non primitive type {returnTypeFullTypename}. " +
-                               $"Properties can be serialized if they return one of the following types: Unity.NetCode.NetworkTick, Unity.Mathematics.float3, Unity.Mathematics.float2, Unity.Mathematics.float4, Unity.Mathematics.quaternion";
+                               $"Properties can be serialized if they return one of the following types: Unity.Netcode.NetworkTick, Unity.Mathematics.float3, Unity.Mathematics.float2, Unity.Mathematics.float4, Unity.Mathematics.quaternion";
                 }
             }
 
@@ -786,7 +786,7 @@ namespace Unity.NetCode.Generators
 
         private bool ShouldDiscardCommandField(ISymbol symbol)
         {
-            var attribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "DontSerializeForCommandAttribute");
+            var attribute = Roslyn.Extensions.GetAttribute(symbol, "Unity.Netcode", "DontSerializeForCommandAttribute");
             if (attribute != null)
                 return true;
             //Since that can be true only for properties, I should not run this for field type
@@ -797,7 +797,7 @@ namespace Unity.NetCode.Generators
                     var member = iface.GetMembers(symbol.Name);
                     if (member == null || member.Length == 0)
                         continue;
-                    if(Roslyn.Extensions.GetAttribute(member[0], "Unity.NetCode", "DontSerializeForCommandAttribute") != null)
+                    if(Roslyn.Extensions.GetAttribute(member[0], "Unity.Netcode", "DontSerializeForCommandAttribute") != null)
                         return true;
                 }
             }
@@ -813,7 +813,7 @@ namespace Unity.NetCode.Generators
         /// </returns>
         private GhostField TryGetGhostField(ISymbol fieldSymbol)
         {
-            var ghostField = Roslyn.Extensions.GetAttribute(fieldSymbol, "Unity.NetCode", "GhostFieldAttribute");
+            var ghostField = Roslyn.Extensions.GetAttribute(fieldSymbol, "Unity.Netcode", "GhostFieldAttribute");
             if (ghostField == null)
                 ghostField = Roslyn.Extensions.GetAttribute(fieldSymbol, "", "GhostField");
             if (ghostField != null)
@@ -838,7 +838,7 @@ namespace Unity.NetCode.Generators
         /// </returns>
         private int TryGetGhostFixedListCapacity(ISymbol fieldSymbol)
         {
-            var ghostFixedList = Roslyn.Extensions.GetAttribute(fieldSymbol, "Unity.NetCode", "GhostFixedListCapacityAttribute");
+            var ghostFixedList = Roslyn.Extensions.GetAttribute(fieldSymbol, "Unity.Netcode", "GhostFixedListCapacityAttribute");
             if (ghostFixedList == null)
                 ghostFixedList = Roslyn.Extensions.GetAttribute(fieldSymbol, "", "GhostFixedListCapacity");
             if (ghostFixedList != null && ghostFixedList.NamedArguments.Length > 0)
@@ -849,7 +849,7 @@ namespace Unity.NetCode.Generators
         }
         private bool CanBatchPredict(ISymbol fieldSymbol)
         {
-            return Roslyn.Extensions.GetAttribute(fieldSymbol, "Unity.NetCode", "BatchPredictAttribute") != null;
+            return Roslyn.Extensions.GetAttribute(fieldSymbol, "Unity.Netcode", "BatchPredictAttribute") != null;
         }
     }
 }

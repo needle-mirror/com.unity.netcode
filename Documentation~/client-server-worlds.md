@@ -16,7 +16,7 @@ When you specify a system group that your system belongs in, Unity automatically
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/client-server-worlds.cs#SystemGroup)]
 
-If you examine the `WorldSystemFilter` attribute on [`GhostInputSystemGroup`](xref:Unity.NetCode.GhostInputSystemGroup), you find that this system group only exists for client, thin client, and local simulation (offline) worlds. It also has a `childDefaultFlags` argument that specifies the flags that child systems, such as the example `MyInputSystem`, inherit (and this argument doesn't contain thin client worlds). Therefore, `MyInputSystem` is present on full client and local simulation worlds exclusively, unless a `WorldSystemFilter` added to `MyInputSystem` overrides this default.
+If you examine the `WorldSystemFilter` attribute on [`GhostInputSystemGroup`](xref:Unity.Netcode.GhostInputSystemGroup), you find that this system group only exists for client, thin client, and local simulation (offline) worlds. It also has a `childDefaultFlags` argument that specifies the flags that child systems, such as the example `MyInputSystem`, inherit (and this argument doesn't contain thin client worlds). Therefore, `MyInputSystem` is present on full client and local simulation worlds exclusively, unless a `WorldSystemFilter` added to `MyInputSystem` overrides this default.
 
 > [!NOTE]
 > Systems that update in the [`PresentationSystemGroup`](xref:Unity.Entities.PresentationSystemGroup) are only added to the client world, because the `PresentationSystemGroup` isn't created for server and thin client worlds.
@@ -40,7 +40,7 @@ In the following example, `MySystem` is defined such that it's only present for 
 
 ## Create client and server worlds with bootstrapping
 
-When you add Netcode for Entities to your project, the default [`ClientServerBootstrap` class](xref:Unity.NetCode.ClientServerBootstrap) is added to the project. This bootstrapping class configures and creates the server and client worlds at runtime when your game starts, or when you enter Play mode in the Unity Editor. The default bootstrap creates the client and server worlds automatically at startup.
+When you add Netcode for Entities to your project, the default [`ClientServerBootstrap` class](xref:Unity.Netcode.ClientServerBootstrap) is added to the project. This bootstrapping class configures and creates the server and client worlds at runtime when your game starts, or when you enter Play mode in the Unity Editor. The default bootstrap creates the client and server worlds automatically at startup.
 
 `ClientServerBootstrap` uses the same bootstrapping flows that [Entities](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/index.html) defines, which means that new worlds are populated using all the systems defined by the relevant world filtering set, such as the `[WorldSystemFilter(...)]` attributes you define, the `WorldSystemFilterFlags` rules your systems inherit, and other attributes like `DisableAutoCreation`. Netcode for Entities also injects many systems and groups automatically.
 
@@ -50,7 +50,7 @@ For example, consider a "host a client-hosted server" flow compared to a "connec
 
 ### Customize the bootstrapping flow
 
-To customize your game flow, create a class that extends `ClientServerBootstrap`, such as `MyGameSpecificBootstrap`, and override the default `Initialize` method implementation. In your derived class, you can reuse the provided helper methods, which let you create client, server, thin client, and local simulation worlds. For more details, refer to [`ClientServerBootstrap` methods](xref:Unity.NetCode.ClientServerBootstrap).
+To customize your game flow, create a class that extends `ClientServerBootstrap`, such as `MyGameSpecificBootstrap`, and override the default `Initialize` method implementation. In your derived class, you can reuse the provided helper methods, which let you create client, server, thin client, and local simulation worlds. For more details, refer to [`ClientServerBootstrap` methods](xref:Unity.Netcode.ClientServerBootstrap).
 
 The following code example shows how to override the default bootstrap to prevent automatic creation of the client and server worlds:
 
@@ -72,7 +72,7 @@ Clients update at a dynamic timestep, except for [prediction code](intro-to-pred
 
 ### Configure the server fixed update loop
 
-The [`ClientServerTickRate`](xref:Unity.NetCode.ClientServerTickRate) singleton component, in the server world, controls the server tick rate. Use it to control different aspects of the server simulation loop. For example:
+The [`ClientServerTickRate`](xref:Unity.Netcode.ClientServerTickRate) singleton component, in the server world, controls the server tick rate. Use it to control different aspects of the server simulation loop. For example:
 
 - `SimulationTickRate` configures the number of simulation ticks per second. The default is 60 ticks per second.
 - `NetworkTickRate` configures how frequently the server sends snapshots to the clients. By default, the `NetworkTickRate` is identical to the `SimulationTickRate`.
@@ -81,13 +81,13 @@ If the server updates at a lower rate than the simulation tick rate, it performs
 
 This behavior can lead to compounding performance issues: the server update becomes slower and slower, because it executes more steps per update to catch up, which causes it to fall even further behind. `ClientServerTickRate` lets you customize how the server behaves when it can't maintain the desired tick rate:
 
-- [`MaxSimulationStepsPerFrame`](xref:Unity.NetCode.ClientServerTickRate.MaxSimulationStepsPerFrame) controls how many simulation steps the server can run in a single frame.
-- [`MaxSimulationStepBatchSize`](xref:Unity.NetCode.ClientServerTickRate.MaxSimulationStepBatchSize) instructs the server loop to batch multiple ticks into a single step, with a multiplier on the delta time. For example, instead of running two steps, the server runs one with double the delta time.
+- [`MaxSimulationStepsPerFrame`](xref:Unity.Netcode.ClientServerTickRate.MaxSimulationStepsPerFrame) controls how many simulation steps the server can run in a single frame.
+- [`MaxSimulationStepBatchSize`](xref:Unity.Netcode.ClientServerTickRate.MaxSimulationStepBatchSize) instructs the server loop to batch multiple ticks into a single step, with a multiplier on the delta time. For example, instead of running two steps, the server runs one with double the delta time.
 
 > [!NOTE]
 > The batching enabled with `MaxSimulationStepBatchSize` only works under specific conditions and has its own nuances and considerations. Ensure that your game doesn't assume that one simulation step is equivalent to one tick, and don't hard code `TimeData.DeltaTime`. Batching can happen when your server has performance issues, and it will most likely produce mispredictions because the simulation granularity isn't the same on the client and the server.
 
-You can also configure how the server consumes idle time to target the desired frame rate. [`TargetFrameRateMode`](xref:Unity.NetCode.ClientServerTickRate.TargetFrameRateMode) controls how the server maintains the tick rate. The available values are:
+You can also configure how the server consumes idle time to target the desired frame rate. [`TargetFrameRateMode`](xref:Unity.Netcode.ClientServerTickRate.TargetFrameRateMode) controls how the server maintains the tick rate. The available values are:
 
 - `BusyWait` to run at maximum speed.
 - `Sleep` to use `Application.TargetFrameRate` and reduce CPU load.
@@ -95,7 +95,7 @@ You can also configure how the server consumes idle time to target the desired f
 
 ### Configure the client update loop
 
-Clients update at a dynamic timestep, except for [prediction code](intro-to-prediction.md), which always runs at the same fixed timestep as the server to maintain a deterministic relationship between the two simulations. Prediction runs in the [`PredictedSimulationSystemGroup`](xref:Unity.NetCode.PredictedSimulationSystemGroup), which applies this fixed timestep for prediction.
+Clients update at a dynamic timestep, except for [prediction code](intro-to-prediction.md), which always runs at the same fixed timestep as the server to maintain a deterministic relationship between the two simulations. Prediction runs in the [`PredictedSimulationSystemGroup`](xref:Unity.Netcode.PredictedSimulationSystemGroup), which applies this fixed timestep for prediction.
 
 The server sends the `ClientServerTickRate` configuration to the client during the initial connection handshake, so the client prediction loop runs at the exact same `SimulationTickRate` as the server.
 

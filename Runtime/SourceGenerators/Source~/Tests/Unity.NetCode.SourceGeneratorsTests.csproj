@@ -3,7 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <RootNamespace>Unity.NetCode.SourceGeneratorsTests</RootNamespace>
+    <RootNamespace>Unity.Netcode.SourceGeneratorsTests</RootNamespace>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>

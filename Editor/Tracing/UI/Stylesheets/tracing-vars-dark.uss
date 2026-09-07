@@ -42,6 +42,8 @@
     --timeline-replay-indicator-color: white;
 
     --scarlet: #FF2400;
+    --server-diff: var(--unity-colors-app_toolbar_button-border_accent);
+    --value-change-background: var(--unity-colors-app_toolbar_button-background-pressed);
     --label-on-red: #090909;
     --label-on-tick: #C4C4C4;
     /* Text on the scarlet diff fill; per-theme for contrast (black reads on the bright dark-theme red). */

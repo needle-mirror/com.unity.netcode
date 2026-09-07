@@ -4,18 +4,20 @@ using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
 using System.Runtime.InteropServices;
-namespace Unity.NetCode
+using UnityEngine.Scripting.APIUpdating;
+namespace Unity.Netcode
 {
     /// <summary>
     /// For internal use only.
     /// The interface for all the code-generated ISystems responsible for registering all the generated component
     /// serializers into the <see cref="GhostComponentSerializerCollectionSystemGroup"/>.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public interface IGhostComponentSerializerRegistration
     {}
 }
 
-namespace Unity.NetCode.LowLevel.Unsafe
+namespace Unity.Netcode.LowLevel.Unsafe
 {
     /// <summary>
     /// Mostly for internal use. A collection helper functions used by code-gen and some runtime systems.
@@ -24,6 +26,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
     /// It also declares all the ghost component/buffers serializers delegate methods, that are used to register
     /// (at runtime) the code-generated serializers (to the <see cref="GhostComponentSerializer.State"/> collection).
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.LowLevel.Unsafe")]
     public unsafe struct GhostComponentSerializer
     {
         ///<summary>
@@ -50,7 +53,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// </summary>
         /// <remarks>Duplicates <see cref="GhostSendType"/>, which should be used instead.</remarks>
         [Flags]
-        [Obsolete("Due to changes to the source generator, this enum is now both redundant and deprecated, as it duplicates `GhostSendType`. Unfortunately, not UnityUpgradable to GhostSendType as enum names have changed. (RemovedAfter Entities 1.0)", false)]
+        [Obsolete("Due to changes to the source generator, this enum is now both redundant and deprecated, as it duplicates `GhostSendType`. Unfortunately, not UnityUpgradable to GhostSendType as enum names have changed. (RemovedAfter Entities 1.0)", true)]
         public enum SendMask
         {
             /// <summary>
@@ -134,7 +137,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <param name="writer">Datastream writer</param>
         /// <param name="compressionModel">Compression model</param>
         /// <param name="entityStartBit">Entity start bit</param>
-        [Obsolete("The SerializeChildDelegate delegate has been deprecated and will be removed. Please use only use the SerializeDelegate instead", false)]
+        [Obsolete("The SerializeChildDelegate delegate has been deprecated and will be removed. Please use only use the SerializeDelegate instead", true)]
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SerializeChildDelegate(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, IntPtr componentData, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit);
         /// <summary>
@@ -294,7 +297,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// Delegate method used to serialize the component data present in the child entity into the outgoing data stream.
             /// Work on a single entity at time.
             /// </summary>
-            [Obsolete("The SerializeChild method has been deprecated. Please use only Serialize instead", false)]
+            [Obsolete("The SerializeChild method has been deprecated. Please use only Serialize instead", true)]
             public PortableFunctionPointer<SerializeChildDelegate> SerializeChild;
             /// <summary>
             /// Delegate method used to serialize the buffer content for the whole chunk. Work in batch for the whole chunk.
@@ -654,6 +657,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
     /// <summary>
     /// Helper class used by codegen for accessing fixed size containers as span
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.LowLevel.Unsafe")]
     public static unsafe class FixedArraySerializationUtils
     {
         /// <summary>

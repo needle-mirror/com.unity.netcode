@@ -3,14 +3,16 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Physics;
 using Unity.Physics.GraphicsIntegration;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Default serialization variant for the PhysicsVelocity. Necessary to synchronize physics
     /// </summary>
     [GhostComponentVariation(typeof(PhysicsVelocity), nameof(PhysicsVelocity))]
     [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.OnlyPredictedClients)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PhysicsVelocityDefaultVariant
     {
         /// <summary>
@@ -30,6 +32,7 @@ namespace Unity.NetCode
     /// </summary>
     [GhostComponentVariation(typeof(PhysicsGraphicalSmoothing), nameof(PhysicsGraphicalSmoothing))]
     [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct PhysicsGraphicalSmoothingDefaultVariant
     {
     }
@@ -48,6 +51,7 @@ namespace Unity.NetCode
                        WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
     [CreateAfter(typeof(GhostComponentSerializerCollectionSystemGroup))]
     [UpdateInGroup(typeof(DefaultVariantSystemGroup), OrderLast = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public sealed partial class PhysicsDefaultVariantSystem : SystemBase
     {
         protected override void OnCreate()

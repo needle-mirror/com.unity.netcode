@@ -5,7 +5,7 @@ using Unity.Entities;
 using UnityEngine;
 using UnityEngine.Assertions;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Contains per <see cref="GhostBehaviour"/> metadata that's known at compile time, like whether this GhostBehaviour has a PredictionUpdate method (so

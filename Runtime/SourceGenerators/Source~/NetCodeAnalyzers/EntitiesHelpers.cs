@@ -100,7 +100,7 @@ namespace NetCodeAnalyzer
             if (typeSymbol == null) // We don't really care whether it's actually a system or not, just that it has the UpdateInGroup attribute
                 return false;
 
-            var targetGroupType = semanticModel.Compilation.GetTypeByMetadataName("Unity.NetCode.PredictedSimulationSystemGroup");
+            var targetGroupType = semanticModel.Compilation.GetTypeByMetadataName("Unity.Netcode.PredictedSimulationSystemGroup");
             return !SymbolEqualityComparer.Default.Equals(targetGroupType, null) && IsInGroupHierarchy(typeSymbol, targetGroupType, new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default));
         }
 

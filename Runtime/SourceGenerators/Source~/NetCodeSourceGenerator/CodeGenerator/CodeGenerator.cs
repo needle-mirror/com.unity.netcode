@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     //This class must not contains state and must be immutable. All necessary data must come from arguments and context
     internal static class CodeGenerator
@@ -71,7 +71,7 @@ namespace Unity.NetCode.Generators
                 var componentTypeName = typeInfo.TypeFullName?.Replace('+', '.');
                 if (componentTypeName != null && symbolTypeName != componentTypeName)
                 {
-                    var variation = Roslyn.Extensions.GetAttribute(typeInfo.Symbol, "Unity.NetCode",                        "GhostComponentVariationAttribute");
+                    var variation = Roslyn.Extensions.GetAttribute(typeInfo.Symbol, "Unity.Netcode",                        "GhostComponentVariationAttribute");
                     if (variation?.ConstructorArguments.Length > 0
                     && variation.ConstructorArguments[0].Value is ITypeSymbol adapteeSymbol)
                     {
@@ -519,7 +519,7 @@ using System.Runtime.InteropServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 using UnityEngine;
 
 // Generated
@@ -745,11 +745,11 @@ using UnityEngine;
 
             // Add the generated code for the command type symbol to the compilation for further processing
             // first lookup from the metadata cache. If it is present there, we are done.
-            var bufferType = context.executionContext.Compilation.GetTypeByMetadataName("Unity.NetCode.InputBufferData`1");
+            var bufferType = context.executionContext.Compilation.GetTypeByMetadataName("Unity.Netcode.InputBufferData`1");
             var inputType = typeTree.Symbol;
             if (bufferType == null)
             {
-                //Search in current compilation unit. This is slow path but only happen for the NetCode assembly itself (where we don't have any IInputComponentData, so fine).
+                //Search in current compilation unit. This is slow path but only happen for the Netcode assembly itself (where we don't have any IInputComponentData, so fine).
                 var inputBufferType = new List<ISymbol>(context.executionContext.Compilation.GetSymbolsWithName("InputBufferData", SymbolFilter.Type))[0] as INamedTypeSymbol;
                 bufferSymbol = inputBufferType.Construct(inputType);
             }
@@ -1310,7 +1310,7 @@ using UnityEngine;
                 imports.Clear();
                 imports.Add("Unity.Entities");
                 imports.Add("Unity.Collections");
-                imports.Add("Unity.NetCode");
+                imports.Add("Unity.Netcode");
                 imports.Add("Unity.Transforms");
                 imports.Add("Unity.Mathematics");
             }

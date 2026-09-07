@@ -1,7 +1,7 @@
 using System;
 using NUnit.Framework;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class NetworkTickUnitTests
     {

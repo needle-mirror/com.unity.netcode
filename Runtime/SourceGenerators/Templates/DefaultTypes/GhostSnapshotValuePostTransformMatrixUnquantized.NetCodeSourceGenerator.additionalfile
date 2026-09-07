@@ -60,7 +60,7 @@ namespace Generated
             {
                 #region __GHOST_COPY_TO_SNAPSHOT__
                 // SignedScaleFromScaleOnlyMatrix (not TransformHelpers.Scale) so negative (mirrored) scale survives replication.
-                var __GHOST_FIELD_NAME___scale = Unity.NetCode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(component.__GHOST_FIELD_REFERENCE__);
+                var __GHOST_FIELD_NAME___scale = Unity.Netcode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(component.__GHOST_FIELD_REFERENCE__);
                 snapshot.__GHOST_FIELD_NAME___x = __GHOST_FIELD_NAME___scale.x;
                 snapshot.__GHOST_FIELD_NAME___y = __GHOST_FIELD_NAME___scale.y;
                 snapshot.__GHOST_FIELD_NAME___z = __GHOST_FIELD_NAME___scale.z;
@@ -74,7 +74,7 @@ namespace Generated
                 #region __GHOST_COPY_FROM_SNAPSHOT__
                 // Only the scale is replicated. We re-apply it onto the existing matrix, keeping user-authored
                 // translation/rotation - the latter up to diagonal signs, which the incoming scale owns (see MatrixScaleHelper).
-                component.__GHOST_FIELD_REFERENCE__ = Unity.NetCode.MatrixScaleHelper.SetScale(component.__GHOST_FIELD_REFERENCE__, new float3(snapshotBefore.__GHOST_FIELD_NAME___x, snapshotBefore.__GHOST_FIELD_NAME___y, snapshotBefore.__GHOST_FIELD_NAME___z));
+                component.__GHOST_FIELD_REFERENCE__ = Unity.Netcode.MatrixScaleHelper.SetScale(component.__GHOST_FIELD_REFERENCE__, new float3(snapshotBefore.__GHOST_FIELD_NAME___x, snapshotBefore.__GHOST_FIELD_NAME___y, snapshotBefore.__GHOST_FIELD_NAME___z));
                 #endregion
 
                 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP__
@@ -85,7 +85,7 @@ namespace Generated
                 var __GHOST_FIELD_NAME___DistSq = math.distancesq(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After);
                 #endregion
                 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
-                component.__GHOST_FIELD_REFERENCE__ = Unity.NetCode.MatrixScaleHelper.SetScale(component.__GHOST_FIELD_REFERENCE__, math.lerp(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After, snapshotInterpolationFactor));
+                component.__GHOST_FIELD_REFERENCE__ = Unity.Netcode.MatrixScaleHelper.SetScale(component.__GHOST_FIELD_REFERENCE__, math.lerp(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After, snapshotInterpolationFactor));
                 #endregion
             }
         }
@@ -112,7 +112,7 @@ namespace Generated
         private static void ReportPredictionErrors(ref IComponentData component, in IComponentData backup, ref UnsafeList<float> errors, ref int errorIndex)
         {
             #region __GHOST_REPORT_PREDICTION_ERROR__
-            errors[errorIndex] = math.max(errors[errorIndex], math.distance(Unity.NetCode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(component.__GHOST_FIELD_REFERENCE__), Unity.NetCode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(backup.__GHOST_FIELD_REFERENCE__)));
+            errors[errorIndex] = math.max(errors[errorIndex], math.distance(Unity.Netcode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(component.__GHOST_FIELD_REFERENCE__), Unity.Netcode.MatrixScaleHelper.SignedScaleFromScaleOnlyMatrix(backup.__GHOST_FIELD_REFERENCE__)));
             ++errorIndex;
             #endregion
         }

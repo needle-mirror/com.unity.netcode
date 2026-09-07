@@ -1,4 +1,4 @@
-namespace Unity.NetCode.Editor.Tracing.UI.TracingToolbar
+namespace Unity.Netcode.Editor.Tracing.UI.TracingToolbar
 {
     internal static class TracingToolbarUssClasses
     {

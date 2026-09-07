@@ -10,7 +10,7 @@ using UnityEditor;
 #endif
 using UnityEngine;
 
-namespace Unity.NetCode.Tracing
+namespace Unity.Netcode.Tracing
 {
     internal enum TracingProcessingStep
     {
@@ -18,12 +18,8 @@ namespace Unity.NetCode.Tracing
         Diff,
     }
 
-    // Tracing backend public class
-#if NETCODE_TRACING_TOOL
-    public struct TracingDataAccess
-#else
+    // Tracing backend entry point.
     internal struct TracingDataAccess
-#endif
     {
         // Public shared static for the config that enables tracing and what to trace.
         public static readonly SharedStatic<UnmanagedConfig> Config = SharedStatic<UnmanagedConfig>.GetOrCreate<TracingDataAccess>();
@@ -87,7 +83,7 @@ namespace Unity.NetCode.Tracing
             s_WorldsSaveSize.Data.ClientShouldReset = false;
             s_WorldsSaveSize.Data.ServerShouldReset = false;
 
-            s_WorldsSaveSize.Data.MaxTracesSizeMB = NetCodeConfig.Global != null ? NetCodeConfig.Global.TracingConfig.TracingMemoryLimitMb : TracingConfig.k_TracingMemoryLimitDefaut;
+            s_WorldsSaveSize.Data.MaxTracesSizeMB = UnmanagedConfig.k_TracingMemoryLimitMB;
         }
 
         /// <summary>
@@ -163,8 +159,7 @@ namespace Unity.NetCode.Tracing
             if (!s_Client.IsCreated || !s_Server.IsCreated)
                 return null;
 
-            var config = NetCodeConfig.Global.TracingConfig;
-            var frameBudgetMs = 1000f / Mathf.Max(1f, config._targetFPSDuringProcessing);
+            var frameBudgetMs = 1000f / UnmanagedConfig.k_TargetFPSDuringProcessing;
             var stop = false;
 
             var processedWorldData = new ProcessedWorldsData();
@@ -188,7 +183,7 @@ namespace Unity.NetCode.Tracing
                 stop = true;
             }
 
-            using var diffProcessingSteps = WorldData.ProcessDiff(processedWorldData, config, ct).GetEnumerator();
+            using var diffProcessingSteps = WorldData.ProcessDiff(processedWorldData, ct).GetEnumerator();
             if (!stop && !await ProcessTickEnumerable(diffProcessingSteps, frameBudgetMs, usePlaymodeSingletons, ct, progress, TracingProcessingStep.Diff, 0f, 1f))
                 stop = true;
             stop |= ct.IsCancellationRequested;

@@ -1,7 +1,7 @@
 using Unity.Entities;
 using UnityEngine;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Add this component to a gameobject present in a sub-scene to configure the <see cref="NetDebug"/> logging level and
@@ -9,7 +9,7 @@ namespace Unity.NetCode
     /// </summary>
     [HelpURL(Authoring.HelpURLs.NetCodeDebugConfigAuthoring)]
     [AddComponentMenu("Multiplayer/NetCode Debug Config Authoring", 5)]
-    public class NetCodeDebugConfigAuthoring : MonoBehaviour
+    public class NetcodeDebugConfigAuthoring : MonoBehaviour
     {
         /// <summary>
         /// The current debug level used by netcode.
@@ -24,12 +24,12 @@ namespace Unity.NetCode
     }
 
     [BakingVersion("cmarastoni", 1)]
-    class NetCodeDebugConfigAuthoringBaker : Baker<NetCodeDebugConfigAuthoring>
+    class NetCodeDebugConfigAuthoringBaker : Baker<NetcodeDebugConfigAuthoring>
     {
-        public override void Bake(NetCodeDebugConfigAuthoring authoring)
+        public override void Bake(NetcodeDebugConfigAuthoring authoring)
         {
             var entity = GetEntity(TransformUsageFlags.Dynamic);
-            AddComponent(entity, new NetCodeDebugConfig
+            AddComponent(entity, new NetcodeDebugConfig
             {
                 LogLevel = authoring.LogLevel,
                 DumpPackets = authoring.DumpPackets

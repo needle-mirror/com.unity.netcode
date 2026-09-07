@@ -3,13 +3,15 @@ using System.Diagnostics;
 using Unity.Mathematics;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     ///     For <see cref="UnsafeBitArray" />.
     ///     Only needed until those changes land in those packages.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class NetcodeBitArrayExtensions
     {
         /// <summary>

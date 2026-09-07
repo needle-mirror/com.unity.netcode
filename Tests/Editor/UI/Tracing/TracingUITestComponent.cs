@@ -1,6 +1,6 @@
 using UnityEngine.UIElements.TestFramework;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Tests
+namespace Unity.Netcode.Editor.Tracing.UI.Tests
 {
     /// <summary>
     /// Test component providing common setup for Tracing UI tests.

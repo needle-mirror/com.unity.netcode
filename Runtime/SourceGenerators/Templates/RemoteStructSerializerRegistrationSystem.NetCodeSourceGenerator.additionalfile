@@ -5,8 +5,8 @@ using System.Text;
 using Unity.Entities;
 using Unity.Burst;
 using Unity.Collections;
-using Unity.NetCode;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode;
+using Unity.Netcode.LowLevel.Unsafe;
 #region __REMOTES_USING_STATEMENT__
 using __REMOTES_USING__;
 #endregion
@@ -27,7 +27,7 @@ namespace __REMOTES_NAMESPACE__
         public void OnCreate(ref SystemState state)
         {
             #region __REMTOES_AUTO_INVOKE_LIST__
-            Netcode.Remote.RegisterAutoInvokeType(__REMOTES_NAME__.HandleFunctionID, __REMOTES_NAME__.StaticHandle, state.World); // OK so here we match the ID manually, we can probably do that with source gen
+            Netcode.Remote.RegisterAutoInvokeType(__REMOTES_NAME__.HandleFunctionID, __REMOTES_NAME__.StaticHandle, (NetcodeWorld)state.World); // OK so here we match the ID manually, we can probably do that with source gen
             #endregion
             state.Enabled = false;
         }

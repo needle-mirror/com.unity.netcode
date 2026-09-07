@@ -2,12 +2,12 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Unity.Collections;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Timeline
+namespace Unity.Netcode.Editor.Tracing.UI.Timeline
 {
     class TimelineView : DataObserverView
     {
@@ -412,7 +412,7 @@ namespace Unity.NetCode.Editor.Tracing.UI.Timeline
 
 
             var frameTimer = System.Diagnostics.Stopwatch.StartNew();
-            var frameBudgetMs = 1000f / Mathf.Max(1f, NetCodeConfig.Global.TracingConfig._targetFPSDuringProcessing);
+            var frameBudgetMs = 1000f / UnmanagedConfig.k_TargetFPSDuringProcessing;
             var rangeStartIndex = m_Data.ClientWorldData.FrameIDs.IndexOf(new FrameID() { value = m_FrameSlider.lowValue });
             var rangeEndIndex = m_Data.ClientWorldData.FrameIDs.IndexOf(new FrameID() { value = m_FrameSlider.highValue });
             var lowLimit = m_RangeSlider.lowLimit;

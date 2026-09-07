@@ -1,25 +1,25 @@
 # Customizing replication with `GhostComponentAttribute`
 
-Use [`GhostComponentAttribute`](xref:Unity.NetCode.GhostComponentAttribute) and its properties to customize how replication is handled by your runtime.
+Use [`GhostComponentAttribute`](xref:Unity.Netcode.GhostComponentAttribute) and its properties to customize how replication is handled by your runtime.
 
 You must annotate your components with [`GhostFieldAttribute`](ghostfield-synchronize.md) to mark them for serialization and replication before you can use `GhostComponentAttribute`.
 
 ## `GhostComponentAttribute` properties
 
-Use these properties to customize how replication is modified using `GhostComponentAttribute`. For more details, refer to the [`GhostComponentAttribute` API documentation](xref:Unity.NetCode.GhostComponentAttribute).
+Use these properties to customize how replication is modified using `GhostComponentAttribute`. For more details, refer to the [`GhostComponentAttribute` API documentation](xref:Unity.Netcode.GhostComponentAttribute).
 
 | Property | Default value | Description |
 |---|---|---|
-| [`OwnerSendType`](xref:Unity.NetCode.GhostComponentAttribute.OwnerSendType) | `All` | Use the `OwnerSendType` property to specify (using [`SendToOwnerType`](xref:Unity.NetCode.SendToOwnerType)) which group of clients to replicate the component to. For example, you can use this property to replicate input commands only to other players (as you already known your own). Refer to [`OwnerSendType` details](#ownersendtype-details).|
-| [`PrefabType`](xref:Unity.NetCode.GhostComponentAttribute.PrefabType) | `All` | Use the `PrefabType` property to specify (using [`GhostPrefabType`](xref:Unity.NetCode.GhostPrefabType)) which versions of the prefab the component should be available on. For example, you can use this property to remove rendering-related components from the server world's version of the ghost. Refer to [`PrefabType` details](#prefabtype-details). |
-| [`SendDataForChildEntity`](xref:Unity.NetCode.GhostComponentAttribute.SendDataForChildEntity) | `false` | Use the `SendDataForChildEntity` property to specify whether to replicate the component when it's attached to a child of a ghost entity. Replicating the children of ghost entities is significantly slower than replicating the parent ghost entities. This property also applies to `[GhostEnabledBit]`. Refer to [`SendDataForChildEntity` details](#senddataforchildentity-details). |
-| [`SendTypeOptimization`](xref:Unity.NetCode.GhostComponentAttribute.SendTypeOptimization) | `AllClients` | Use the `SendTypeOptimization` property to specify (using [`GhostSendType`](xref:Unity.NetCode.GhostSendType)) whether to replicate the component when the ghost is predicted or interpolated. For example, you can use this property to only replicate `PhysicsVelocity` when actually predicting the physics of a ghost. Refer to [`SendTypeOptimization` details](#sendtypeoptimization-details). |
+| [`OwnerSendType`](xref:Unity.Netcode.GhostComponentAttribute.OwnerSendType) | `All` | Use the `OwnerSendType` property to specify (using [`SendToOwnerType`](xref:Unity.Netcode.SendToOwnerType)) which group of clients to replicate the component to. For example, you can use this property to replicate input commands only to other players (as you already known your own). Refer to [`OwnerSendType` details](#ownersendtype-details).|
+| [`PrefabType`](xref:Unity.Netcode.GhostComponentAttribute.PrefabType) | `All` | Use the `PrefabType` property to specify (using [`GhostPrefabType`](xref:Unity.Netcode.GhostPrefabType)) which versions of the prefab the component should be available on. For example, you can use this property to remove rendering-related components from the server world's version of the ghost. Refer to [`PrefabType` details](#prefabtype-details). |
+| [`SendDataForChildEntity`](xref:Unity.Netcode.GhostComponentAttribute.SendDataForChildEntity) | `false` | Use the `SendDataForChildEntity` property to specify whether to replicate the component when it's attached to a child of a ghost entity. Replicating the children of ghost entities is significantly slower than replicating the parent ghost entities. This property also applies to `[GhostEnabledBit]`. Refer to [`SendDataForChildEntity` details](#senddataforchildentity-details). |
+| [`SendTypeOptimization`](xref:Unity.Netcode.GhostComponentAttribute.SendTypeOptimization) | `AllClients` | Use the `SendTypeOptimization` property to specify (using [`GhostSendType`](xref:Unity.Netcode.GhostSendType)) whether to replicate the component when the ghost is predicted or interpolated. For example, you can use this property to only replicate `PhysicsVelocity` when actually predicting the physics of a ghost. Refer to [`SendTypeOptimization` details](#sendtypeoptimization-details). |
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghostcomponentattribute.cs#GhostComponentAttribute)]
 
 ## `OwnerSendType` details
 
-To specify which clients a component is replicated to (based on ownership), use the `OwnerSendType` property of `GhostComponentAttribute`. `OwnerSendType` can be one of the following, as defined by [`SendToOwnerType`](xref:Unity.NetCode.SendToOwnerType).
+To specify which clients a component is replicated to (based on ownership), use the `OwnerSendType` property of `GhostComponentAttribute`. `OwnerSendType` can be one of the following, as defined by [`SendToOwnerType`](xref:Unity.Netcode.SendToOwnerType).
 
 * `None`: The component isn't replicated to any clients.
 * `All`: The component is replicated to all clients.
@@ -28,7 +28,7 @@ To specify which clients a component is replicated to (based on ownership), use 
 
 ## `PrefabType` details
 
-To specify which versions of a ghost prefab a component is available on, use the `PrefabType` property of `GhostComponentAttribute`. `PrefabType` can be one of the following, as defined by [`GhostPrefabType`](xref:Unity.NetCode.GhostPrefabType).
+To specify which versions of a ghost prefab a component is available on, use the `PrefabType` property of `GhostComponentAttribute`. `PrefabType` can be one of the following, as defined by [`GhostPrefabType`](xref:Unity.Netcode.GhostPrefabType).
 
 * `None`: The component isn't available on any ghost prefab type.
 * `All`: The component is available on the server and all clients.
@@ -49,7 +49,7 @@ Use the `SendDataForChildEntity` property of `GhostComponentAttribute` to specif
 
 ## `SendTypeOptimization` details
 
-To specify which clients a component is replicated to (based on whether the ghost is interpolated or predicted on that client), use the `SendTypeOptimization` property of `GhostComponentAttribute.` `SendTypeOptimization` can be one of the following, as defined by [`GhostSendType`](xref:Unity.NetCode.GhostSendType).
+To specify which clients a component is replicated to (based on whether the ghost is interpolated or predicted on that client), use the `SendTypeOptimization` property of `GhostComponentAttribute.` `SendTypeOptimization` can be one of the following, as defined by [`GhostSendType`](xref:Unity.Netcode.GhostSendType).
 
 * `DontSend`: The component isn't replicated to any clients. Netcode for Entities won't modify the component on clients which don't receive it.
 * `AllClients`: The component is replicated to all clients.
@@ -62,8 +62,8 @@ To specify which clients a component is replicated to (based on whether the ghos
 
 ## Additional resources
 
-* [`GhostComponentAttribute` API documentation](xref:Unity.NetCode.GhostComponentAttribute)
+* [`GhostComponentAttribute` API documentation](xref:Unity.Netcode.GhostComponentAttribute)
 * [Serializing and synchronizing with `GhostFieldAttribute`](ghostfield-synchronize.md)
-* [`SendToOwnerType` API documentation](xref:Unity.NetCode.SendToOwnerType)
-* [`GhostPrefabType` API documentation](xref:Unity.NetCode.GhostPrefabType)
-* [`GhostSendType` API documentation](xref:Unity.NetCode.GhostSendType)
+* [`SendToOwnerType` API documentation](xref:Unity.Netcode.SendToOwnerType)
+* [`GhostPrefabType` API documentation](xref:Unity.Netcode.GhostPrefabType)
+* [`GhostSendType` API documentation](xref:Unity.Netcode.GhostSendType)

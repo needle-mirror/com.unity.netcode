@@ -1,7 +1,9 @@
 using Unity.Entities;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.Hybrid
+
+namespace Unity.Netcode.Hybrid
 {
     /// <summary>
     /// Interface of the build settings that are used to build the client and server targets.
@@ -14,6 +16,7 @@ namespace Unity.NetCode.Hybrid
     /// <summary>
     /// A collection of extension utility methods for the <see cref="Baker{TAuthoringType}"/> used by NetCode during the baking process.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public static class BakerExtensions
     {
         /// <summary>

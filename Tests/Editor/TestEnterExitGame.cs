@@ -5,7 +5,7 @@ using Unity.Entities;
 using Unity.Scenes;
 using Object = UnityEngine.Object;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class TestEnterExitGame : TestWithSceneAsset
     {

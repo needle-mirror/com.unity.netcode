@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Unity.Entities;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
+namespace Unity.Netcode.Editor.Tracing.UI.TickInspector
 {
     /// <summary>
     /// The heterogeneous TreeView (SystemGroup -> System -> Ghost -> Component) inside the
@@ -20,6 +20,9 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
 
         // Ids to auto-expand after (re)building (diff-bearing subtrees only).
         readonly List<int> m_ItemsToExpand = new();
+
+        // Suppresses per-item rebinds while ApplyExpansion batches collapse/expand calls.
+        bool m_ApplyingExpansion;
 
         // Raised whenever the tree is (re)built
         public event Action<DiffInfo.DiffReasons> TickReasonsComputed;
@@ -63,7 +66,18 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
             m_TreeView.bindItem = (element, i) =>
             {
                 var item = (TickInspectorTreeViewItem)element;
-                item.SetNode(m_TreeView.GetItemDataForIndex<TickInspectorNode>(i));
+                var node = m_TreeView.GetItemDataForIndex<TickInspectorNode>(i);
+                item.EnableInClassList(TickInspectorUssClasses.TreeViewItemMispredictionTableContainer, node.NodeType == TickInspectorNodeType.MispredictionTable);
+                item.parent?.parent?.EnableInClassList(TickInspectorUssClasses.MispredictionRow, node.NodeType == TickInspectorNodeType.MispredictionTable);
+
+                item.SetNode(node,
+                    collapsed: !m_TreeView.IsExpanded(m_TreeView.GetIdForIndex(i)));
+            };
+            // Rebind on expand/collapse so parent rows flip between their own tags and the subtree summary.
+            m_TreeView.itemExpandedChanged += _ =>
+            {
+                if (!m_ApplyingExpansion)
+                    m_TreeView.RefreshItems();
             };
 
             BuildTreeview();
@@ -427,9 +441,17 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
 
             // The selection and filters define the expansion outright: highlighted subtrees unfold, the
             // rest folds. Expansion persists per item id across rebuilds, hence the collapse first.
-            m_TreeView.CollapseAll();
-            foreach (var id in m_ItemsToExpand)
-                m_TreeView.ExpandItem(id, false, refresh: false);
+            m_ApplyingExpansion = true;
+            try
+            {
+                m_TreeView.CollapseAll();
+                foreach (var id in m_ItemsToExpand)
+                    m_TreeView.ExpandItem(id, false, refresh: false);
+            }
+            finally
+            {
+                m_ApplyingExpansion = false;
+            }
 
             m_TreeView.RefreshItems();
         }

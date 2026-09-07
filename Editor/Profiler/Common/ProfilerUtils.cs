@@ -7,7 +7,7 @@ using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     enum NetworkRole
     {
@@ -57,8 +57,8 @@ namespace Unity.NetCode.Editor
 
         internal static int GetMaxMessageSize()
         {
-            NetCodeConfig.FindAndAssignGlobalConfig();
-            var config = NetCodeConfig.Global;
+            NetcodeConfig.FindAndAssignGlobalConfig();
+            var config = NetcodeConfig.Global;
             if (config && !Application.isPlaying)
                 return config.MaxMessageSize;
 

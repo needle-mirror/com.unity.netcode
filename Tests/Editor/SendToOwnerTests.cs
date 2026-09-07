@@ -2,9 +2,9 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     class SendToOwnerTests
     {

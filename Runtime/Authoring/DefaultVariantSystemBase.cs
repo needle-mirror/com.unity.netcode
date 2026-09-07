@@ -2,11 +2,12 @@ using System;
 using System.Collections.Generic;
 using Unity.Entities;
 using Unity.Collections;
+using UnityEngine.Scripting.APIUpdating;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
 using System.Reflection;
 #endif
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>DefaultVariantSystemBase is an abstract base class that should be used to update the default variants in
@@ -32,6 +33,7 @@ namespace Unity.NetCode
     [CreateAfter(typeof(GhostComponentSerializerCollectionSystemGroup))]
     [CreateBefore(typeof(DefaultVariantSystemGroup))]
     [UpdateInGroup(typeof(DefaultVariantSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public abstract partial class DefaultVariantSystemBase : SystemBase
     {
         /// <summary>When defining default variants for a type, you must denote whether or not this variant will be applied to both parents and children.</summary>

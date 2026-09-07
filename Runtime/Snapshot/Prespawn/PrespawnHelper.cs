@@ -3,9 +3,9 @@ using System.Runtime.CompilerServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     internal static class PrespawnHelper
     {

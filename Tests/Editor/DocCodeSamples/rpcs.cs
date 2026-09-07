@@ -3,7 +3,7 @@ using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace DocumentationCodeSamples

@@ -2,9 +2,10 @@
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 using Unity.Scenes;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal struct RequestUnLoadScene : IRpcCommand
     {

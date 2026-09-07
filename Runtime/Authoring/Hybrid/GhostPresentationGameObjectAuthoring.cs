@@ -2,8 +2,9 @@ using Unity.Entities;
 using UnityEngine;
 using System;
 using System.Collections.Generic;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.Hybrid
+namespace Unity.Netcode.Hybrid
 {
     /// <summary>
     /// Add the component to a ghost prefab to configure the presentation gameobject for the ghost.
@@ -17,6 +18,7 @@ namespace Unity.NetCode.Hybrid
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.GhostPresentationGameObjectAuthoring)]
     [AddComponentMenu("Multiplayer/Ghost Presentation GameObject Authoring", 100)]
+    [MovedFrom(true, "Unity.NetCode.Hybrid")]
     public class GhostPresentationGameObjectAuthoring : MonoBehaviour
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
         , IRegisterPlayableData

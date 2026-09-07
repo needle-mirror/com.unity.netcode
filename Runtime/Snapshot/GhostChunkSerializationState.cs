@@ -9,7 +9,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 
-namespace Unity.NetCode.LowLevel.Unsafe
+namespace Unity.Netcode.LowLevel.Unsafe
 {
     /// <summary>A per-connection, per-ghost-chunk state, storing snapshot send reliability info (baselines etc).</summary>
     unsafe struct GhostChunkSerializationState

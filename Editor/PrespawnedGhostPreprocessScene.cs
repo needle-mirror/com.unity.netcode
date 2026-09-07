@@ -2,8 +2,9 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Scenes;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Process in the editor any sub-scene open for edit that contains pre-spawned ghosts.
@@ -15,6 +16,7 @@ namespace Unity.NetCode.Editor
     [BurstCompile]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(InitializationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode.Editor")]
     public partial struct PrespawnedGhostPreprocessScene : ISystem
     {
         struct PrespawnSceneExtracted : IComponentData

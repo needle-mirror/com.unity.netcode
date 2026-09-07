@@ -3,15 +3,17 @@ using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Add this component to each connection to determine which tiles the connection should prioritize.
     /// This will be passed as argument to the built-in scale function to compute Importance.
     /// See <see cref="GhostDistanceImportance"/> implementation.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostConnectionPosition : IComponentData
     {
         /// <summary>
@@ -34,6 +36,7 @@ namespace Unity.NetCode
     /// <see cref="GhostDistancePartitioningSystem"/>), effectively giving you performant distance-based importance scaling.
     /// </summary>
     [Serializable]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostDistanceData : IComponentData
     {
         /// <summary>
@@ -59,6 +62,7 @@ namespace Unity.NetCode
     /// Further reading: https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/manual/optimizations.html#importance-scaling
     /// </summary>
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct GhostDistanceImportance
     {
         /// <summary>
@@ -75,14 +79,13 @@ namespace Unity.NetCode
         /// <summary>
         /// Pointer to the <see cref="CalculateDefaultScaledPriority"/> static method.
         /// </summary>
-#pragma warning disable CS0618 // Type or member is obsolete
+        [Obsolete("The single-scale importance path is no longer supported. Use BatchScaleImportanceFunction with GhostDistanceImportance.BatchScaleFunctionPointer instead. RemoveAfter 1.x", true)]
         public static readonly PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate> ScaleFunctionPointer =
             new PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate>(Scale);
-#pragma warning restore CS0618 // Type or member is obsolete
 
         [BurstCompile(DisableDirectCall = true)]
         [AOT.MonoPInvokeCallback(typeof(GhostImportance.ScaleImportanceDelegate))]
-        [Obsolete("Prefer `BatchScale` as it significantly reduces the total number of function pointer calls. RemoveAfter 1.x")]
+        [Obsolete("Prefer `BatchScale` as it significantly reduces the total number of function pointer calls. RemoveAfter 1.x", true)]
         private static int Scale(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr chunkTilePtr, int basePriority)
         {
             var distanceData = GhostComponentSerializer.TypeCast<GhostDistanceData>(distanceDataPtr);

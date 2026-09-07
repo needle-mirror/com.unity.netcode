@@ -3,7 +3,7 @@ using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     // Inspector used for discoverability for users. This way they don't need to know they need to add a GhostRigidbody monobehaviour to replicate a Rigidbody, they just have a "replicate" checkbox.
     [CustomEditor(typeof(Rigidbody))]

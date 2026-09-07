@@ -23,7 +23,7 @@
             </engine:VisualElement>
         </engine:VisualElement>
 
-        <engine:VisualElement class="tick-inspector__misprediction-table-row">
+        <engine:VisualElement class="tick-inspector__misprediction-table-row tick-inspector__misprediction-table-row--after">
             <engine:VisualElement class="tick-inspector__misprediction-table-cell">
                 <engine:VisualElement name="after-client-fields" class="tick-inspector__misprediction-table-fields" />
                 <engine:Label text="After" class="tick-inspector__misprediction-table-side-label" />

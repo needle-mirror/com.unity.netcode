@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     public enum GenTypeKind
     {

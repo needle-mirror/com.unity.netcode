@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Unity.NetCode.Roslyn;
+using Unity.Netcode.Roslyn;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     internal class ComponentFactory
     {
@@ -132,7 +132,7 @@ namespace Unity.NetCode.Generators
 
                 var syntaxNode = componentCandidate as TypeDeclarationSyntax;
                 var ghostComponent = TryGetGhostComponent(variantSymbol);
-                var variation = Roslyn.Extensions.GetAttribute(variantSymbol, "Unity.NetCode", "GhostComponentVariationAttribute");
+                var variation = Roslyn.Extensions.GetAttribute(variantSymbol, "Unity.Netcode", "GhostComponentVariationAttribute");
                 var variantTypeInfo = typeBuilder.BuildVariantTypeInformation(variantSymbol, variation, ghostComponent);
                 if (variantTypeInfo == null)
                     continue;
@@ -275,7 +275,7 @@ namespace Unity.NetCode.Generators
         {
             using (new Profiler.Auto("TryGetGhostComponent"))
             {
-                var attributeData = Roslyn.Extensions.GetAttribute(symbol, "Unity.NetCode", "GhostComponentAttribute");
+                var attributeData = Roslyn.Extensions.GetAttribute(symbol, "Unity.Netcode", "GhostComponentAttribute");
                 if (attributeData == null)
                     return default;
                 var ghostAttribute = new GhostComponentAttribute();

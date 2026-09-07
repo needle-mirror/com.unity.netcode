@@ -6,7 +6,7 @@ using Unity.Networking.Transport;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     [Category(NetcodeTestCategories.Foundational)]
     internal partial class ConnectionApprovalTests
@@ -142,7 +142,7 @@ namespace Unity.NetCode.Tests
                 clientEm.AddComponentData(normalRpc, new NormalRpc { Value = 1 });
                 clientEm.AddComponent<SendRpcCommandRequest>(normalRpc);
 
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received non-approval RPC Rpc\\[\\d+, Unity\\.NetCode\\.Tests\\.ConnectionApprovalTests\\+NormalRpc\\] while in the Approval connection state, from NetworkConnection\\[id0,v1\\]. Make sure you only send non-approval RPCs once the connection is approved. Disconnecting."));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received non-approval RPC Rpc\\[\\d+, Unity\\.Netcode\\.Tests\\.ConnectionApprovalTests\\+NormalRpc\\] while in the Approval connection state, from NetworkConnection\\[id0,v1\\]. Make sure you only send non-approval RPCs once the connection is approved. Disconnecting."));
 
                 for (int i = 0; i < 6; ++i)
                     testWorld.Tick();
@@ -208,8 +208,8 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
 
                 var isHost = NetCodeTestWorld.OverrideUseSingleWorldHost;
-                LogAssert.Expect(LogType.Error, new Regex($@"\[{(isHost ? "Host" : "Server")}Test-0\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerRequestApprovalAfterHandshake' from client"));
-                LogAssert.Expect(LogType.Error, new Regex($@"\[{(isHost ? "Host" : "Server")}Test-0\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerApprovedConnection' from client"));
+                LogAssert.Expect(LogType.Error, new Regex($@"\[{(isHost ? "Host" : "Server")}Test-0\]\[Connection\] Server received internal client-only RPC request 'Unity\.Netcode\.ServerRequestApprovalAfterHandshake' from client"));
+                LogAssert.Expect(LogType.Error, new Regex($@"\[{(isHost ? "Host" : "Server")}Test-0\]\[Connection\] Server received internal client-only RPC request 'Unity\.Netcode\.ServerApprovedConnection' from client"));
             }
         }
 
@@ -243,8 +243,8 @@ namespace Unity.NetCode.Tests
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
 
                 // The message printed in this scenario only appears when in debug logging mode
-                testWorld.GetSingletonRW<NetCodeDebugConfig>(testWorld.ServerWorld).ValueRW.LogLevel = NetDebug.LogLevelType.Debug;
-                testWorld.GetSingletonRW<NetCodeDebugConfig>(testWorld.ClientWorlds[0]).ValueRW.LogLevel = NetDebug.LogLevelType.Debug;
+                testWorld.GetSingletonRW<NetcodeDebugConfig>(testWorld.ServerWorld).ValueRW.LogLevel = NetDebug.LogLevelType.Debug;
+                testWorld.GetSingletonRW<NetcodeDebugConfig>(testWorld.ClientWorlds[0]).ValueRW.LogLevel = NetDebug.LogLevelType.Debug;
 
                 // The disconnect needs to happen right before the RpcSystem runs right after connecting, then we'll have
                 // the network protocol version RPC in the queue
@@ -257,7 +257,7 @@ namespace Unity.NetCode.Tests
                 // which indicates we're disconnected but processed this pending RPC in the queue
 #if !NETCODE_NDEBUG
                 LogAssert.ignoreFailingMessages = true;
-                LogAssert.Expect(LogType.Log, new Regex(@$"\[(.*)\] NetworkConnection\[id0,v1\] in disconnected state but allowing Rpc\[(\d+), Unity.NetCode.RequestProtocolVersionHandshake\] to get processed, as it's an approval RPC\!"));
+                LogAssert.Expect(LogType.Log, new Regex(@$"\[(.*)\] NetworkConnection\[id0,v1\] in disconnected state but allowing Rpc\[(\d+), Unity.Netcode.RequestProtocolVersionHandshake\] to get processed, as it's an approval RPC\!"));
 #endif
 
                 for (int i = 0; i < 4; ++i)

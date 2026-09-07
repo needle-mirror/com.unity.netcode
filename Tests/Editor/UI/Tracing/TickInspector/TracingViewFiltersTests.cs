@@ -1,9 +1,9 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.NetCode;
-using Unity.NetCode.Tracing;
+using Unity.Netcode;
+using Unity.Netcode.Tracing;
 
-namespace Unity.NetCode.Editor.Tracing.UI.Tests
+namespace Unity.Netcode.Editor.Tracing.UI.Tests
 {
     /// <summary>
     /// Unit tests for <see cref="TracingViewFilters"/> evaluating stored <see cref="DiffAggregate"/>s.

@@ -4,8 +4,9 @@ using Unity.Networking.Transport;
 using Unity.Collections.LowLevel.Unsafe;
 using System;
 using Unity.Networking.Transport.Relay;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Singleton that can hold a reference to the <see cref="NetworkDriverStore"/> and that should be used
@@ -13,6 +14,7 @@ namespace Unity.NetCode
     /// Provide also other shortcut for retrieving the remote address of a <see cref="NetworkStreamConnection"/> or its
     /// underlying transport state.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe struct NetworkStreamDriver : IComponentData
     {
         internal struct Pointers
@@ -20,7 +22,7 @@ namespace Unity.NetCode
             public NetworkDriverStore DriverStore;
             public ConcurrentDriverStore ConcurrentDriverStore;
         }
-        internal NetworkStreamDriver(void* driverStore, NativeReference<int> numIds, NativeQueue<int> freeIds, NetworkEndpoint endPoint, NativeList<NetCodeConnectionEvent> connectionEventsList, NativeArray<NetCodeConnectionEvent>.ReadOnly connectionEventsForTick)
+        internal NetworkStreamDriver(void* driverStore, NativeReference<int> numIds, NativeQueue<int> freeIds, NetworkEndpoint endPoint, NativeList<NetcodeConnectionEvent> connectionEventsList, NativeArray<NetcodeConnectionEvent>.ReadOnly connectionEventsForTick)
         {
             m_DriverPointer = driverStore;
             //DriverStore = driverStore;
@@ -94,7 +96,7 @@ namespace Unity.NetCode
 
         /// <summary>
         ///     <para>
-        ///         Stores all <see cref="NetCodeConnectionEvent" />s raised by Netcode for this
+        ///         Stores all <see cref="NetcodeConnectionEvent" />s raised by Netcode for this
         ///         <see cref="SimulationSystemGroup" /> tick,
         ///         which allows user code to subscribe to connection and disconnection events (including
         ///         <see cref="ConnectionState.State.Handshake" /> and <see cref="ConnectionState.State.Approval" />, if
@@ -140,12 +142,12 @@ namespace Unity.NetCode
         ///         display names and <see cref="NetworkStreamDisconnectReason" />s).
         ///     </para>
         /// </remarks>
-        public NativeArray<NetCodeConnectionEvent>.ReadOnly ConnectionEventsForTick { get; internal set; }
+        public NativeArray<NetcodeConnectionEvent>.ReadOnly ConnectionEventsForTick { get; internal set; }
 
         /// <summary>
-        ///     The raw list of <see cref="NetCodeConnectionEvent"/>'s. <see cref="ConnectionEventsForTick"/>.
+        ///     The raw list of <see cref="NetcodeConnectionEvent"/>'s. <see cref="ConnectionEventsForTick"/>.
         /// </summary>
-        internal NativeList<NetCodeConnectionEvent> ConnectionEventsList { get; }
+        internal NativeList<NetcodeConnectionEvent> ConnectionEventsList { get; }
 
         /// <summary>
         /// Check if the endpoint can be used for listening for the given driver type. At the moment,
@@ -302,7 +304,7 @@ namespace Unity.NetCode
                 Value = connection,
                 DriverId = 1,
                 CurrentState = state,
-                CurrentStateDirty = true, // Delay the `NetCodeConnectionEvent` for `Connecting` by up to 1 frame,
+                CurrentStateDirty = true, // Delay the `NetcodeConnectionEvent` for `Connecting` by up to 1 frame,
                                           // so that it gets created and destroyed in line with the others.
             });
             if (entityManager.HasComponent<ConnectionState>(ent))

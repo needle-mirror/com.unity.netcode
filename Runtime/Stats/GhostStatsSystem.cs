@@ -8,7 +8,7 @@ using System.IO;
 using UnityEditor;
 #endif
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Commit to the Network Debugger tools all the stats collected by the server and clients worlds

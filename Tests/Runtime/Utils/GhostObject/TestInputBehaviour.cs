@@ -1,6 +1,6 @@
 using NUnit.Framework;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     /// <summary>
     /// Tests that the input value is incrementing as expected each tick and that there's only a diff of +1 between each tick.

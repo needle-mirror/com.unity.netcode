@@ -5,9 +5,9 @@ using System.Text;
 using Unity.Entities;
 using Unity.Burst;
 using Unity.Collections;
-using Unity.NetCode;
-using Unity.NetCode.LowLevel;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode;
+using Unity.Netcode.LowLevel;
+using Unity.Netcode.LowLevel.Unsafe;
 #region __GHOST_USING_STATEMENT__
 using __GHOST_USING__;
 #endregion
@@ -16,6 +16,17 @@ using __GHOST_USING__;
 #endregion
 namespace __GHOST_NAMESPACE__
 {
+    // Aliases beat enclosing-namespace lookup: for assemblies named Unity.NetCode* this namespace nests
+    // under Unity.NetCode, where the obsolete (UnityUpgradable) rename stubs would otherwise shadow the
+    // real Unity.Netcode types (CS0619). Covers bare names injected by the generator too (GhostPrefabType/GhostSendType).
+    using IGhostComponentSerializerRegistration = global::Unity.Netcode.IGhostComponentSerializerRegistration;
+    using GhostComponentSerializerCollectionSystemGroup = global::Unity.Netcode.GhostComponentSerializerCollectionSystemGroup;
+    using DefaultVariantSystemGroup = global::Unity.Netcode.DefaultVariantSystemGroup;
+    using GhostComponentSerializerCollectionData = global::Unity.Netcode.GhostComponentSerializerCollectionData;
+    using ComponentTypeSerializationStrategy = global::Unity.Netcode.ComponentTypeSerializationStrategy;
+    using GhostSendType = global::Unity.Netcode.GhostSendType;
+    using GhostPrefabType = global::Unity.Netcode.GhostPrefabType;
+
     /// <summary>
     /// GhostComponentSerializerRegreationSystem
     /// </summary>

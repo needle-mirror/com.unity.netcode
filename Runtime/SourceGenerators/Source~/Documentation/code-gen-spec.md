@@ -2,7 +2,7 @@
 ## Purpose of the document
 Give a clear overview of the supported feature, intents and how they should work on both source-generation side and conversion.
 ## Glossary
-Following some naming conventions/glossary used in NetCode for Entities and code-generation stack
+Following some naming conventions/glossary used in Netcode for Entities and code-generation stack
 - `Ghost` a replicated entity
 - `GhostField` attribute that can be added to a struct member, indicating that it should be serialized and the field serialization properties.
 - `GhostComponent`: attribute that can be added to structs and classes, used to declare stripping and other replication properties.
@@ -58,7 +58,7 @@ public struct Invalid1 : IComponentData, IRpcCommand
 }
 public struct Invalid2 : IComponentData, ICommandData
 {
-    public Unity.NetCode.NetworkTick Tick {get;set}
+    public Unity.Netcode.NetworkTick Tick {get;set}
     public int Value1;
 }
 public struct Invalid3 : IComponentData, IBufferElementData
@@ -67,7 +67,7 @@ public struct Invalid3 : IComponentData, IBufferElementData
 }
 public struct Invalid4: IBufferElementData, ICommandData
 {
-    public Unity.NetCode.NetworkTick Tick {get;set}
+    public Unity.Netcode.NetworkTick Tick {get;set}
     public int Value1;
 }
 public struct Invalid5 : IBufferElementData, IRpcCommand
@@ -241,10 +241,10 @@ struct A
 }
 ```
 ## TYPE CONFIGURATION
-All types for which serialization should be generated MUST be registered in the TypeRegistry. NetCode provide a default set of types (all primitives and some mathematics) already configured (see [Supported Primitive Types](#supported-primitive-types) section);
-Users can provides their own types and rules by implementing the `Unity.NetCode.Generators.UserDefinedTemplates` method.
+All types for which serialization should be generated MUST be registered in the TypeRegistry. Netcode provide a default set of types (all primitives and some mathematics) already configured (see [Supported Primitive Types](#supported-primitive-types) section);
+Users can provides their own types and rules by implementing the `Unity.Netcode.Generators.UserDefinedTemplates` method.
 ```c#
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     public static partial class UserDefinedTemplates
     {
@@ -493,9 +493,9 @@ public float field2;
 - all serialized fields must public. Private,internal and static fields are ignored
 ### CONDITIONS TO SKIP CODE-GENERATION
 - If the rpc serializer class symbol is already present in the current assembly, the serialization code MUST not be generated.
-- If a `NetCodeDisableCommandCodeGenAttribute` attribute is added to the struct definition, no serialization code will be generated.
+- If a `NetcodeDisableCommandCodeGenAttribute` attribute is added to the struct definition, no serialization code will be generated.
 ```c#
-[NetCodeDisableCommandCodeGen]
+[NetcodeDisableCommandCodeGen]
 public struct NoCodeGenerateRpc : IRpcCommand
 {
 public int field1;
@@ -519,7 +519,7 @@ An RPC can have any number of fields (empty structs are valid).
 #### SUPPORTED FIELD TYPES
 - primitive types
 - float2, float3, float4 and quaternion, in their un-quantized version
-- FixedString supported by NetCode default templates, or used defined ones
+- FixedString supported by Netcode default templates, or used defined ones
 - Entity references.
 - types declared `UserDefinedTemplates` that have the `SupportCommand` property set to `true`.
 ### GHOST COMPONENT SUPPORT
@@ -644,7 +644,7 @@ because `GhostField` properties are used to generate the serialization code, **f
 ```c#
 public struct MyCommand : ICommnaData
 {
-  [GhostField] public Unity.NetCode.NetworkTick Tick {get;set;}
+  [GhostField] public Unity.Netcode.NetworkTick Tick {get;set;}
   [GhostField] public float AllTheSame;
   [GhostField(Quantization=100)] public float TheSameOnServer;
 }
@@ -686,9 +686,9 @@ public float field2;
 - all serialized fields must public. Private,internal and static fields are ignored,
 ### CONDITIONS TO SKIP CODE-GENERATION
 - If the command serializer class symbol is already present in the current assembly, the serialization code MUST not be generated.
-- If a `NetCodeDisableCommandCodeGenAttribute` attribute is added to the struct definition, no serialization code will be generated.
+- If a `NetcodeDisableCommandCodeGenAttribute` attribute is added to the struct definition, no serialization code will be generated.
 ```c#
-[NetCodeDisableCommandCodeGen]
+[NetcodeDisableCommandCodeGen]
 public struct NotGenerated : ICommandData
 {
 public int field1;
@@ -860,7 +860,7 @@ Are considered `EMPTY VARIANTS`:
 - [hybrid component](#hybrid-components) that:
   - have a `GhostComponent` attribute.
 
-`EMPTY VARIANTS` does not generated serialization code and are used to track some important piece of type information used by the NetCode runtime:
+`EMPTY VARIANTS` does not generated serialization code and are used to track some important piece of type information used by the Netcode runtime:
 - The variant type: the class/struct type that declare the variant: avoid reflection at runtime
 - The component type for which the variant is declared for: avoid reflection at runtime
 - The variant hash.: associate the variant in the inspector and other usages.

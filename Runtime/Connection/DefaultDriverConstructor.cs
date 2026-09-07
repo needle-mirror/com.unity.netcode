@@ -10,14 +10,16 @@ using Unity.Networking.Transport.TLS;
 using Unity.Networking.Transport.Relay;
 using Unity.Networking.Transport.Utilities;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 using Debug = UnityEngine.Debug;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Default helper method implementation for constructing <see cref="NetworkDriverStore.NetworkDriverInstance"/>,
     /// default <see cref="NetworkSettings"/> and registering these on the <see cref="NetworkDriverStore"/>.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class DefaultDriverBuilder
     {
         const int DefaultPayloadCapacity = 16 * 1024;
@@ -74,14 +76,14 @@ namespace Unity.NetCode
         }
 
               /// <summary>
-        /// Helper: Adds all netcode-package specific <see cref="NetCodeConfig.Global"/> settings
+        /// Helper: Adds all netcode-package specific <see cref="NetcodeConfig.Global"/> settings
         /// for the <see cref="NetworkConfigParameter"/> struct.
         /// </summary>
         /// <param name="settings">The settings to inject into.</param>
         /// <param name="isServer">Settings differ for server worlds.</param>
         public static void AddNetcodePackageNetworkConfigParameters(ref NetworkSettings settings, bool isServer)
         {
-            var config = NetCodeConfig.Global;
+            var config = NetcodeConfig.Global;
             //force retrieve the default if not already added
             if (!settings.TryGet(out NetworkConfigParameter ncp))
                 ncp = settings.GetNetworkConfigParameters();
@@ -98,7 +100,7 @@ namespace Unity.NetCode
             }
             else
             {
-                Debug.LogError($"Sanity check failed, there should always be a {nameof(NetCodeConfig)} available. Using default driver settings instead.");
+                Debug.LogError($"Sanity check failed, there should always be a {nameof(NetcodeConfig)} available. Using default driver settings instead.");
             }
 
             // We use this method instead of the raw struct option because - if UTP add new fields,
@@ -243,7 +245,7 @@ namespace Unity.NetCode
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
         /// <param name="driverStore">Store for NetworkDriver.</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
-        public static void RegisterClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
+        public static void RegisterClientDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             RegisterClientDriver(world, ref driverStore, netDebug, GetNetworkClientSettings());
         }
@@ -261,7 +263,7 @@ namespace Unity.NetCode
         /// <param name="driverStore">Store for NetworkDriver.</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
-        public static void RegisterClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        public static void RegisterClientDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             if (ClientUseSocketDriver(netDebug))
             {
@@ -286,7 +288,7 @@ namespace Unity.NetCode
         /// <param name="driverStore">Store for NetworkDriver.</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
-        public static void RegisterClientUdpDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        public static void RegisterClientUdpDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             world.AssertIsClientOnly();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterClientUdpDriver] Creating the client default UDP socket network interface driver.");
@@ -304,7 +306,7 @@ namespace Unity.NetCode
         /// <param name="driverStore">Store for NetworkDriver.</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
-        public static void RegisterClientWebSocketDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug,
+        public static void RegisterClientWebSocketDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug,
             NetworkSettings settings)
         {
             world.AssertIsClientOnly();
@@ -335,7 +337,7 @@ namespace Unity.NetCode
         /// <param name="driverStore">Store for NetworkDriver.</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
-        public static void RegisterClientIpcDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        public static void RegisterClientIpcDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             world.AssertIsClientOnly();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterClientIpcDriver] Creating the client default IPC network interface driver.");
@@ -343,9 +345,9 @@ namespace Unity.NetCode
             driverStore.RegisterDriver(TransportType.IPC, driverInstance);
         }
 
-        /// <inheritdoc cref="RegisterServerDriver(World, ref NetworkDriverStore, NetDebug)"/>
+        /// <inheritdoc cref="RegisterServerDriver(NetcodeWorld, ref NetworkDriverStore, NetDebug)"/>
         //[Obsolete("Removed playerCount (RemovedAfter 2.0). (UnityUpgradable) -> RegisterServerDriver(*)", false)]
-        public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, int playerCount = 0)
+        public static void RegisterServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, int playerCount = 0)
         {
             RegisterServerDriver(world, ref driverStore, netDebug);
         }
@@ -362,7 +364,7 @@ namespace Unity.NetCode
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
         /// <param name="driverStore">Store for NetworkDriver.</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
-        public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
+        public static void RegisterServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             RegisterServerDriver(world, ref driverStore, netDebug, GetNetworkServerSettings());
         }
@@ -381,7 +383,7 @@ namespace Unity.NetCode
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         /// <remarks>Not available for WebGL builds. Always available in the Editor.</remarks>
-        public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        public static void RegisterServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             if (!world.IsHost())
                 RegisterServerIpcDriver(world, ref driverStore, netDebug, settings);
@@ -401,7 +403,7 @@ namespace Unity.NetCode
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         /// <remarks>Not available for WebGL builds. Always available in the Editor.</remarks>
-        public static void RegisterServerIpcDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        public static void RegisterServerIpcDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             world.AssertIsServer();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerIpcDriver] Creating the server default IPC network interface driver.");
@@ -419,7 +421,7 @@ namespace Unity.NetCode
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         /// <remarks>Not available for WebGL builds. Always available in the Editor.</remarks>
-        public static void RegisterServerUdpDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        public static void RegisterServerUdpDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             world.AssertIsServer();
             netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerUdpDriver] Creating the server default socket network interface driver.");
@@ -439,7 +441,7 @@ namespace Unity.NetCode
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         /// <remarks>Not available for WebGL build. Always available in the Editor.</remarks>
-        public static void RegisterServerWebSocketDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug,
+        public static void RegisterServerWebSocketDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug,
             NetworkSettings settings)
         {
             Assert.IsTrue(ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Client);
@@ -513,16 +515,16 @@ namespace Unity.NetCode
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="caCertificate">Signed server certificate.</param>
         /// <param name="serverName">Common name in the server certificate.</param>
-        public static void RegisterClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref FixedString4096Bytes caCertificate, ref FixedString512Bytes serverName)
+        public static void RegisterClientDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref FixedString4096Bytes caCertificate, ref FixedString512Bytes serverName)
         {
             var settings = GetNetworkClientSettings();
             settings = settings.WithSecureClientParameters(caCertificate: ref caCertificate, serverName: ref serverName);
             RegisterClientDriver(world, ref driverStore, netDebug, settings);
         }
 
-        /// <inheritdoc cref="RegisterServerDriver(World, ref NetworkDriverStore, NetDebug, ref FixedString4096Bytes, ref FixedString4096Bytes)"/>
+        /// <inheritdoc cref="RegisterServerDriver(NetcodeWorld, ref NetworkDriverStore, NetDebug, ref FixedString4096Bytes, ref FixedString4096Bytes)"/>
         //[Obsolete("Removed default parameter `GetNetworkClientSettings` (RemovedAfter 2.0). (UnityUpgradable) -> RegisterServerDriver(*)", false)]
-        public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug,
+        public static void RegisterServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug,
             ref FixedString4096Bytes certificate, ref FixedString4096Bytes privateKey, int playerCount = 0)
         {
             RegisterServerDriver(world, ref driverStore, netDebug, ref certificate, ref privateKey);
@@ -543,7 +545,7 @@ namespace Unity.NetCode
         /// <param name="certificate"></param>
         /// <param name="privateKey"></param>
         /// <remarks>Not available for WebGL builds. Always available in the Editor.</remarks>
-        public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref FixedString4096Bytes certificate, ref FixedString4096Bytes privateKey)
+        public static void RegisterServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref FixedString4096Bytes certificate, ref FixedString4096Bytes privateKey)
         {
             var settings = GetNetworkServerSettings();
             settings = settings.WithSecureServerParameters(certificate: ref certificate, privateKey: ref privateKey);
@@ -560,7 +562,7 @@ namespace Unity.NetCode
         /// <param name="driverStore">Store for NetworkDriver.</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="relayData">Server information to make a connection using a relay server.</param>
-        public static void RegisterClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData)
+        public static void RegisterClientDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData)
         {
             var settings = GetNetworkClientSettings();
             if (ClientUseSocketDriver(netDebug))
@@ -570,9 +572,9 @@ namespace Unity.NetCode
             RegisterClientDriver(world, ref driverStore, netDebug, settings);
         }
 
-        /// <inheritdoc cref="RegisterServerDriver(World, ref NetworkDriverStore, NetDebug, ref RelayServerData)"/>
+        /// <inheritdoc cref="RegisterServerDriver(NetcodeWorld, ref NetworkDriverStore, NetDebug, ref RelayServerData)"/>
         //[Obsolete("Removed playerCount (RemovedAfter 2.0). (UnityUpgradable) -> RegisterServerDriver(*)", false)]
-        public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData, int playerCount = 0)
+        public static void RegisterServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData, int playerCount = 0)
         {
             RegisterServerDriver(world, ref driverStore, netDebug, ref relayData);
         }
@@ -591,7 +593,7 @@ namespace Unity.NetCode
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         /// <param name="relayData">Server information to make a connection using a relay server.</param>
         /// <remarks>Not available for WebGL builds. Always available in the Editor.</remarks>
-        public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData)
+        public static void RegisterServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData)
         {
             var settings = GetNetworkServerSettings();
             RegisterServerIpcDriver(world, ref driverStore, netDebug, settings);
@@ -614,6 +616,7 @@ namespace Unity.NetCode
     /// In the Editor and Development build, if the network simulator is enabled, force on the client to use the <see cref="UDPNetworkInterface"/> network driver.
     /// <b>To let the client use the IPC network interface when in client and server mode, you must create the server world first (in other words; call `NetworkStreamDriver.Listen` on it before attempting to connect to it).</b>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct IPCAndSocketDriverConstructor : INetworkStreamDriverConstructor
     {
         /// <summary>
@@ -625,7 +628,7 @@ namespace Unity.NetCode
         /// <param name="world">The destination world in which the driver will be created</param>
         /// <param name="driverStore">An instance of a <see cref="NetworkDriverStore"/> where the driver will be registered</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
-        public void CreateClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
+        public void CreateClientDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             DefaultDriverBuilder.RegisterClientDriver(world, ref driverStore, netDebug, DefaultDriverBuilder.GetNetworkClientSettings());
         }
@@ -641,7 +644,7 @@ namespace Unity.NetCode
         /// <param name="world">The destination world in which the driver will be created</param>
         /// <param name="driverStore">An instance of a <see cref="NetworkDriverStore"/> where the driver will be registered</param>
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
-        public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
+        public void CreateServerDriver(NetcodeWorld world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
 #if UNITY_EDITOR || !UNITY_WEBGL
             DefaultDriverBuilder.RegisterServerDriver(world, ref driverStore, netDebug, DefaultDriverBuilder.GetNetworkServerSettings());

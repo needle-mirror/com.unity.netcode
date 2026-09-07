@@ -5,12 +5,13 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class PredictionTests
     {
@@ -471,7 +472,7 @@ namespace Unity.NetCode.Tests
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest(serverCount:0, clientCount:0, singleWorldHostCount:1);
             var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("host smooth", autoRegister: false);
-            var ghostPrefab = prefab.Ghost;
+            var ghostPrefab = prefab.GetComponent<GhostObject>();
             ghostPrefab.SingleWorldHostInterpolationSmoothing = mode;
             ghostPrefab.DefaultGhostMode = GhostMode.Predicted;
             Netcode.RegisterPrefab(ghostPrefab.gameObject);
@@ -511,7 +512,7 @@ namespace Unity.NetCode.Tests
             await testWorld.ConnectAsync(enableGhostReplication: true);
             var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("ghost", autoRegister: false);
 
-            var ghostPrefab = prefab.Ghost;
+            var ghostPrefab = prefab.GetComponent<GhostObject>();
             ghostPrefab.SingleWorldHostInterpolationSmoothing = mode;
             ghostPrefab.DefaultGhostMode = GhostMode.Predicted;
             Netcode.RegisterPrefab(ghostPrefab.gameObject);
@@ -542,6 +543,57 @@ namespace Unity.NetCode.Tests
 
             Assert.That(server.transform.position, Is.EqualTo(Vector3.one * 2), "server position");
             Assert.That(client.transform.position, Is.EqualTo(Vector3.one * 2), "client position");
+        }
+
+        [Test(Description = "A GhostBehaviour on a child GameObject belongs to the root GhostObject: it must get PredictionUpdate called and its GhostFields replicated exactly like a root behaviour.")]
+        public async Task NestedGhostBehaviour_Prediction_Works()
+        {
+            await using var testWorld = new NetCodeTestWorld();
+            await testWorld.SetupGameObjectTest();
+            await testWorld.ConnectAsync(enableGhostReplication: true);
+
+            var prefab = GhostObjectUtils.CreateNestedPredictionCallbackHelperPrefab("NestedPrediction");
+
+            var serverRoot = Object.Instantiate(prefab);
+            var serverHelper = serverRoot.GetComponentInChildren<PredictionCallbackHelper>();
+            await testWorld.TickMultipleAsync(4);
+            var clientHelper = PredictionCallbackHelper.ClientInstances[0];
+            var clientRoot = clientHelper.Ghost.gameObject;
+            Assert.That(clientHelper.Ghost.World.IsClient());
+
+            // The behaviour really is nested, and its Ghost resolved to this instance's root rather than the prefab's.
+            Assert.That(serverHelper.gameObject, Is.Not.SameAs(serverRoot), "server behaviour should be on the child");
+            Assert.That(serverHelper.Ghost, Is.SameAs(serverRoot.GetComponent<GhostObject>()), "server nested behaviour should point at its own root");
+            Assert.That(clientHelper.gameObject, Is.Not.SameAs(clientRoot), "client behaviour should be on the child");
+            Assert.That(clientHelper.Ghost, Is.SameAs(clientRoot.GetComponent<GhostObject>()), "client nested behaviour should point at its own root");
+
+            // The nested behaviour was picked up by GhostObject's GetComponentsInChildren discovery.
+            var serverInfo = testWorld.ServerWorld.EntityManager.GetComponentData<GhostBehaviour.GhostBehaviourTracking>(serverHelper.Ghost.Entity).allBehaviourTypeInfo;
+            var clientInfo = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostBehaviour.GhostBehaviourTracking>(clientHelper.Ghost.Entity).allBehaviourTypeInfo;
+            Assert.AreEqual(1, serverInfo.Length, "server should track the nested GhostBehaviour");
+            Assert.AreEqual(1, clientInfo.Length, "client should track the nested GhostBehaviour");
+
+            void OnPrediction(GameObject go)
+            {
+                var callbackHelper = go.GetComponent<PredictionCallbackHelper>();
+                callbackHelper.SomeGhostField.Value += 1;
+            }
+
+            serverHelper.OnPredictionEvent += OnPrediction;
+            clientHelper.OnPredictionEvent += OnPrediction;
+
+            await testWorld.TickMultipleAsync(30);
+
+            // Same counts as TestBasicPredictionWorks: the client runs 4 extra predicted replay ticks.
+            Assert.AreEqual(30, serverHelper.SomeGhostField.Value);
+            Assert.AreEqual(30 + 4, clientHelper.SomeGhostField.Value);
+
+            // GhostFields declared on a nested behaviour still replicate.
+            serverHelper.ClearEvents();
+            clientHelper.ClearEvents();
+            serverHelper.SomeGhostField.Value = 123;
+            await testWorld.TickMultipleAsync(8);
+            Assert.AreEqual(123, clientHelper.SomeGhostField.Value, "nested GhostField should have replicated to the client");
         }
     }
 }

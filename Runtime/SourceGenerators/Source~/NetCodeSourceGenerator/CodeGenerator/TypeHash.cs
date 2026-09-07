@@ -1,5 +1,5 @@
 
-namespace Unity.NetCode.Generators.Utilities
+namespace Unity.Netcode.Generators.Utilities
 {
     // A copy of the TypeHash in com.unity.entities, used to compute hashes for serializer and variants.
     // This is due to the fact that it is not possible to share any dll and having dependencies (now) with packages dlls.

@@ -1,7 +1,7 @@
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
+namespace Unity.Netcode.Editor.Tracing.UI.TickInspector
 {
     /// <summary>
     /// The timing/batching data of the selected tick, shown in <see cref="TickInspectorMetadataFoldout"/>.

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// Manages info text providers for a profiler tab.

@@ -11,13 +11,14 @@ using UnityEditor;
 using UnityEngine;
 using Unity.Entities.Build;
 using Unity.Jobs;
-using Unity.NetCode.Analytics;
-using Unity.NetCode.Editor.Analytics;
-using Unity.NetCode.Hybrid;
+using Unity.Netcode.Analytics;
+using Unity.Netcode.Editor.Analytics;
+using Unity.Netcode.Hybrid;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine.Analytics;
-using Prefs = Unity.NetCode.MultiplayerPlayModePreferences;
+using Prefs = Unity.Netcode.MultiplayerPlayModePreferences;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     /// <summary>
     /// "Play Mode Tools" Window. Provides controls for:
@@ -134,7 +135,7 @@ Denotes that the server driver is closed i.e. not currently listening.
         static GUIContent s_Timeout = new GUIContent("Force Timeout", "Simulate a timeout (i.e. the client and server stop communicating instantly, and critically, <b>without</b> either being able to send graceful disconnect control messages). A.k.a. An \"ungraceful\" disconnection or \"Server unreachable\".\n\n- Clients should notify the player of the internet issue, and provide automatic (or triggerable) reconnect or quit flows.\n\n - Servers should ensure they handle clients timing out as a valid form of disconnection, and (if supported) ensure that 'same client reconnections' are properly handled.\n\n - Transport settings will inform how quickly all parties detect a lost connection.");
 
         static GUIContent s_LogFileLocation = new GUIContent("Open Log Folder", string.Empty);
-        static GUIContent s_ForceLogLevel = new GUIContent("Force Log Settings", "Force all <b>NetDebug</b> loggers to a specified setting, clobbering any <b>NetCodeDebugConfig</b> singleton.");
+        static GUIContent s_ForceLogLevel = new GUIContent("Force Log Settings", "Force all <b>NetDebug</b> loggers to a specified setting, clobbering any <b>NetcodeDebugConfig</b> singleton.");
         const string k_NetcodeNDebugTooltip = "\n\nDisable this functionality (and related CPU overhead) by defining <b>NETCODE_NDEBUG</b> in your project.";
         static GUIContent s_LogLevel = new GUIContent("Log Level", "Every <b>NetDebug</b> log is raised with a specific severity. Use this to discard logs below this severity level." + k_NetcodeNDebugTooltip);
         static GUIContent s_DumpPacketLogs = new GUIContent("Dump Packet Logs", "Denotes whether Netcode will dump packet logs to <b>NetDebug.LogFolderForPlatform</b>.\n\nIf 'Force Log Settings' is disabled, the editor will use whatever logging configuration values are already set." + k_NetcodeNDebugTooltip);
@@ -552,7 +553,7 @@ Denotes that the server driver is closed i.e. not currently listening.
             GUI.color = EditorApplication.isPlayingOrWillChangePlaymode ? Color.grey : Color.white;
             EditorGUI.BeginChangeCheck();
             var requestedPlayType = (int) Prefs.RequestedPlayType;
-            var hostMode = NetCodeConfig.HostWorldMode.BinaryWorlds;
+            var hostMode = NetcodeConfig.HostWorldMode.BinaryWorlds;
             var hasHostWorld = false;
             foreach (var world in World.All)
             {
@@ -565,16 +566,16 @@ Denotes that the server driver is closed i.e. not currently listening.
 
             if (hasHostWorld)
             {
-                hostMode = NetCodeConfig.HostWorldMode.SingleWorld;
+                hostMode = NetcodeConfig.HostWorldMode.SingleWorld;
             }
             else
             {
-                if (NetCodeConfig.Global == null)
-                    NetCodeConfig.FindAndAssignGlobalConfig();
-                if (NetCodeConfig.Global != null)
-                    hostMode = NetCodeConfig.Global.HostWorldModeSelection;
+                if (NetcodeConfig.Global == null)
+                    NetcodeConfig.FindAndAssignGlobalConfig();
+                if (NetcodeConfig.Global != null)
+                    hostMode = NetcodeConfig.Global.HostWorldModeSelection;
             }
-            EditorPopup(s_PlayModeType, hostMode == NetCodeConfig.HostWorldMode.BinaryWorlds ? k_PlayModeStrings : k_PlayModeStringsSingleWorld, ref requestedPlayType);
+            EditorPopup(s_PlayModeType, hostMode == NetcodeConfig.HostWorldMode.BinaryWorlds ? k_PlayModeStrings : k_PlayModeStringsSingleWorld, ref requestedPlayType);
 
             if (EditorGUI.EndChangeCheck())
             {
@@ -582,10 +583,10 @@ Denotes that the server driver is closed i.e. not currently listening.
                 EditorApplication.isPlaying = false;
             }
 
-            if (hostMode == NetCodeConfig.HostWorldMode.BinaryWorlds)
+            if (hostMode == NetcodeConfig.HostWorldMode.BinaryWorlds)
             {
                 if ((ClientServerBootstrap.PlayType)requestedPlayType != ClientServerBootstrap.PlayType.Client &&
-                    NetCodeClientSettings.instance.ClientTarget == NetCodeClientTarget.ClientAndServer)
+                    NetcodeClientSettings.instance.ClientTarget == NetcodeClientTarget.ClientAndServer)
                 {
                     EditorGUI.BeginChangeCheck();
                     var simulateDedicatedServer = Prefs.SimulateDedicatedServer ? 1 : 0;
@@ -730,10 +731,7 @@ Denotes that the server driver is closed i.e. not currently listening.
                             }
                             break;
                         }
-#pragma warning disable CS0618
-                        case SimulatorView.Disabled:
-#pragma warning restore CS0618
-                            // Show nothing.
+                        case 0: // Legacy 'Disabled' (zero) value; show nothing.
                             break;
                         default:
                             Debug.LogError("Unknown Prefs.SimulatorModeInEditor, using default!");
@@ -804,7 +802,7 @@ Denotes that the server driver is closed i.e. not currently listening.
             }
         }
 
-        void DrawClientWorld(World world)
+        void DrawClientWorld(NetcodeWorld world)
         {
             if (world == default || !world.IsCreated || world.IsHost()) return;
 
@@ -1024,7 +1022,7 @@ Denotes that the server driver is closed i.e. not currently listening.
             DrawConnectionEvents(conSystem.ConnectionEventsForTick);
         }
 
-        private static void DrawConnectionEvents(List<NetCodeConnectionEvent> connectionEvents)
+        private static void DrawConnectionEvents(List<NetcodeConnectionEvent> connectionEvents)
         {
             if (connectionEvents.Count == 0)
                 return;
@@ -1384,7 +1382,7 @@ Denotes that the server driver is closed i.e. not currently listening.
         public FixedList512Bytes<DriverDisplayInfo> DriverInfos;
 
         public bool IsAnyUsingSimulator {get; private set;}
-        public List<NetCodeConnectionEvent> ConnectionEventsForTick { get; } = new(4);
+        public List<NetcodeConnectionEvent> ConnectionEventsForTick { get; } = new(4);
         public NetworkEndpoint? LastEndpoint {get; private set;}
         public NetworkEndpoint? TargetEp {get; private set;}
 
@@ -1623,7 +1621,7 @@ $@"<b>GhostCount</b> Singleton
 
         public FixedList512Bytes<DriverDisplayInfo> DriverInfos;
 
-        public List<NetCodeConnectionEvent> ConnectionEventsForTick { get; } = new(4);
+        public List<NetcodeConnectionEvent> ConnectionEventsForTick { get; } = new(4);
 
         private EntityQuery m_ActiveConnectionsQuery;
         private EntityQuery m_NotInGameQuery;
@@ -1727,7 +1725,7 @@ Across {ghostChunkCount} Chunks{ghostsPerChunk}
             {
                 ref var sceneSystemGuid = ref state.EntityManager.GetComponentDataRW<SceneSystemData>(state.World.GetExistingSystem<SceneSystem>()).ValueRW;
                 // If client type is client-only, the server must use dedicated server data:
-                if (NetCodeClientSettings.instance.ClientTarget == NetCodeClientTarget.Client)
+                if (NetcodeClientSettings.instance.ClientTarget == NetcodeClientTarget.Client)
                     sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
                 // If playmode is simulating dedicated server, we must also use server data:
                 else if (Prefs.SimulateDedicatedServer)

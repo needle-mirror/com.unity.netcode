@@ -4,9 +4,9 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Unity.NetCode.Generators;
+using Unity.Netcode.Generators;
 
-namespace Unity.NetCode.Roslyn
+namespace Unity.Netcode.Roslyn
 {
     /// <summary>
     /// Some extension to provide more user friendly access to some type information in roslyn.
@@ -176,13 +176,13 @@ namespace Unity.NetCode.Roslyn
         public static bool IsCommand(ITypeSymbol symbol)
         {
             return symbol.TypeKind == TypeKind.Struct &&
-                   symbol.ImplementsInterface("Unity.NetCode.ICommandData");
+                   symbol.ImplementsInterface("Unity.Netcode.ICommandData");
         }
 
         public static bool IsRpc(ITypeSymbol symbol)
         {
             return symbol.TypeKind == TypeKind.Struct &&
-                   symbol.ImplementsInterface("Unity.NetCode.IRpcCommand");
+                   symbol.ImplementsInterface("Unity.Netcode.IRpcCommand");
         }
 
         public static bool IsComponent(ITypeSymbol symbol)
@@ -243,29 +243,29 @@ namespace Unity.NetCode.Roslyn
             // Detecting the type here for interfaces inheriting ICommandData is important for
             // InputBufferData when parsing it as a component (type needs to be set to ComponentType.CommandData) or the
             // default ghost component parameters will not be set properly
-            if (interfaceQualifiedName == "Unity.NetCode.ICommandData" ||
-                interfaceSymbol.InheritsFromInterface("Unity.NetCode.ICommandData"))
+            if (interfaceQualifiedName == "Unity.Netcode.ICommandData" ||
+                interfaceSymbol.InheritsFromInterface("Unity.Netcode.ICommandData"))
             {
                 componentType = ComponentType.CommandData;
                 return true;
             }
 
-            if (interfaceQualifiedName == "Unity.NetCode.IRpcCommand" ||
-                interfaceSymbol.InheritsFromInterface("Unity.NetCode.IRpcCommand"))
+            if (interfaceQualifiedName == "Unity.Netcode.IRpcCommand" ||
+                interfaceSymbol.InheritsFromInterface("Unity.Netcode.IRpcCommand"))
             {
                 componentType = ComponentType.Rpc;
                 return true;
             }
 
-            if (interfaceQualifiedName == "Unity.NetCode.IApprovalRpcCommand" ||
-                interfaceSymbol.InheritsFromInterface("Unity.NetCode.IApprovalRpcCommand"))
+            if (interfaceQualifiedName == "Unity.Netcode.IApprovalRpcCommand" ||
+                interfaceSymbol.InheritsFromInterface("Unity.Netcode.IApprovalRpcCommand"))
             {
                 componentType = ComponentType.Rpc;
                 return true;
             }
 
-            if (interfaceQualifiedName == "Unity.NetCode.IInputComponentData" ||
-                interfaceSymbol.InheritsFromInterface("Unity.NetCode.IInputComponentData"))
+            if (interfaceQualifiedName == "Unity.Netcode.IInputComponentData" ||
+                interfaceSymbol.InheritsFromInterface("Unity.Netcode.IInputComponentData"))
             {
                 componentType = ComponentType.Input;
                 return true;
@@ -278,8 +278,8 @@ namespace Unity.NetCode.Roslyn
                 return true;
             }
 
-            if (interfaceQualifiedName == "Unity.NetCode.GhostBehaviour" ||
-                interfaceSymbol.InheritsFromBase("Unity.NetCode.GhostBehaviour"))
+            if (interfaceQualifiedName == "Unity.Netcode.GhostBehaviour" ||
+                interfaceSymbol.InheritsFromBase("Unity.Netcode.GhostBehaviour"))
             {
                 componentType = ComponentType.GhostBehaviour;
                 return true;

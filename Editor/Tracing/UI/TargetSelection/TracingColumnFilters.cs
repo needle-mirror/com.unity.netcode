@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Unity.NetCode.Editor.Tracing
+namespace Unity.Netcode.Editor.Tracing
 {
     /// <summary>
     /// The per-column value filters of <see cref="SelectTracingTargetWindow"/>'s target list: which columns

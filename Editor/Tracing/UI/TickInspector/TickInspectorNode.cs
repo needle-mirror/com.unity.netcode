@@ -1,8 +1,8 @@
 using System;
-using Unity.NetCode.LowLevel.StateSave;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.LowLevel.StateSave;
+using Unity.Netcode.Tracing;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
+namespace Unity.Netcode.Editor.Tracing.UI.TickInspector
 {
     enum TickInspectorNodeType
     {
@@ -27,6 +27,9 @@ namespace Unity.NetCode.Editor.Tracing.UI.TickInspector
 
         // Every reason this row owns, whether or not its tag is currently selected.
         public DiffInfo.DiffReasons DiffReasonFlags;
+
+        // Every reason in this row's subtree; shown instead of DiffReasonFlags while the row is collapsed.
+        public DiffInfo.DiffReasons InclusiveDiffReasonFlags;
 
         // The selected diff tags.
         public DiffInfo.DiffReasons SelectedDiffReasons = DiffInfo.AllDiffReasons;

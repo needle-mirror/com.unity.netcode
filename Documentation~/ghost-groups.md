@@ -7,10 +7,10 @@ Use ghost groups to synchronize replication timings across multiple ghost instan
 ### Configure a ghost group
 To create a ghost group, you need to define a ghost group root, then define said ghost group root's children.
 
-1. Add a [`GhostGroup`](xref:Unity.NetCode.GhostGroup) buffer to a ghost prefab at authoring time using the **Ghost Group** toggle in the **GhostAuthoringComponent**'s Inspector window.
+1. Add a [`GhostGroup`](xref:Unity.Netcode.GhostGroup) buffer to a ghost prefab at authoring time using the **Ghost Group** toggle in the **GhostAuthoringComponent**'s Inspector window.
    This defines the ghost group root, and allows ghost group membership (by other ghost instances).
 2. For each ghost group child instance;
-    1. Add the [`GhostChildEntity`](xref:Unity.NetCode.GhostChildEntity) component to said child.
+    1. Add the [`GhostChildEntity`](xref:Unity.Netcode.GhostChildEntity) component to said child.
     2. Add the child ghost `Entity` to the `GhostGroup` buffer on the root.
 
 ### Ghost group behaviour
@@ -68,8 +68,8 @@ To use ghost groups in this example:
 
 1. Add the `GhostGroup` buffer to the `Player` ghost (by checking the **GhostGroup** option on the **GhostAuthoringComponent**'s Inspector window).
 2. At runtime, when picking up a gun instance, add said `Gun` ghost entity to the `Player`'s `GhostGroup` buffer...
-3. ...and add the [`GhostChildEntity`](xref:Unity.NetCode.GhostChildEntity) component to said `Gun` instance.
-4. Similarly, when dropping a gun, remove it from the `Player`'s `GhostGroup` buffer, and remove the [`GhostChildEntity`](xref:Unity.NetCode.GhostChildEntity) component from the (now dropped) gun.
+3. ...and add the [`GhostChildEntity`](xref:Unity.Netcode.GhostChildEntity) component to said `Gun` instance.
+4. Similarly, when dropping a gun, remove it from the `Player`'s `GhostGroup` buffer, and remove the [`GhostChildEntity`](xref:Unity.Netcode.GhostChildEntity) component from the (now dropped) gun.
 
 This makes the `Player` ghost instance the ghost group root, and each picked up `Gun` ghost instance a ghost group child.
 Each `Gun` ghost instance will now be replicated every time the `Player` ghost instance is, preventing the issues described in the [without ghost groups section](#without-ghost-groups).

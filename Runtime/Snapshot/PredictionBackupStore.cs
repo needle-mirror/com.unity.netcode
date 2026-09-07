@@ -3,7 +3,7 @@ using Unity.Assertions;
 using Unity.Collections;
 using Unity.Entities;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Owns the per-chunk prediction-history collections and the parallel-stage -> serial-commit lifecycle that keeps

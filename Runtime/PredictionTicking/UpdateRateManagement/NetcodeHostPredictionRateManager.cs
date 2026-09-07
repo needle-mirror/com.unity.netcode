@@ -1,6 +1,7 @@
 using Unity.Entities;
+using Unity.Netcode.NetcodeTime;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     class NetcodeHostPredictionRateManager : IRateManager
     {

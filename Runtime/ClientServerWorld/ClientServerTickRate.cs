@@ -3,15 +3,17 @@ using System.Diagnostics;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Netcode.NetcodeTime;
 using UnityEngine;
 using UnityEngine.Serialization;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// The ClientServerTickRate singleton is used to configure the client and server simulation time step,
     /// server packet send rate and other related settings.
-    /// The singleton entity is automatically created for the clients in the <see cref="Unity.NetCode.NetworkStreamReceiveSystem"/>
+    /// The singleton entity is automatically created for the clients in the <see cref="NetworkStreamReceiveSystem"/>
     /// first update if not present.
     /// On the server, by contrast, the entity is never automatically created and it is up to the user to create the singletong instance if
     /// they need to.
@@ -19,13 +21,13 @@ namespace Unity.NetCode
     /// this for compatibility reason and It may be changed in the future.
     /// In order to configure these settings you can either:
     /// <list type="bullet">
-    /// <item> Create the entity in a custom Unity.NetCode.ClientServerBootstrap after the worlds has been created.</item>
+    /// <item> Create the entity in a custom Unity.Netcode.ClientServerBootstrap after the worlds has been created.</item>
     /// <item> On a system, in either the OnCreate or OnUpdate.</item>
     /// </list>
     /// It is not mandatory to set all the fields to a proper value when creating the singleton. It is sufficient to change only the relevant setting, and call the <see cref="ResolveDefaults"/> method to
     /// configure the fields that does not have a value set.
     /// The <see cref="ClientServerTickRate"/> settings are synced as part of the of the initial client connection handshake.
-    /// (<see cref="Unity.NetCode.ClientServerTickRateRefreshRequest"/> data).
+    /// (<see cref="ClientServerTickRateRefreshRequest"/> data).
     /// The ClientServerTickRate should also be used to customise other server only timing settings, such as
     /// <list type="bullet">
     /// <item>the maximum number of tick per frame</item>
@@ -75,6 +77,7 @@ namespace Unity.NetCode
     /// </list>
     /// </remarks>
     [Serializable]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ClientServerTickRate : IComponentData
     {
         /// <summary>
@@ -455,6 +458,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Configure when the prediction loop should run on the client.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum PredictionLoopUpdateMode
     {
         /// <summary>
@@ -473,6 +477,7 @@ namespace Unity.NetCode
     /// See the individual fields for more information about the individual properties.
     /// </summary>
     [Serializable]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct ClientTickRate : IComponentData
     {
         /// <summary>

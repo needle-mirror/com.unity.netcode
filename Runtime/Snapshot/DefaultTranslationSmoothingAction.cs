@@ -4,8 +4,9 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /*
         Example 1:
@@ -25,6 +26,7 @@ namespace Unity.NetCode
     /// position smoothing is active.
     /// </summary>
     [GhostComponent(PrefabType = GhostPrefabType.PredictedClient)]
+    [MovedFrom(true, "Unity.NetCode")]
     public struct DefaultSmoothingActionUserParams : IComponentData
     {
         /// <summary>
@@ -42,6 +44,7 @@ namespace Unity.NetCode
     /// Supports the user data that lets you customize the clamping and snapping of the translation component (any time the translation prediction error is too large).
     /// </summary>
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public unsafe struct DefaultTranslationSmoothingAction
     {
         /// <summary>

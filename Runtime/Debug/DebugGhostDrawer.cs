@@ -3,29 +3,25 @@ using System;
 using System.Collections.Generic;
 using JetBrains.Annotations;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 #if UNITY_EDITOR
-using Unity.NetCode.Analytics;
+using Unity.Netcode.Analytics;
 using UnityEditor;
 #endif
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Allows game code to write its own custom ghost drawers and hook them up in the `MultiplayerPlayModeWindow`.
     /// Implement your own <see cref="CustomDrawer"/> to add a custom debug drawer.
     /// See `BoundingBoxDebugGhostDrawer` for reference.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public class DebugGhostDrawer
     {
         static DebugGhostDrawer s_Instance;
 
         public static List<CustomDrawer> CustomDrawers = new List<CustomDrawer>(2);
-
-        [Obsolete("Use ClientServerBootstrap.ServerWorld instead. RemoveAfter Entities 1.x")]
-        public static World FirstServerWorld => ClientServerBootstrap.ServerWorld;
-
-        [Obsolete("Use ClientServerBootstrap.ClientWorld instead. RemoveAfter Entities 1.x")]
-        public static World FirstClientWorld => ClientServerBootstrap.ClientWorld;
 
         static ulong s_LastNextSequenceNumber;
 
@@ -41,7 +37,7 @@ namespace Unity.NetCode
             CustomDrawers.Sort();
         }
 
-        [Obsolete("This functionality is obsolete, worlds are no longer cached here. RemoveAfter Entities 1.x")]
+        [Obsolete("This functionality is obsolete, worlds are no longer cached here. RemoveAfter Entities 1.x", true)]
         public static void RefreshWorldCaches() {}
 
         public static bool HasRequiredWorlds => ClientServerBootstrap.ServerWorld != default && ClientServerBootstrap.ClientWorld != default;

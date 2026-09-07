@@ -2,7 +2,7 @@
 
 using System;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     static class ProfilerMetricsConstants
     {

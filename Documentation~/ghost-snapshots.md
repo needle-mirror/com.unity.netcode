@@ -15,7 +15,7 @@ When you create a ghost, you need to define how it's [synchronized between clien
 
 ### Create a ghost
 
-Create ghosts in the Unity Editor by [creating a prefab](https://docs.unity3d.com/Manual/CreatingPrefabs.html) with a [`GhostAuthoringComponent`](xref:Unity.NetCode.GhostAuthoringComponent).
+Create ghosts in the Unity Editor by [creating a prefab](https://docs.unity3d.com/Manual/CreatingPrefabs.html) with a [`GhostAuthoringComponent`](xref:Unity.Netcode.GhostAuthoringComponent).
 
 The `GhostAuthoringComponent` in the Editor has a small editor that you can use to configure how Netcode for Entities synchronizes the prefab. You must set the __Name__, __Importance__, __Supported Ghost Mode__, __Default Ghost Mode__ and __Optimization Mode__ property on each ghost, and we also suggest you set the __MaxSendRate__ value to reduce absolute bandwidth consumption. _Netcode for Entities uses the __Importance__ property to control which entities it sends when there's not enough bandwidth to send all entities within a single snapshot (the size of each snapshot packet can be customized). A higher value makes it more likely that the ghost is sent._
 
@@ -115,13 +115,13 @@ You can use the following fundamental attributes:
 
 | Attribute | Usage | More information |
 |---|---|---|
-| [`GhostFieldAttribute`](xref:Unity.NetCode.GhostFieldAttribute)           | Use the `GhostFieldAttribute` on a struct field or property to specify which component (or buffer) fields to serialize. Once a component has at least one field marked with `[GhostField]`, it becomes replicated and is transmitted as part of the ghost data.   | [Serializing and synchronization with GhostFieldAttribute](ghostfield-synchronize.md) |
-| [`GhostEnabledBitAttribute`](xref:Unity.NetCode.GhostEnabledBitAttribute) | Use the `GhostEnabledBitAttribute` on an `IEnableableComponent` struct definition to specify that the enabled bit for this component should be serialized. Once a component is flagged with `[GhostEnabledBit]`, its enabled bit becomes replicated, and is transmitted as part of the ghost data. | [GhostComponentAttribute](ghostcomponentattribute.md) |
-| [`GhostComponentAttribute`](xref:Unity.NetCode.GhostComponentAttribute)   | Use the `GhostComponentAttribute` on a `ComponentType` struct definition to:<br/>- Declare for which version of the prefab the component should be present.<br/>- Declare if the component should be serialized for child entities.<br/>- Declare to which subset of clients a component should be replicated. <br/>Important: Adding a `GhostComponentAttribute` won't make your component fields replicate. You must mark each field with a `GhostFieldAttribute` individually.  | [GhostComponentAttribute](ghostcomponentattribute.md) |
+| [`GhostFieldAttribute`](xref:Unity.Netcode.GhostFieldAttribute)           | Use the `GhostFieldAttribute` on a struct field or property to specify which component (or buffer) fields to serialize. Once a component has at least one field marked with `[GhostField]`, it becomes replicated and is transmitted as part of the ghost data.   | [Serializing and synchronization with GhostFieldAttribute](ghostfield-synchronize.md) |
+| [`GhostEnabledBitAttribute`](xref:Unity.Netcode.GhostEnabledBitAttribute) | Use the `GhostEnabledBitAttribute` on an `IEnableableComponent` struct definition to specify that the enabled bit for this component should be serialized. Once a component is flagged with `[GhostEnabledBit]`, its enabled bit becomes replicated, and is transmitted as part of the ghost data. | [GhostComponentAttribute](ghostcomponentattribute.md) |
+| [`GhostComponentAttribute`](xref:Unity.Netcode.GhostComponentAttribute)   | Use the `GhostComponentAttribute` on a `ComponentType` struct definition to:<br/>- Declare for which version of the prefab the component should be present.<br/>- Declare if the component should be serialized for child entities.<br/>- Declare to which subset of clients a component should be replicated. <br/>Important: Adding a `GhostComponentAttribute` won't make your component fields replicate. You must mark each field with a `GhostFieldAttribute` individually.  | [GhostComponentAttribute](ghostcomponentattribute.md) |
 
 ## Snapshots
 
-A snapshot is a representation of the state of all ghosts on the server for a given network tick. Netcode for Entities sends one snapshot to each connected client once per tick, at a rate defined by [`NetworkTickRate`](xref:Unity.NetCode.ClientServerTickRate.NetworkTickRate) (which can differ from the [`SimulationTickRate`](xref:Unity.NetCode.ClientServerTickRate.SimulationTickRate)). If the `NetworkTickRate` is lower than the `SimulationTickRate`, then Netcode for Entities creates a subset group of connections, and sends one snapshot to each connection in the subset. Then, on the next tick, it sends a snapshot to the next subset, and so on. This is referred to as a round robin approach because it distributes the `GhostSendSystem` load across multiple `SimulationTickRate` ticks.
+A snapshot is a representation of the state of all ghosts on the server for a given network tick. Netcode for Entities sends one snapshot to each connected client once per tick, at a rate defined by [`NetworkTickRate`](xref:Unity.Netcode.ClientServerTickRate.NetworkTickRate) (which can differ from the [`SimulationTickRate`](xref:Unity.Netcode.ClientServerTickRate.SimulationTickRate)). If the `NetworkTickRate` is lower than the `SimulationTickRate`, then Netcode for Entities creates a subset group of connections, and sends one snapshot to each connection in the subset. Then, on the next tick, it sends a snapshot to the next subset, and so on. This is referred to as a round robin approach because it distributes the `GhostSendSystem` load across multiple `SimulationTickRate` ticks.
 
 ### Snapshot processing
 
@@ -145,8 +145,8 @@ Refer to the documentation on [importance scaling](optimization/optimize-ghosts.
 ## Additional resources
 
 - [Communicating with RPCs](rpcs.md)
-- [`NetworkTickRate` API documentation](xref:Unity.NetCode.ClientServerTickRate.NetworkTickRate)
-- [`SimulationTickRate` API documentation](xref:Unity.NetCode.ClientServerTickRate.SimulationTickRate)
+- [`NetworkTickRate` API documentation](xref:Unity.Netcode.ClientServerTickRate.NetworkTickRate)
+- [`SimulationTickRate` API documentation](xref:Unity.Netcode.ClientServerTickRate.SimulationTickRate)
 - [Serializing and synchronizing with GhostField](ghostfield-synchronize.md)
 - [Customizing replication with `GhostComponentAttribute`](ghostcomponentattribute.md)
 - [Creating replication schemas with `GhostComponentVariationAttribute`](ghost-variants.md)

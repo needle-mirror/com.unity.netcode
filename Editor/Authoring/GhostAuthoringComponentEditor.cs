@@ -1,14 +1,11 @@
 using System;
-using System.Collections.Generic;
-using Unity.Collections;
-using Unity.Entities.Conversion;
-using Unity.Mathematics;
-using Unity.NetCode.Hybrid;
+using Unity.Netcode.Hybrid;
+using Unity.Netcode.NetcodeTime;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     [CustomEditor(typeof(GhostAuthoringComponent))]
     [CanEditMultipleObjects]
@@ -64,11 +61,22 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        /// <summary>Aligned with NetCode for GameObjects.</summary>
+        /// <summary>Aligned with Netcode for GameObjects.</summary>
         public static Color netcodeColor => new Color(0.91f, 0.55f, 0.86f, 1f);
+
+        /// <summary>
+        /// Cached reference to the GhostObject that belongs to this inspector.
+        /// Avoids an expensive GetComponent call.
+        /// </summary>
+        private GhostObject m_GhostObject;
 
         void OnEnable()
         {
+            var targetAsSetting = target as TGhostSetting;
+            if (targetAsSetting != null)
+            {
+                m_GhostObject = targetAsSetting.gameObject.GetComponent<GhostObject>();
+            }
             DefaultGhostMode = serializedObject.FindProperty(nameof(BaseGhostSettings.DefaultGhostMode));
             SupportedGhostModes = serializedObject.FindProperty(nameof(BaseGhostSettings.SupportedGhostModes));
             OptimizationMode = serializedObject.FindProperty(nameof(BaseGhostSettings.OptimizationMode));
@@ -87,7 +95,7 @@ namespace Unity.NetCode.Editor
 
         public override void OnInspectorGUI()
         {
-            var globalConfig = NetCodeClientAndServerSettings.instance?.GlobalNetCodeConfig;
+            var globalConfig = NetcodeClientAndServerSettings.instance?.GlobalNetcodeConfig;
             var self = (TGhostSetting)target;
             var go = self.gameObject;
             var isPrefabEditable = IsPrefabEditable(go);
@@ -105,7 +113,10 @@ namespace Unity.NetCode.Editor
 
                 if (!isViewingPrefab)
                 {
-                    EditorGUILayout.HelpBox($"'{self}' is not a recognised Prefab, so the `{target.GetType()}` is not valid. Please ensure that this GameObject is an unmodified Prefab instance mapped to a known project asset.", MessageType.Error);
+                    if (m_GhostObject == null || m_GhostObject.prefabReference?.Prefab == null)
+                    {
+                        EditorGUILayout.HelpBox($"'{self}' is not a recognised Prefab, so the `{target.GetType()}` is not valid. Please ensure that this GameObject is an unmodified Prefab instance mapped to a known project asset.", MessageType.Error);
+                    }
                 }
             }
 
@@ -217,7 +228,7 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.PropertyField(RollbackPredictionOnStructuralChanges);
             }
 
-            if (globalConfig?.HostWorldModeSelection == NetCodeConfig.HostWorldMode.SingleWorld)
+            if (globalConfig?.HostWorldModeSelection == NetcodeConfig.HostWorldMode.SingleWorld)
             {
                 EditorGUILayout.PropertyField(SingleWorldHostInterpolationSmoothing);
             }
@@ -270,7 +281,7 @@ namespace Unity.NetCode.Editor
 
         internal string GetImportanceFieldTooltip()
         {
-            var suggestions = NetCodeClientAndServerSettings.instance.CurrentImportanceSuggestions;
+            var suggestions = NetcodeClientAndServerSettings.instance.CurrentImportanceSuggestions;
             var s = Importance.tooltip;
             foreach (var eis in suggestions)
             {
@@ -283,7 +294,7 @@ namespace Unity.NetCode.Editor
 
         internal static EditorImportanceSuggestion ImportanceInlineTooltip(long importance)
         {
-            var suggestions = NetCodeClientAndServerSettings.instance.CurrentImportanceSuggestions;
+            var suggestions = NetcodeClientAndServerSettings.instance.CurrentImportanceSuggestions;
             foreach (var eis in suggestions)
             {
                 if (importance <= eis.MaxValue)

@@ -1,10 +1,10 @@
 #templateid:NetCode.GhostFixedListSnapshotHelpers.cs
 using System;
 using Unity.Collections;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
-using Unity.NetCode;
+using Unity.Netcode;
 
 #region __GHOST_FIXEDLIST_ELEMENT__
 #endregion

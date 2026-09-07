@@ -6,4 +6,4 @@ Use ghosts, commands, and RPCs to synchronize states and inputs between server a
 |:------------------------------------------------|:----------------------------------------------|
 | **[Synchronization with ghosts](ghosts.md)** | Use ghosts to synchronize and replicate states between server and clients in a consistent and customizable way.|
 | **[Communication with RPCs](rpcs.md)** | Use remote procedure calls (RPCs) to communicate high-level game flow events and send one-off, non-predicted commands from the client to the server. |
-| **[Handling inputs with the command stream](command-stream.md)** | Clients send a continuous command stream to the server when [`NetworkStreamConnection`](xref:Unity.NetCode.NetworkStreamConnection) is tagged as in-game. This stream includes all inputs and acknowledgements of the last received snapshot. |
+| **[Handling inputs with the command stream](command-stream.md)** | Clients send a continuous command stream to the server when [`NetworkStreamConnection`](xref:Unity.Netcode.NetworkStreamConnection) is tagged as in-game. This stream includes all inputs and acknowledgements of the last received snapshot. |

@@ -196,17 +196,26 @@
     align-items: center;
 }
 
+.tick-inspector__misprediction-row {
+    background-color: var(--unity-colors-default-background);
+}
+
 /* Misprediction/desync detail table (see MispredictionDetailTable). The table replaces the row's
    label/badge/buttons, so the row stacks vertically and the table spans the full width. */
 .tick-inspector__tree-view-item--misprediction-table {
     flex-direction: column;
     align-items: stretch;
+    background-color: var(--unity-colors-alternated_rows-background);
+}
+
+.tick-inspector__tree-view-item--misprediction-table__container {
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-right: 60px;
 }
 
 .tick-inspector__misprediction-table {
     flex-grow: 1;
-    margin-top: 2px;
-    margin-bottom: 4px;
     border-width: 1px;
     border-color: var(--unity-colors-default-border);
     border-radius: 3px;
@@ -248,23 +257,42 @@
     padding: 2px 4px;
 }
 
-/* Stacked field lines fill the cell; the before/after side label pins to the bottom-right. */
 .tick-inspector__misprediction-table-fields {
     flex-grow: 1;
+    flex-shrink: 1;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
+    overflow: hidden;
+}
+
+.tick-inspector__misprediction-table-row--after {
+    border-top-width: 1px;
+    border-top-color: var(--unity-colors-default-border);
 }
 
 .tick-inspector__misprediction-table-side-label {
     flex-shrink: 0;
-    margin-left: 4px;
-    opacity: 0.5;
+    align-self: flex-start;
+    margin-left: 6px;
+    padding: 0 3px;
+    opacity: 0.75;
+    font-size: 10px;
+    -unity-font-style: bold;
+    background-color: rgba(128, 128, 128, 0.18);
+    border-radius: 2px;
 }
 
-/* One field per line; value/structural tokens sit inline so a highlight wraps just its scalar. */
 .tick-inspector__misprediction-table-field-line {
     flex-direction: row;
     flex-wrap: nowrap;
+    padding-top: 1px;
+    padding-bottom: 1px;
+    padding-left: 6px;
+    border-left-width: 0;
+}
+
+.tick-inspector__misprediction-table-field-line--odd {
+    background-color: rgba(128, 128, 128, 0.07);
 }
 
 .tick-inspector__misprediction-table-span {
@@ -273,20 +301,47 @@
     white-space: nowrap;
 }
 
-/* Diverging values: red fill on the predicted side, a neutral box on the authoritative side. */
+.tick-inspector__misprediction-table-field-name {
+    min-width: 78px;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.tick-inspector__misprediction-table-sub-field-name {
+    opacity: 0.55;
+}
+
+.tick-inspector__misprediction-table-punctuation {
+    opacity: 0.35;
+}
+
+
 .tick-inspector__misprediction-table-field--diff {
-    background-color: var(--scarlet);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--scarlet);
     border-radius: 2px;
-    color: var(--diff-highlight-text);
     padding-left: 2px;
     padding-right: 2px;
 }
 
+.tick-inspector__misprediction-table-field--value-change {
+    background-color: var(--value-change-background);
+}
+
 .tick-inspector__misprediction-table-field--server-diff {
-    background-color: rgba(128, 128, 128, 0.25);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--server-diff);
     border-radius: 2px;
     padding-left: 2px;
     padding-right: 2px;
+}
+
+.tick-inspector__misprediction-table-field--unsupported {
+    opacity: 0.5;
+}
+
+.tick-inspector__misprediction-table-summary {
+    -unity-font-style: italic;
 }
 
 .tick-inspector__misprediction-table-no-data {

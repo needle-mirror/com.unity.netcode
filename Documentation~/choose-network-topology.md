@@ -26,16 +26,13 @@ Netcode for Entities supports two client-hosted setups that differ in how the ho
 
 ### Binary-worlds host mode
 
-Binary-worlds host mode is the default client-hosted setup. The host's process contains a full client world and a full server world connected through a local intra-process communication (IPC) connection, so the host runs the same code paths as a dedicated server deployment.
+In binary-worlds host mode, the host's process contains a full client world and a full server world connected through a local intra-process communication (IPC) connection, so the host runs the same code paths as a dedicated server deployment.
 
 This parity makes binary-worlds host mode a good fit when you want local play tests to exercise the same serialization and prediction code as production, or when you plan to ship, or might later ship, a dedicated server build alongside the client-hosted build. It also supports features that single-world host mode doesn't, such as host-side prediction switching, partial ticks, and relevancy on the host connection. For more information, refer to [Binary-worlds host mode](binary-worlds-host-mode.md).
 
 ### Single-world host mode
 
-> [!NOTE]
-> Single-world host mode is experimental. To enable it, add the `NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST` scripting define symbol to your project.
-
-Single-world host mode combines the client and server roles into a single world. Because the host doesn't serialize and deserialize its own state, it avoids the extra work a binary-worlds host mode performs for its local player, which lowers the host's CPU and memory overhead.
+Single-world host mode is the default client-hosted setup. It combines the client and server roles into a single world. Because the host doesn't serialize and deserialize its own state, it avoids the extra work a binary-worlds host mode performs for its local player, which lowers the host's CPU and memory overhead.
 
 This makes single-world host mode a good fit when the host's performance budget is tight and you don't need parity with a dedicated server. In exchange, several features behave differently or aren't supported, including prediction switching, partial ticks, and relevancy on the host connection. For more information, refer to [Single-world host mode](single-world-host-mode.md).
 

@@ -1,14 +1,13 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.NetCode.Editor;
-using Unity.NetCode.Tests;
+using Unity.Netcode.Tests;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEngine.UIElements.TestFramework;
 using Object = UnityEngine.Object;
 
-namespace Unity.NetCode.Editor.Tests.UI.Inspection
+namespace Unity.Netcode.Editor.Tests.UI.Inspection
 {
     /// <summary>
     /// A tag-style component with no <see cref="GhostFieldAttribute"/>s. The default serializer for it is
@@ -81,6 +80,10 @@ namespace Unity.NetCode.Editor.Tests.UI.Inspection
         GhostAuthoringInspectionComponent m_Inspection;
         GhostAuthoringInspectionComponentEditor m_Editor;
         VisualElement m_InspectorRoot;
+        /// <summary>Set when a test wrote a prefab asset under <see cref="NetCodeTestWorld.k_GeneratedFolderBasePath"/>.
+        /// The synchronous <c>NetCodeTestWorld.Dispose</c> does not clean that folder (only <c>DisposeAsync</c> does), and
+        /// a leftover ghost prefab there would auto-register itself in later tests.</summary>
+        bool m_WroteGeneratedPrefab;
 
         [SetUp]
         public void SetUp()
@@ -103,6 +106,12 @@ namespace Unity.NetCode.Editor.Tests.UI.Inspection
             }
             m_Inspection = null;
             m_InspectorRoot = null;
+            if (m_WroteGeneratedPrefab)
+            {
+                m_WroteGeneratedPrefab = false;
+                AssetDatabase.DeleteAsset(NetCodeTestWorld.k_GeneratedFolderBasePath.TrimEnd('/'));
+                AssetDatabase.Refresh();
+            }
             ResetEditorStatics();
             rootVisualElement.Clear();
         }
@@ -245,7 +254,7 @@ namespace Unity.NetCode.Editor.Tests.UI.Inspection
             {
                 new GhostAuthoringInspectionComponent.ComponentOverride
                 {
-                    FullTypeName = "Unity.NetCode.Tests.NonExistentType_RemovedDuringRename",
+                    FullTypeName = "Unity.Netcode.Tests.NonExistentType_RemovedDuringRename",
                     EntityIndex = 0,
                     PrefabType = GhostPrefabType.Server,
                     SendTypeOptimization = GhostSendType.AllClients,
@@ -302,6 +311,115 @@ namespace Unity.NetCode.Editor.Tests.UI.Inspection
 
             Assert.That(m_Inspection.ComponentOverrides.Length, Is.EqualTo(1));
             Assert.That(m_Inspection.ComponentOverrides[0].IsSendTypeOptimizationOverriden, Is.True);
+        }
+
+        /// <summary>
+        /// Check that a <see cref="GhostObject"/> instance that was instantiated by an already registered prefab works.
+        /// The inspection must be displayed from its existing prefab entity and not re-baked with the runtime instance.
+        /// </summary>
+        [Test]
+        public void Inspector_RegisteredGhostObjectPrefab_ReusesRegisteredEntityInsteadOfBaking()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(includeNetCodeSystems: true);
+            testWorld.CreateWorlds(server: true, numClients: 0);
+
+            m_WroteGeneratedPrefab = true;
+
+            var go = new GameObject("NestedBehaviour");
+            // Disable the prefab to prevent Awake from triggering during initialization and logging null refs
+            go.AddComponent<GhostObject>();
+            go.AddComponent<TestMoveCube>();
+            go.AddComponent<GhostAuthoringInspectionComponent>();
+
+            var prefab = SubSceneHelper.CreatePrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, go);
+            Netcode.RegisterPrefab(prefab);
+
+            // Re-enable the prefab, this should trigger auto-registration
+
+            var serverWorld = testWorld.ServerWorld;
+            var registeredEntity = prefab.EntityExt(isPrefab: true, serverWorld.Unmanaged);
+            Assert.That(registeredEntity, Is.Not.EqualTo(Entity.Null), "Sanity check failed: the prefab should be registered in the server world.");
+
+            var worldCountBeforeBake = World.All.Count;
+
+            m_Inspection = prefab.GetComponent<GhostAuthoringInspectionComponent>();
+            m_Editor = (GhostAuthoringInspectionComponentEditor)UnityEditor.Editor.CreateEditor(m_Inspection);
+            m_InspectorRoot = m_Editor.CreateInspectorGUI();
+            rootVisualElement.Add(m_InspectorRoot);
+            simulate.FrameUpdate();
+
+            m_Editor.BakeNetCodePrefab();
+            m_Editor.RebuildWindow();
+            simulate.FrameUpdate();
+
+            Assert.That(World.All.Count, Is.EqualTo(worldCountBeforeBake), "No preview world should be created when the prefab is already registered.");
+
+            Assert.That(GhostAuthoringInspectionComponentEditor.cachedBakedResults.TryGetValue(m_Inspection, out var bakedResult), Is.True,
+                "Expected a baked result for the registered prefab.");
+
+            var goResult = bakedResult.GetInspectionResult(m_Inspection);
+            Assert.That(goResult, Is.Not.Null);
+            Assert.That(goResult.BakedEntities.Count, Is.EqualTo(1), "The root GameObject should map to exactly one entity.");
+            Assert.That(goResult.BakedEntities[0].Entity, Is.EqualTo(registeredEntity),
+                "The displayed entity must be the one created during prefab registration.");
+
+            // The prefab's netcode settings are frozen once registered, so the overrides must be read-only.
+            var resultsPane = m_InspectorRoot.Q(name: "ResultsPane");
+            Assert.That(resultsPane, Is.Not.Null);
+            Assert.That(resultsPane.enabledSelf, Is.False, "Overrides must not be editable while displaying a live registered prefab.");
+        }
+
+        /// <summary>
+        /// GhostObject with nested GhostBehaviour works and renders as expected.
+        /// </summary>
+        [Test]
+        public void Inspector_HandlesGhostObjectWithChildGhostBehaviour()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(includeNetCodeSystems: true);
+            testWorld.CreateWorlds(server: true, numClients: 0);
+
+            m_WroteGeneratedPrefab = true;
+            var root = new GameObject("InspectorNestedGhostObject");
+            root.SetActive(false);
+            root.AddComponent<GhostObject>();
+            root.AddComponent<GhostAuthoringInspectionComponent>();
+
+            // The nested GhostBehaviour lives on the child only — the child has no GhostObject of its own.
+            var childSource = new GameObject("NestedBehaviour");
+            childSource.transform.SetParent(root.transform);
+            childSource.AddComponent<TestMoveCube>();
+
+            var prefab = SubSceneHelper.CreatePrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, root);
+            Netcode.RegisterPrefab(prefab);
+
+            var registeredEntity = prefab.EntityExt(isPrefab: true, testWorld.ServerWorld.Unmanaged);
+            Assert.That(registeredEntity, Is.Not.EqualTo(Entity.Null), "Sanity check failed: the prefab should be registered in the server world.");
+
+            var child = prefab.transform.GetChild(0).gameObject;
+            Assert.That(child.GetComponent<TestMoveCube>().Ghost, Is.SameAs(prefab.GetComponent<GhostObject>()), "Sanity check failed: Nested GhostBehaviour should have been linked to the root GhostObject during prefab registration.");
+
+            m_Inspection = prefab.GetComponent<GhostAuthoringInspectionComponent>();
+            m_Editor = (GhostAuthoringInspectionComponentEditor)UnityEditor.Editor.CreateEditor(m_Inspection);
+            m_InspectorRoot = m_Editor.CreateInspectorGUI();
+            rootVisualElement.Add(m_InspectorRoot);
+            simulate.FrameUpdate();
+
+            m_Editor.BakeNetCodePrefab();
+            m_Editor.RebuildWindow();
+            simulate.FrameUpdate();
+
+            Assert.That(GhostAuthoringInspectionComponentEditor.cachedBakedResults.TryGetValue(m_Inspection, out var bakedResult), Is.True);
+
+            var rootResult = bakedResult.GameObjectResults[prefab];
+            Assert.That(rootResult.BakedEntities.Count, Is.EqualTo(1), "The root maps to the registered prefab entity.");
+            Assert.That(rootResult.BakedEntities[0].Entity, Is.EqualTo(registeredEntity));
+
+            // The child is skipped entirely, so it never gets a BakedGameObjectResult.
+            Assert.That(bakedResult.GameObjectResults.ContainsKey(child), Is.False, "A child of a GhostObject must not be baked as its own GameObject: a GhostObject ghost is a single entity.");
+            Assert.That(bakedResult.GameObjectResults.Count, Is.EqualTo(1), "Only the root GhostObject should have been baked.");
+            Assert.That(child.EntityExt(isPrefab: true, testWorld.ServerWorld.Unmanaged), Is.EqualTo(Entity.Null), "A child GhostBehaviour must not get its own prefab entity.");
         }
     }
 }

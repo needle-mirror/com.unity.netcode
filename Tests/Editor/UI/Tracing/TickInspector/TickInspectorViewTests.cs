@@ -2,14 +2,15 @@ using System.Collections;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode;
-using Unity.NetCode.Editor.Tracing.UI;
+using Unity.Netcode;
+using Unity.Netcode.Editor.Tracing.UI;
+using Unity.Netcode.Editor.Tracing.UI.TracingToolbar;
 using UnityEditor.UIElements;
 using UnityEngine.UIElements;
 using UnityEngine.UIElements.TestFramework;
 using UnityEngine.TestTools;
-using Unity.NetCode.Editor.Tracing.UI.TickInspector;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Editor.Tracing.UI.TickInspector;
+using Unity.Netcode.Tracing;
 
 namespace Tests.Editor.UI.Tracing.TickInspector
 {
@@ -118,12 +119,14 @@ namespace Tests.Editor.UI.Tracing.TickInspector
             var statusLabel = rootVisualElement.Q<Label>(TickInspectorView.k_FilterStatusLabel);
             Assert.That(statusLabel, Is.Not.Null);
 
-            // The status counts against the traced target list: the one traced system.
             TracingDataAccess.Config.Data.Init();
             try
             {
                 var tracedSystem = TypeManager.GetSystemTypeIndex<SimulationSystemGroup>();
                 TracingDataAccess.Config.Data.SystemTypesToTrace.Add(tracedSystem);
+
+                var totalTargets = TracingFilterDropdown.CreateListItems().Count;
+                Assert.That(totalTargets, Is.GreaterThanOrEqualTo(1), "the traced system must be a target");
 
                 // Nothing narrowed: the status note stays hidden.
                 m_View.SetFilters(new TracingViewFilters());
@@ -138,12 +141,12 @@ namespace Tests.Editor.UI.Tracing.TickInspector
                 var total = DiffReasonCatalog.All.Length;
                 Assert.That(statusLabel.ClassListContains(TracingWindowUssClasses.Hidden), Is.False);
                 Assert.That(statusLabel.text,
-                    Is.EqualTo($"Showing 0/1 tracing targets and {total - 1}/{total} diff tags, changed values only"));
+                    Is.EqualTo($"Showing {totalTargets - 1}/{totalTargets} tracing targets and {total - 1}/{total} diff tags, changed values only"));
 
                 // A stale hidden name (not in the current target list) doesn't skew the counts.
                 narrowed.HiddenSystems.Add("Some.Stale.System");
                 m_View.SetFilters(narrowed);
-                Assert.That(statusLabel.text, Does.StartWith("Showing 0/1 tracing targets"));
+                Assert.That(statusLabel.text, Does.StartWith($"Showing {totalTargets - 1}/{totalTargets} tracing targets"));
 
                 // With every target shown, the narrowed tags still spell the targets out as "all".
                 var tagsOnly = new TracingViewFilters

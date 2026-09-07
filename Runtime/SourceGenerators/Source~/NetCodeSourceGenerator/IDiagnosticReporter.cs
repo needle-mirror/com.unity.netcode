@@ -1,7 +1,7 @@
 using System;
 using Microsoft.CodeAnalysis;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     /// <summary>
     /// Generic interface for reporting diagnostic issues

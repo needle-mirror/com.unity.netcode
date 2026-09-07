@@ -6,30 +6,35 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.NetCode.EntitiesInternalAccess;
-using Unity.NetCode.LowLevel.StateSave;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.LowLevel.StateSave;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
 using Unity.Scenes;
+using UnityEngine.Scripting.APIUpdating;
 using Debug = UnityEngine.Debug;
 using Hash128 = Unity.Entities.Hash128;
 
-namespace Unity.NetCode.HostMigration
+namespace Unity.Netcode.HostMigration
 {
     /// <summary>
     /// Enable the host migration feature. This will enable the host migration systems and
     /// is required for host migration to work.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public struct EnableHostMigration : IComponentData { }
 
     /// <summary>
     /// This tag is added to ghost and non ghost entities on the new server when they have been respawned after a host migration.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public struct IsMigrated : IComponentData { }
 
     /// <summary>
     /// This component will be present for the duration of a host migration. It can be used when certain
     /// systems or operations should run or not run according to host migration state.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public struct HostMigrationInProgress : IComponentData { }
 
     /// <summary>
@@ -72,6 +77,7 @@ namespace Unity.NetCode.HostMigration
     /// Configuration that can be tune the behaviour of certain internal systems
     /// within the host migration feature.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public struct HostMigrationConfig : IComponentData
     {
         /// <summary>
@@ -109,6 +115,7 @@ namespace Unity.NetCode.HostMigration
     /// <summary>
     /// Statistics for a running host migration system on the host.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public struct HostMigrationStats : IComponentData
     {
         /// <summary>
@@ -138,6 +145,7 @@ namespace Unity.NetCode.HostMigration
     /// A new entity will be created containing the components with thier data but not from the original archetype
     /// its upto the user to manually copy these components back to the correct entity using a user defined linkage method
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public struct IncludeInMigration : IComponentData
     {}
 
@@ -147,6 +155,7 @@ namespace Unity.NetCode.HostMigration
     /// a subscene. When a migration occurs the host migration data will be applied to existing scene entities
     /// on the new host (no new entity created), and this identifier is used to establish the matches.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public struct SceneEntityMigrationId : IComponentData
     {
         /// <summary>
@@ -159,6 +168,7 @@ namespace Unity.NetCode.HostMigration
     /// Singleton buffer to declare which components should be migrated on non ghost entities marked for migration
     /// with the IncludeInMigration component
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode.HostMigration")]
     public struct NonGhostMigrationComponents : IBufferElementData
     {
         /// <summary>

@@ -2,7 +2,8 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode;
+using Unity.Netcode;
+using Unity.Netcode.NetcodeTime;
 using Unity.Transforms;
 
 namespace DocumentationCodeSamples
@@ -85,7 +86,11 @@ namespace DocumentationCodeSamples
             private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
             {
                 var rpcData = default(RpcExample);
-                rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
+                // On a single-world host, RPCs the host sends to itself skip serialization: read the data directly instead of deserializing.
+                if (parameters.IsPassthroughRPC)
+                    rpcData = parameters.GetPassthroughActionData<RpcExample>();
+                else
+                    rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
 
                 parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new PlayerStateComponentData());
                 parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, default(NetworkStreamInGame));

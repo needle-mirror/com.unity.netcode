@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
 using Unity.Entities;
-using Unity.NetCode.Editor.Tracing.UI.FilterPanel;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Editor.Tracing.UI.FilterPanel;
+using Unity.Netcode.Tracing;
 using UnityEditor;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI.TracingToolbar
+namespace Unity.Netcode.Editor.Tracing.UI.TracingToolbar
 {
     enum TracingFilterTab { TracingTarget, DiffTags }
 
@@ -47,9 +47,9 @@ namespace Unity.NetCode.Editor.Tracing.UI.TracingToolbar
 
         const string k_EmptyTracingTargets =
             "No system or component\n is selected. Currently tracing default\n targets once per tick.";
-        internal const string k_TextTracingTarget = "Tracing Target";
+        internal const string k_TextTracingTarget = "Targets";
         const string k_TextDiffTags = "Diff Tags";
-        const string k_ChangeTracingTargetButtonLabel = "Change Tracing Target";
+        const string k_ChangeTracingTargetButtonLabel = "Set prediction tracing target";
         const string k_TextChangedValuesOnly = "Changed values only";
         const string k_TooltipChangedValuesOnly =
             "Only show systems, ghosts and components whose values actually changed during the tick.";

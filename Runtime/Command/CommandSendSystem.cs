@@ -9,15 +9,18 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Burst.CompilerServices;
 using Unity.Mathematics;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// This singleton is used by code-gen. It stores a mapping of which ticks the client
     /// has changes to inputs so steps in the prediction loop can be batched when inputs
     /// are not changing.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct UniqueInputTickMap : IComponentData
     {
         /// <summary>
@@ -38,6 +41,7 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.LocalSimulation, WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class GhostInputSystemGroup : ComponentSystemGroup
     {
     }
@@ -49,6 +53,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation,
         WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(GhostInputSystemGroup), OrderLast = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class CopyInputToCommandBufferSystemGroup : ComponentSystemGroup
     {
     }
@@ -60,6 +65,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation,
                        WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class CopyCommandBufferToInputSystemGroup : ComponentSystemGroup
     {
     }
@@ -71,6 +77,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation, WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostInputSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class CompareCommandSystemGroup : ComponentSystemGroup
     {
         private NativeParallelHashMap<NetworkTick, NetworkTick> m_UniqueInputTicks;
@@ -116,6 +123,7 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(GhostInputSystemGroup))]
     // dependency just for acking
     [UpdateAfter(typeof(GhostReceiveSystem))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class CommandSendSystemGroup : ComponentSystemGroup
     {
         /// <summary>
@@ -311,6 +319,7 @@ namespace Unity.NetCode
     /// </summary>
     /// <typeparam name="TCommandDataSerializer">Unmanaged CommandDataSerializer of type ICommandDataSerializer.</typeparam>
     /// <typeparam name="TCommandData">Unmanaged CommandData of type ICommandData.</typeparam>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct CommandSendSystem<TCommandDataSerializer, TCommandData>
         where TCommandData : unmanaged, ICommandData
         where TCommandDataSerializer : unmanaged, ICommandDataSerializer<TCommandData>

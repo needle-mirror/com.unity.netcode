@@ -1,6 +1,33 @@
 ---
 uid: changelog
 ---
+
+## [7.0.0] - 2026-09-07
+
+### Added
+* Adding a new Single World Host mode for client-hosted servers, instead of using binary client and server worlds. This the new default for netcode host world creation. This new mode removes the overhead of having to run two worlds in the same process by running both client and server systems in the same world. With this, no more useless serialization/deserialization, useless rollback and replay, useless worlds doing the same thing. See the doc for pros and cons. For existing projects transitioning to this new mode, please see the doc for migration advice, as this is not a seamless transition. For those not wishing to use this new mode, you can change this back in your NetcodeConfig project settings using the HostWorldModeSelection setting.
+
+### Changed
+* Updated the casing for the word Netcode. Going from NetCode to Netcode. This updates all namespaces and types names that uses the NetCode casing. Auto updaters are in place to make this transition easier. Please report any issues with the auto update process. There's a few cases where auto update won't work related to custom serializers and templates. See the migration doc for those cases.
+* NetcodeWorld was already used internally, but World was the type used in most of Netcode's public APIs. Various APIs now accepting a NetcodeWorld instead of a World. If using non-netcode worlds, now instead of runtime errors you'll get earlier compilation errors.
+* ClientServerBootstrap.ClientWorld/ServerWorld APIs now use NetcodeWorld instead of World. Those worlds were already internally NetcodeWorlds. This change makes this explicit in the API.
+
+### Deprecated
+
+
+### Removed
+* Numerous APIs that were previously obsolete (as warnings) are now hard errors (`[Obsolete(..., true)]`) and no longer functional. They are retained only as compile-time migration guidance and will be deleted in a later release.
+
+### Fixed
+* Auto Connect Port is now non-zero by default. First time user experience will be with netcode worlds automatically created and connecting instead of just created, but not connected.
+* Fixed an issue where a ghost prefab baked into multiple loaded subscenes could leave the ghost collection prefab pointing at a previously unloaded/deleted entity prefab when subscenes were loaded, unloaded and reloaded. The reference now correctly updates to an instance created from the reloaded subscenes.
+
+### Security
+
+
+### Obsolete
+
+
 ## [6.7.0] - 2026-08-25
 
 ### Added

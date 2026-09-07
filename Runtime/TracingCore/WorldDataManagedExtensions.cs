@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.Tracing;
-using Unity.NetCode.LowLevel.StateSave;
+using Unity.Netcode.Tracing;
+using Unity.Netcode.LowLevel.StateSave;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     internal static class WorldDataManagedExtensions
     {

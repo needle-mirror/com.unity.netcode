@@ -4,13 +4,15 @@
 
 #if NETCODE_DEBUG
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <inheritdoc cref="NetDebug.SuppressApplicationRunInBackgroundWarning"/>>
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup))]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct WarnAboutApplicationRunInBackground : ISystem, ISystemStartStop
     {
         /// <summary>

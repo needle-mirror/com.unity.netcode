@@ -1,8 +1,9 @@
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// <para>
@@ -32,6 +33,7 @@ namespace Unity.NetCode
     /// </remarks>
     [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class BeginPredictedSimulationEntityCommandBufferSystem : EntityCommandBufferSystem
     {
         /// <inheritdoc cref="BeginInitializationEntityCommandBufferSystem.Singleton"/>
@@ -86,6 +88,7 @@ namespace Unity.NetCode
     /// </remarks>
     [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial class EndPredictedSimulationEntityCommandBufferSystem : EntityCommandBufferSystem
     {
         /// <inheritdoc cref="BeginInitializationEntityCommandBufferSystem.Singleton"/>

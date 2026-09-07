@@ -2,13 +2,13 @@ using System;
 using System.IO;
 using System.Text.RegularExpressions;
 using Unity.Entities;
-using Unity.NetCode.Tracing;
+using Unity.Netcode.Tracing;
 using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace Unity.NetCode.Editor.Tracing.UI
+namespace Unity.Netcode.Editor.Tracing.UI
 {
     internal class TracingWindowUtility
     {
@@ -177,7 +177,7 @@ namespace Unity.NetCode.Editor.Tracing.UI
         /// </summary>
         internal static void SetTypesToTrace()
         {
-            var list = NetCodeTracingTargetSettings.GetSelection()?.entries;
+            var list = NetcodeTracingTargetSettings.GetSelection()?.entries;
             if (list == null)
             {
                 return;
@@ -224,7 +224,7 @@ namespace Unity.NetCode.Editor.Tracing.UI
 
         internal static bool IsGhostInstanceSelected()
         {
-            var list = NetCodeTracingTargetSettings.GetSelection()?.entries;
+            var list = NetcodeTracingTargetSettings.GetSelection()?.entries;
             if (list == null)
                 return false;
             foreach (var item in list)

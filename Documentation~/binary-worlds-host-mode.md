@@ -2,7 +2,7 @@
 
 Configure a host that runs separate client and server worlds connected through intra-process communication (IPC).
 
-Binary-worlds host mode is the default client-hosted setup in Netcode for Entities. In this mode, the host player's process contains two distinct [worlds](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-worlds.html): a server world that runs server systems and owns authoritative ghost state, and a client world that runs client systems and renders the local player. The two worlds exchange snapshots and commands through a local IPC connection, exactly as a remote client would, except that no data travels across the network. Remote players connect to the host's server world using a regular network transport.
+In binary-worlds host mode, the host player's process contains two distinct [worlds](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-worlds.html): a server world that runs server systems and owns authoritative ghost state, and a client world that runs client systems and renders the local player. The two worlds exchange snapshots and commands through a local IPC connection, exactly as a remote client would, except that no data travels across the network. Remote players connect to the host's server world using a regular network transport.
 
 Because the host runs a full client and a full server, gameplay code paths are identical to a dedicated server deployment. This makes binary-worlds host mode the recommended choice when you want to keep the option of moving to a dedicated server later, or when you want local testing to exercise the same serialization and prediction code that runs in production. For an alternative that combines both roles into a single world for lower CPU and memory overhead, refer to [Single-world host mode](single-world-host-mode.md).
 
@@ -11,11 +11,11 @@ Because the host runs a full client and a full server, gameplay code paths are i
 
 ## Select binary-worlds host mode
 
-Use the **Host World Mode Selection** dropdown on the active [`NetCodeConfig`](xref:Unity.NetCode.NetCodeConfig) asset to select binary-worlds host mode. This is the default value for new projects.
+Use the **Host World Mode Selection** dropdown on the active [`NetcodeConfig`](xref:Unity.Netcode.NetcodeConfig) asset to select binary-worlds host mode. [Single-world host mode](single-world-host-mode.md) is the default value for new projects.
 
 ## Bootstrap a binary world host manually
 
-When you need more control over when worlds are created, for example to delay world creation until a menu transition, derive from [`ClientServerBootstrap`](xref:Unity.NetCode.ClientServerBootstrap) and create the client and server worlds yourself. This is the same pattern as a standard [client-server](client-server.md) setup.
+When you need more control over when worlds are created, for example to delay world creation until a menu transition, derive from [`ClientServerBootstrap`](xref:Unity.Netcode.ClientServerBootstrap) and create the client and server worlds yourself. This is the same pattern as a standard [client-server](client-server.md) setup.
 
 The following example overrides the default bootstrap so that no networked worlds are created on startup, then creates a binary host on demand when the player chooses to host a game:
 

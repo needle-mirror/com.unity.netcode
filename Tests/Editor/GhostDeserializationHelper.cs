@@ -5,7 +5,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 
-namespace Unity.NetCode.LowLevel.Unsafe
+namespace Unity.Netcode.LowLevel.Unsafe
 {
     //TODO: require some further generalization but then we can expose and use it to collect all the deserialization
     //logics and helpers here, so they are not sparse anymore as a first refactor step.

@@ -5,7 +5,7 @@ Gather metrics to monitor performance and identify potential issues in your Netc
 There are two ways to gather metrics in Netcode for Entities:
 
 * Use the [Network Profiler tool](network-profiler.md) by selecting **Window** > **Multiplayer** > **Network Debugger** in the Editor. This provides you with a simple web interface to view metrics.
-* Create a [`GhostMetricsMonitor`](xref:Unity.NetCode.GhostMetricsMonitor) singleton and populate it with the data points you want to monitor. This allows you to access the metrics programmatically and use them in your project logic or for custom monitoring solutions.
+* Create a [`GhostMetricsMonitor`](xref:Unity.Netcode.GhostMetricsMonitor) singleton and populate it with the data points you want to monitor. This allows you to access the metrics programmatically and use them in your project logic or for custom monitoring solutions.
 
 The following example creates a singleton containing all available data metrics.
 
@@ -21,11 +21,11 @@ Use `SystemAPI.GetSingleton` to access data metrics for a specific metrics type.
 
 | Component | Description |
 | -------------- | ----------- |
-| [`NetworkMetrics`](xref:Unity.NetCode.NetworkMetrics) | Network and time related metrics. |
-| [`SnapshotMetrics`](xref:Unity.NetCode.SnapshotMetrics) | Snapshot related metrics. |
-| [`GhostMetrics`](xref:Unity.NetCode.GhostMetrics) | Ghost related metrics indexed using `GhostNames`. |
-| [`GhostSerializationMetrics`](xref:Unity.NetCode.GhostSerializationMetrics) | Ghost serialization metrics indexed using `GhostNames`. |
-| [`PredictionErrorMetrics`](xref:Unity.NetCode.PredictionErrorMetrics) | Prediction errors indexed using `PredictionErrorNames`. |
-| [`GhostNames`](xref:Unity.NetCode.GhostNames) | A list of all available ghosts for this simulation. |
-| [`PredictionErrorNames`](xref:Unity.NetCode.PredictionErrorNames) | A list of all available prediction errors for this simulation. |
+| [`NetworkMetrics`](xref:Unity.Netcode.NetworkMetrics) | Network and time related metrics. |
+| [`SnapshotMetrics`](xref:Unity.Netcode.SnapshotMetrics) | Snapshot related metrics. |
+| [`GhostMetrics`](xref:Unity.Netcode.GhostMetrics) | Ghost related metrics indexed using `GhostNames`. |
+| [`GhostSerializationMetrics`](xref:Unity.Netcode.GhostSerializationMetrics) | Ghost serialization metrics indexed using `GhostNames`. |
+| [`PredictionErrorMetrics`](xref:Unity.Netcode.PredictionErrorMetrics) | Prediction errors indexed using `PredictionErrorNames`. |
+| [`GhostNames`](xref:Unity.Netcode.GhostNames) | A list of all available ghosts for this simulation. |
+| [`PredictionErrorNames`](xref:Unity.Netcode.PredictionErrorNames) | A list of all available prediction errors for this simulation. |
 

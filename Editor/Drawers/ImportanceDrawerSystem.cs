@@ -6,8 +6,8 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel.Unsafe;
-using Unity.NetCode.Samples.Common.Editor;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.Samples.Common.Editor;
 using Unity.Transforms;
 using UnityEditor;
 using UnityEngine;
@@ -16,7 +16,7 @@ using UnityEngine.Rendering;
 using Unity.Rendering;
 #endif
 
-namespace Unity.NetCode.Samples.Common
+namespace Unity.Netcode.Samples.Common
 {
     [UpdateInGroup(typeof(PresentationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]

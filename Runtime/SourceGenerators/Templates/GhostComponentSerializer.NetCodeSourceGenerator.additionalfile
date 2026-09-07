@@ -12,7 +12,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
 using Unity.Burst;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Collections.LowLevel.Unsafe;
 #region __GHOST_USING_STATEMENT__
 using __GHOST_USING__;
@@ -413,7 +413,7 @@ namespace __GHOST_NAMESPACE__
         {
 #if COMPONENT_HAS_GHOST_FIELDS
             var serializer = default(__GHOST_NAME__GhostComponentSerializer);
-            Unity.NetCode.ComponentSerializationHelper<
+            Unity.Netcode.ComponentSerializationHelper<
                     __GHOST_COMPONENT_TYPE__,
                     Snapshot,
                     __GHOST_NAME__GhostComponentSerializer
@@ -433,7 +433,7 @@ namespace __GHOST_NAMESPACE__
         {
 #if COMPONENT_HAS_GHOST_FIELDS
             var serializer = default(__GHOST_NAME__GhostComponentSerializer);
-            Unity.NetCode.ComponentSerializationHelper<
+            Unity.Netcode.ComponentSerializationHelper<
                     __GHOST_COMPONENT_TYPE__,
                     Snapshot,
                     __GHOST_NAME__GhostComponentSerializer
@@ -452,7 +452,7 @@ namespace __GHOST_NAMESPACE__
         {
 #if COMPONENT_HAS_GHOST_FIELDS
             var serializer = default(__GHOST_NAME__GhostComponentSerializer);
-            Unity.NetCode.BufferSerializationHelper<
+            Unity.Netcode.BufferSerializationHelper<
                 __GHOST_COMPONENT_TYPE__,
                 Snapshot,
                 __GHOST_NAME__GhostComponentSerializer
@@ -475,7 +475,7 @@ namespace __GHOST_NAMESPACE__
         {
 #if COMPONENT_HAS_GHOST_FIELDS
             var serializer = default(__GHOST_NAME__GhostComponentSerializer);
-            Unity.NetCode.BufferSerializationHelper<
+            Unity.Netcode.BufferSerializationHelper<
                 __GHOST_COMPONENT_TYPE__,
                 Snapshot,
                 __GHOST_NAME__GhostComponentSerializer
@@ -495,13 +495,13 @@ namespace __GHOST_NAMESPACE__
 #if COMPONENT_HAS_GHOST_FIELDS
             var serializer = default(__GHOST_NAME__GhostComponentSerializer);
 #if !GHOST_COMPONENT_IS_BUFFER
-            Unity.NetCode.ComponentSerializationHelper<
+            Unity.Netcode.ComponentSerializationHelper<
                     __GHOST_COMPONENT_TYPE__,
                     Snapshot,
                     __GHOST_NAME__GhostComponentSerializer
             >.CopyComponentsToSnapshot(stateData, snapshotData, snapshotOffset, snapshotStride, componentData, componentStride, count, serializer);
 #else
-            Unity.NetCode.BufferSerializationHelper<
+            Unity.Netcode.BufferSerializationHelper<
                 __GHOST_COMPONENT_TYPE__,
                 Snapshot,
                 __GHOST_NAME__GhostComponentSerializer
@@ -518,13 +518,13 @@ namespace __GHOST_NAMESPACE__
 #if COMPONENT_HAS_GHOST_FIELDS
             var serializer = default(__GHOST_NAME__GhostComponentSerializer);
 #if !GHOST_COMPONENT_IS_BUFFER
-            Unity.NetCode.ComponentSerializationHelper<
+            Unity.Netcode.ComponentSerializationHelper<
                 __GHOST_COMPONENT_TYPE__,
                 Snapshot,
                 __GHOST_NAME__GhostComponentSerializer
             >.CopyComponentsFromSnapshot(stateData, snapshotData, snapshotOffset, snapshotStride, componentData, componentStride, count, serializer);
 #else
-            Unity.NetCode.BufferSerializationHelper<
+            Unity.Netcode.BufferSerializationHelper<
                 __GHOST_COMPONENT_TYPE__,
                 Snapshot,
                 __GHOST_NAME__GhostComponentSerializer

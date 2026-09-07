@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.Analytics;
 using UnityEngine.Serialization;
 
-namespace Unity.NetCode.Editor.Analytics
+namespace Unity.Netcode.Editor.Analytics
 {
     enum Operation
     {

@@ -9,11 +9,11 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.NetCode;
-using Unity.NetCode.Editor.Tracing;
-using Unity.NetCode.Editor.Tracing.UI;
-using Unity.NetCode.Tracing;
-using Unity.NetCode.Tests;
+using Unity.Netcode;
+using Unity.Netcode.Editor.Tracing;
+using Unity.Netcode.Editor.Tracing.UI;
+using Unity.Netcode.Tracing;
+using Unity.Netcode.Tests;
 using Unity.Transforms;
 using UnityEditor;
 using UnityEngine;
@@ -90,7 +90,6 @@ namespace Tests.Editor
             TracingDataAccess.Config.Data.AddRequiredTypeToTrace(ComponentType.ReadOnly<TestRequiredComponent>());
             TracingDataAccess.Config.Data.AddOptionalTypeToTrace(ComponentType.ReadOnly<TestOptionalComponent>());
             TracingDataAccess.Config.Data.AddSystemTypeToTrace(TypeManager.GetSystemTypeIndex(typeof(TestSystem)));
-            NetCodeConfig.Global.TracingConfig.IgnorePartialTicks = false;
             TestSystem.Delegate = null;
             m_TestWorld.Bootstrap(true, typeof(TestSystem), typeof(TestSystemReset), typeof(TestClientOnlySystem), typeof(TestServerOnlySystem));
             var prefabs = new GameObject[2];
@@ -964,7 +963,7 @@ namespace Tests.Editor
 
     /// <summary>
     /// EditMode coverage for <see cref="SelectTracingTargetWindow"/>: tab/category display, Tracing.json persistence,
-    /// and search filtering (uses internal editor APIs exercised by <c>Unity.NetCode.Editor.Tests</c>).
+    /// and search filtering (uses internal editor APIs exercised by <c>Unity.Netcode.Editor.Tests</c>).
     /// </summary>
     [TestFixture]
     internal class SelectTracingTargetWindowEditModeTests
@@ -979,8 +978,8 @@ namespace Tests.Editor
         [SetUp]
         public void SetUp()
         {
-            m_BackupSelection = CloneSelection(NetCodeTracingTargetSettings.GetSelection());
-            NetCodeTracingTargetSettings.SaveSelection(new TracingTargetSelectionFile());
+            m_BackupSelection = CloneSelection(NetcodeTracingTargetSettings.GetSelection());
+            NetcodeTracingTargetSettings.SaveSelection(new TracingTargetSelectionFile());
             m_Window = ScriptableObject.CreateInstance<SelectTracingTargetWindow>();
             AssignStyleSheetsFromPackageGuids(m_Window);
             m_Window.CreateGUI();
@@ -998,7 +997,7 @@ namespace Tests.Editor
                 m_Window = null;
             }
 
-            NetCodeTracingTargetSettings.SaveSelection(m_BackupSelection ?? new TracingTargetSelectionFile());
+            NetcodeTracingTargetSettings.SaveSelection(m_BackupSelection ?? new TracingTargetSelectionFile());
         }
 
         [Test]
@@ -1062,7 +1061,7 @@ namespace Tests.Editor
             Assert.IsTrue(TracingTargetTypes.IsPredictionSystem(typeof(PredictedGhostSpawnSystem)),
                 "PredictedSpawningSystemGroup adds PredictedGhostSpawnSystem to the prediction loop at world creation.");
 
-            var netcodePhysicsPresent = Type.GetType("Unity.NetCode.PredictedPhysicsConfigSystem, Unity.NetCode.Physics") != null;
+            var netcodePhysicsPresent = Type.GetType("Unity.Netcode.PredictedPhysicsConfigSystem, Unity.Netcode.Physics") != null;
             var physicsGroup = Type.GetType("Unity.Physics.Systems.PhysicsSystemGroup, Unity.Physics");
             if (!netcodePhysicsPresent || physicsGroup == null)
             {
@@ -1102,7 +1101,7 @@ namespace Tests.Editor
             CollectionAssert.Contains(EnumerateDisplayedTypes(m_Window).ToList(), typeof(GhostSendSystem));
 
             m_Window.SetSelected(typeof(GhostSendSystem), TracingTargetKind.System, true);
-            var saved = NetCodeTracingTargetSettings.GetSelection();
+            var saved = NetcodeTracingTargetSettings.GetSelection();
             Assert.IsTrue(saved.entries.Exists(e => e.assemblyQualifiedName == typeof(GhostSendSystem).AssemblyQualifiedName),
                 "A non-predicted system must be selectable for tracing once the filter is disabled.");
             m_Window.SetSelected(typeof(GhostSendSystem), TracingTargetKind.System, false);
@@ -1248,7 +1247,7 @@ namespace Tests.Editor
             m_Window.SetSelected(typeof(GhostInstance), TracingTargetKind.Component, true);
             // A second component guarantees SetTypesToTrace initializes the trace-request sets.
             m_Window.SetSelected(typeof(LocalTransform), TracingTargetKind.Component, true);
-            var saved = NetCodeTracingTargetSettings.GetSelection();
+            var saved = NetcodeTracingTargetSettings.GetSelection();
             Assert.IsTrue(saved.entries.Exists(e => e.assemblyQualifiedName == typeof(GhostInstance).AssemblyQualifiedName),
                 "A selected GhostInstance must persist in the tracing selection like any other component.");
 
@@ -1278,12 +1277,12 @@ namespace Tests.Editor
             var key = typeof(LocalTransform).AssemblyQualifiedName;
 
             m_Window.SetSelected(typeof(LocalTransform), TracingTargetKind.Component, true);
-            var afterSelect = NetCodeTracingTargetSettings.GetSelection();
+            var afterSelect = NetcodeTracingTargetSettings.GetSelection();
             Assert.That(afterSelect.entries, Is.Not.Null);
             Assert.That(afterSelect.entries.Exists(e => e.assemblyQualifiedName == key), $"Tracing selection should contain {typeof(LocalTransform).AssemblyQualifiedName} after select.");
 
             m_Window.SetSelected(typeof(LocalTransform), TracingTargetKind.Component, false);
-            var afterClear = NetCodeTracingTargetSettings.GetSelection();
+            var afterClear = NetcodeTracingTargetSettings.GetSelection();
             Assert.That(afterClear.entries, Is.Not.Null);
             Assert.IsFalse(afterClear.entries.Exists(e => e.assemblyQualifiedName == typeof(LocalTransform).AssemblyQualifiedName), "Tracing selection should no longer contain the type after deselect.");
         }
@@ -1294,17 +1293,17 @@ namespace Tests.Editor
             var key = typeof(LocalTransform).AssemblyQualifiedName;
 
             m_Window.SetSelected(typeof(LocalTransform), TracingTargetKind.Component, true);
-            var defaultEntry = NetCodeTracingTargetSettings.GetSelection().entries.Find(e => e.assemblyQualifiedName == key);
+            var defaultEntry = NetcodeTracingTargetSettings.GetSelection().entries.Find(e => e.assemblyQualifiedName == key);
             Assert.NotNull(defaultEntry);
             Assert.IsFalse(defaultEntry.required, "Newly selected components default to Optional (required=false).");
 
             m_Window.SetComponentTracingRequirement(typeof(LocalTransform), true);
-            var afterRequired = NetCodeTracingTargetSettings.GetSelection().entries.Find(e => e.assemblyQualifiedName == key);
+            var afterRequired = NetcodeTracingTargetSettings.GetSelection().entries.Find(e => e.assemblyQualifiedName == key);
             Assert.NotNull(afterRequired);
             Assert.IsTrue(afterRequired.required);
 
             m_Window.SetComponentTracingRequirement(typeof(LocalTransform), false);
-            var afterOptional = NetCodeTracingTargetSettings.GetSelection().entries.Find(e => e.assemblyQualifiedName == key);
+            var afterOptional = NetcodeTracingTargetSettings.GetSelection().entries.Find(e => e.assemblyQualifiedName == key);
             Assert.NotNull(afterOptional);
             Assert.IsFalse(afterOptional.required);
         }
@@ -1732,6 +1731,23 @@ namespace Tests.Editor
     [TestFixture]
     internal class TracingStaticStateResetTests
     {
+        public bool m_OldRunInBackground;
+
+        [SetUp]
+        public void SetUp()
+        {
+            // Auto connect is on by default, so entering play mode connects for real. runInBackground=false would then
+            // make WarnAboutApplicationRunInBackground log an error, failing the play mode transition.
+            m_OldRunInBackground = PlayerSettings.runInBackground;
+            PlayerSettings.runInBackground = true;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            PlayerSettings.runInBackground = m_OldRunInBackground;
+        }
+
         [Test]
         public void ResetStaticState_ClearsProcessedAndForceProcessingFlags()
         {
@@ -1745,9 +1761,6 @@ namespace Tests.Editor
         }
 
         [UnityTest]
-#if ENABLE_CORECLR
-        [Explicit("CoreCLR: entering play mode fails domain reload because BindingRegistryLiveProperties..cctor throws MethodAccessException constructing the internal UnityEditor.InspectorUtility.LivePropertyChangedCallback delegate, see https://jira.unity3d.com/browse/UUM-150429")]
-#endif
         public IEnumerator EnteringPlayMode_ResetsProcessedFlag_EvenWithDomainReloadDisabled()
         {
             TracingDataAccess.IsProcessed = true;

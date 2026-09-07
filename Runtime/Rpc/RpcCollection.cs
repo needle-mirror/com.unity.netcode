@@ -3,8 +3,9 @@ using Unity.Entities;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// The RpcCollection is the set of all available RPCs. It is created by the RpcSystem.
@@ -12,6 +13,7 @@ namespace Unity.NetCode
     /// do not need to use it directly, the generated code will use it to setup the RPC
     /// components.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct RpcCollection : IComponentData
     {
         internal struct RpcData : IComparable<RpcData>

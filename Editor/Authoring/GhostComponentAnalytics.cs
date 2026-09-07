@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Unity.Entities;
-using Unity.NetCode.Analytics;
+using Unity.Netcode.Analytics;
 using Unity.Networking.Transport;
 using UnityEditor;
 using UnityEditor.PackageManager;
 using UnityEngine.Analytics;
 
-namespace Unity.NetCode.Editor
+namespace Unity.Netcode.Editor
 {
     [InitializeOnLoad]
     internal static class PlayStateNotifier
@@ -129,7 +129,7 @@ namespace Unity.NetCode.Editor
             }
             data.NumMainClientWorlds = numMainClientWorlds;
             data.NumServerWorlds = numServerWorlds;
-            data.NetCodeConfigCount = AssetDatabase.FindAssets($"t:{nameof(NetCodeConfig)}").Length;
+            data.NetCodeConfigCount = AssetDatabase.FindAssets($"t:{nameof(NetcodeConfig)}").Length;
 
             return data;
         }

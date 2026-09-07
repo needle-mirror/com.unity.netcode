@@ -7,7 +7,7 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
-namespace Unity.NetCode.Generators
+namespace Unity.Netcode.Generators
 {
     /// <summary>
     /// TemplateRegistry import all the netcode templates files, validate and provide them to the generation systems.
@@ -105,7 +105,7 @@ namespace Unity.NetCode.Generators
                     var text = additionalText.GetText();
                     if (text == null || text.Lines.Count == 0)
                     {
-                        diagnostic.LogError($"All NetCode AdditionalFiles must be valid Templates, but '{additionalText.Path}' does not contain any text!");
+                        diagnostic.LogError($"All Netcode AdditionalFiles must be valid Templates, but '{additionalText.Path}' does not contain any text!");
                         continue;
                     }
 
@@ -119,14 +119,14 @@ namespace Unity.NetCode.Generators
                     var templateId = line.Substring(k_TemplateId.Length).Trim();
                     if (string.IsNullOrWhiteSpace(templateId))
                     {
-                        diagnostic.LogError($"NetCode AdditionalFile '{additionalText.Path}' is a valid Template, but the `{k_TemplateId}` is empty!");
+                        diagnostic.LogError($"Netcode AdditionalFile '{additionalText.Path}' is a valid Template, but the `{k_TemplateId}` is empty!");
                         continue;
                     }
                     templateIds.Add(templateId, additionalText);
                 }
                 else
                 {
-                    diagnostic.LogDebug($"Ignoring AdditionalFile '{additionalText.Path}' as it is not a NetCode type!");
+                    diagnostic.LogDebug($"Ignoring AdditionalFile '{additionalText.Path}' as it is not a Netcode type!");
                 }
             }
 
@@ -179,7 +179,7 @@ namespace Unity.NetCode.Generators
 
             // Ensure there are no additional files not matched by any template. This is more a warning than an error.
             foreach(var missingMatch in unusedTemplates)
-                diagnostic.LogError($"NetCode AdditionalFile '{missingMatch.Value.Path}' (named '{missingMatch.Key}') is a valid Template, but it cannot be matched with any Netcode package or UserDefinedTemplate template definition (probably a typo). Known user templates:[{GetKnownCustomUserTemplates()}].");
+                diagnostic.LogError($"Netcode AdditionalFile '{missingMatch.Value.Path}' (named '{missingMatch.Key}') is a valid Template, but it cannot be matched with any Netcode package or UserDefinedTemplate template definition (probably a typo). Known user templates:[{GetKnownCustomUserTemplates()}].");
 
             string GetKnownCustomUserTemplates()
             {

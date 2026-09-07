@@ -6,8 +6,10 @@ using System;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.NetCode.EntitiesInternalAccess;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.LowLevel.Unsafe;
+using Unity.Netcode.NetcodeTime;
+using UnityEngine.Scripting.APIUpdating;
 
 /// <summary>
 /// Specify for which type of world the entity should be converted to. Based on the conversion setting, some components
@@ -29,7 +31,7 @@ public enum NetcodeConversionTarget
     Client = 2
 }
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Stores the `Supported Ghost Mode` by a ghost at authoring time.
@@ -39,6 +41,7 @@ namespace Unity.NetCode
     /// <item>All</item>
     /// </list>
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum GhostModeMask
     {
         /// <summary>
@@ -72,6 +75,7 @@ namespace Unity.NetCode
     /// The Current Ghost Mode of a Ghost, on any given client. Denotes replication and prediction rules.
     /// </summary>
     /// <inheritdoc cref="GhostModeMask"/>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum GhostMode
     {
         /// <inheritdoc cref="GhostModeMask.Interpolated"/>
@@ -90,6 +94,7 @@ namespace Unity.NetCode
     /// </summary>
     /// <inheritdoc cref="Dynamic"/>
     /// <inheritdoc cref="Static"/>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum GhostOptimizationMode
     {
         /// <summary>
@@ -115,6 +120,7 @@ namespace Unity.NetCode
     /// (for example; when targeting specific consoles and mobile devices), you can disable interpolation entirely via this setting,
     /// removing the CPU and memory overhead of caching transform state and performing interpolation.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public enum SingleWorldHostInterpolationMode
     {
         /// <summary>
@@ -134,6 +140,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Helper methods and structs used to configure and create ghost prefabs
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public static class GhostPrefabCreation
     {
         /// <summary>

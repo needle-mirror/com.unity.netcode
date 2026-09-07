@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using NUnit.Framework;
-using Unity.NetCode.Editor;
+using Unity.Netcode.Editor;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class VerifyLogLinks
     {

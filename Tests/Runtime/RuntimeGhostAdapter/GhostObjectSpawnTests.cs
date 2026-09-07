@@ -10,7 +10,7 @@ using Unity.Networking.Transport;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class GhostObjectSpawnTests
     {
@@ -21,7 +21,7 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
             var prefab = GhostObjectUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
-            prefab.Ghost.DefaultGhostMode = isPredicted ? GhostMode.Predicted : GhostMode.Interpolated;
+            prefab.GetComponent<GhostObject>().DefaultGhostMode = isPredicted ? GhostMode.Predicted : GhostMode.Interpolated;
             Netcode.RegisterPrefab(prefab.gameObject);
             await testWorld.TickMultipleAsync(1); // spawning doesn't happen until prefab has been acked, so need to wait a tick
 
@@ -157,7 +157,7 @@ namespace Unity.NetCode.Tests
             await testWorld.TickMultipleAsync(30); // spend some time
 
             Assert.That(clientCube.gameObject.activeInHierarchy, Is.True);
-            Assert.That(clientCube.m_Ghost.World, Is.EqualTo(testWorld.ClientWorlds[0]));
+            Assert.That(clientCube.Ghost.World, Is.EqualTo(testWorld.ClientWorlds[0]));
 
             // move cube and make sure it replicates client side
             Assert.That(serverCube.transform.position, Is.EqualTo(Vector3.zero));
@@ -166,8 +166,8 @@ namespace Unity.NetCode.Tests
             await testWorld.TickMultipleAsync(30);
             Assert.That(serverCube.transform.position, Is.EqualTo(Vector3.one));
             Assert.That(clientCube.transform.position, Is.EqualTo(Vector3.one));
-            Assert.That(clientCube.m_Ghost.World, Is.EqualTo(testWorld.ClientWorlds[0]));
-            Assert.That(serverCube.m_Ghost.World, Is.EqualTo(testWorld.ServerWorld));
+            Assert.That(clientCube.Ghost.World, Is.EqualTo(testWorld.ClientWorlds[0]));
+            Assert.That(serverCube.Ghost.World, Is.EqualTo(testWorld.ServerWorld));
             Assert.That(clientCube, Is.Not.EqualTo(serverCube));
         }
 

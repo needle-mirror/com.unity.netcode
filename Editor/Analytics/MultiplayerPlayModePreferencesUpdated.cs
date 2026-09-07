@@ -1,11 +1,11 @@
 using System;
-using Unity.NetCode.Editor;
+using Unity.Netcode.Editor;
 using UnityEngine;
 using UnityEngine.Analytics;
 using UnityEngine.Serialization;
-using Prefs = Unity.NetCode.MultiplayerPlayModePreferences;
+using Prefs = Unity.Netcode.MultiplayerPlayModePreferences;
 
-namespace Unity.NetCode.Analytics
+namespace Unity.Netcode.Analytics
 {
     [Serializable]
     internal class MultiplayerPlaymodePreferencesUpdatedData : IAnalytic.IData, IEquatable<MultiplayerPlaymodePreferencesUpdatedData>

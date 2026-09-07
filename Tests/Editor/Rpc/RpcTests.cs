@@ -8,7 +8,7 @@ using Unity.Collections;
 using Unity.Networking.Transport;
 using UnityEngine.Scripting;
 
-namespace Unity.NetCode.Tests
+namespace Unity.Netcode.Tests
 {
     internal class RpcTests
     {
@@ -464,7 +464,7 @@ namespace Unity.NetCode.Tests
         // Some expected warnings will print, like
         //   "Attempting to complete a connection with state '1'" - transport called CompleteConnecting on a
         //     connection which was no longer in the Connecting state. We disconnected before connection was completed.
-        //   "Cannot send RPC 'Unity.NetCode.Tests.FastReconnectRpc' with no remote connection." - The SendRpcData job
+        //   "Cannot send RPC 'Unity.Netcode.Tests.FastReconnectRpc' with no remote connection." - The SendRpcData job
         //     ran when the connection was disconnected. We sent an RPC and immediately disconnected in the same frame.
         [Test]
         public void Rpc_IsCleanedUpWithFastReconnectManual(
@@ -933,7 +933,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick();
 
                 // Now assert the final tick logs warning on both client and server (server is 1 frame behind):
-                var regex = new Regex(@"NetCode RPC Entity\(\d*\:\d*\) has not been consumed or destroyed for '4'");
+                var regex = new Regex(@"Netcode RPC Entity\(\d*\:\d*\) has not been consumed or destroyed for '4'");
                 if(enabled) LogAssert.Expect(LogType.Warning, regex);
                 testWorld.Tick();
                 if(enabled) LogAssert.Expect(LogType.Warning, regex);

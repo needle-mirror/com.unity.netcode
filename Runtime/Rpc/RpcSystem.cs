@@ -3,20 +3,23 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Netcode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using System.Runtime.InteropServices;
 using Unity.Assertions;
 using Unity.Burst.CompilerServices;
 using Unity.Burst.Intrinsics;
-using Unity.NetCode.EntitiesInternalAccess;
+using Unity.Netcode.EntitiesInternalAccess;
+using Unity.Netcode.NetcodeTime;
 using Unity.Networking.Transport.Error;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace Unity.NetCode
+namespace Unity.Netcode
 {
     /// <summary>
     /// Struct that can be used to simplify writing systems and jobs that deserialize and execute received rpc commands.
     /// </summary>
+    [MovedFrom(true, "Unity.NetCode")]
     public struct RpcExecutor
     {
         /// <summary>
@@ -86,13 +89,8 @@ namespace Unity.NetCode
             /// <summary>
             /// Whether this RPC is a loopback RPC that's bypassing serialization. Your RPC execution code shouldn't need to serialize in this case for performance reasons and should just read data from <see cref="GetPassthroughActionData"/>
             /// </summary>
-            // TODO-release new doc entry for adding this use case (plus some samples)
             [MarshalAs(UnmanagedType.U1)]
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
             public bool IsPassthroughRPC;
-#else
-            internal bool IsPassthroughRPC;
-#endif
 
             /// <summary>
             /// Ptr to the action data passthrough. Useful for single world host where we bypass the serialization flow
@@ -114,17 +112,12 @@ namespace Unity.NetCode
                 }
             }
 
-            // TODO-release better name
             /// <summary>
             /// In a single world host scenario, rpc data doesn't need to be deserialized and is instead already available here, bypassing serialization/deserialization logic
             /// </summary>
             /// <typeparam name="TActionData">RPC component type</typeparam>
-            /// <returns></returns>
-#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+            /// <returns>The RPC data, read directly from the passthrough pointer.</returns>
             public unsafe TActionData GetPassthroughActionData<TActionData>() where TActionData : unmanaged, IComponentData
-#else
-            internal unsafe TActionData GetPassthroughActionData<TActionData>() where TActionData : unmanaged, IComponentData
-#endif
             {
                 return UnsafeUtility.AsRef<TActionData>((void*)actionDataOverridePtr);
             }
@@ -262,6 +255,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct RpcSystem : ISystem
     {
         /// <summary>
@@ -697,6 +691,7 @@ namespace Unity.NetCode
     /// </summary>
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [BurstCompile]
+    [MovedFrom(true, "Unity.NetCode")]
     public partial struct RpcSystemErrors : ISystem
     {
         private EntityQuery m_ProtocolErrorQuery;
@@ -743,7 +738,7 @@ namespace Unity.NetCode
 
                 if (localProtocol.NetCodeVersion != rpcError.remoteProtocol.NetCodeVersion)
                 {
-                    netDebug.LogError((FixedString512Bytes)"The NetCode version mismatched between remote and local. Ensure that you are using the same version of Netcode for Entities on both client and server.");
+                    netDebug.LogError((FixedString512Bytes)"The Netcode version mismatched between remote and local. Ensure that you are using the same version of Netcode for Entities on both client and server.");
                 }
 
                 if (localProtocol.GameVersion != rpcError.remoteProtocol.GameVersion)
